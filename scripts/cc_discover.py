@@ -17,6 +17,7 @@ import random
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -236,11 +237,13 @@ def harvest(
     per_page: int = 1200,
     deadline_s: float = 480.0,
     seed: int | None = None,
+    workers: int = 8,
 ) -> list[dict[str, str | int]]:
     started = time.monotonic()
     rng = random.Random(seed if seed is not None else int(time.time()))
     by_host: dict[str, dict[str, str | int]] = {}
-    timeout = httpx.Timeout(25.0, connect=8.0, read=25.0, write=8.0, pool=8.0)
+    timeout = httpx.Timeout(30.0, connect=10.0, read=30.0, write=10.0, pool=10.0)
+    limits = httpx.Limits(max_connections=workers * 2, max_keepalive_connections=workers)
     queries = _queries()
     rng.shuffle(queries)
     apis = _cdx_apis()
@@ -250,11 +253,10 @@ def harvest(
     def _left() -> float:
         return deadline_s - (time.monotonic() - started)
 
-    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+    with httpx.Client(timeout=timeout, limits=limits, follow_redirects=True) as client:
         page_counts: dict[tuple[str, str], int] = {}
+        tasks: list[tuple[str, str, str, int, int]] = []
         for wildcard, url_re, weight in queries:
-            if _left() <= 30:
-                break
             api = apis[rng.randrange(len(apis))]
             key = (api, wildcard)
             if key not in page_counts:
@@ -263,18 +265,39 @@ def harvest(
             if total <= 0:
                 logger.info("CDX no pages %s", wildcard)
                 continue
-            picks = rng.sample(range(total), k=min(weight, total))
-            for page in picks:
-                if _left() <= 20:
-                    break
-                params = _base_params(wildcard, url_re) + [
-                    ("limit", str(per_page)),
-                    ("page", str(page)),
-                ]
-                response = _get(client, api, params)
-                if response is None or response.status_code >= 400:
+            # Wide TLDs hold tens of thousands of pages; pull more slices there.
+            picks = min(weight * (4 if total > 2000 else 2), total)
+            for page in rng.sample(range(total), k=picks):
+                tasks.append((api, wildcard, url_re, page, total))
+        rng.shuffle(tasks)
+        logger.info("CDX plan: %s page request(s) across %s query set(s)", len(tasks), len(queries))
+
+        def _fetch(task: tuple[str, str, str, int, int]) -> tuple[str, int, int, list[str]]:
+            api, wildcard, url_re, page, total = task
+            if _left() <= 15:
+                return wildcard, page, total, []
+            params = _base_params(wildcard, url_re) + [
+                ("limit", str(per_page)),
+                ("page", str(page)),
+            ]
+            response = _get(client, api, params)
+            if response is None or response.status_code >= 400:
+                return wildcard, page, total, []
+            return (
+                wildcard,
+                page,
+                total,
+                [ln for ln in response.text.splitlines() if ln.startswith("{")],
+            )
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(_fetch, task): task for task in tasks}
+            for future in as_completed(futures):
+                try:
+                    wildcard, page, total, lines = future.result()
+                except Exception as exc:  # noqa: BLE001
+                    logger.info("CDX task failed: %s", exc)
                     continue
-                lines = [ln for ln in response.text.splitlines() if ln.startswith("{")]
                 if not lines:
                     continue
                 added = _ingest_lines(lines, by_host)
@@ -287,6 +310,10 @@ def harvest(
                     added,
                     len(by_host),
                 )
+                if _left() <= 10:
+                    for pending in futures:
+                        pending.cancel()
+                    break
     rows = sorted(by_host.values(), key=lambda r: -int(r.get("easy_score") or 0))
     logger.info("Harvest unique hosts=%s elapsed=%.0fs", len(rows), time.monotonic() - started)
     return rows
@@ -345,6 +372,7 @@ def main() -> int:
     parser.add_argument("--per-page", type=int, default=1200)
     parser.add_argument("--deadline", type=int, default=480)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -354,6 +382,7 @@ def main() -> int:
             per_page=args.per_page,
             deadline_s=float(args.deadline),
             seed=args.seed,
+            workers=max(1, args.workers),
         )
     except Exception:
         logger.exception("Harvest aborted — keeping prior feed")

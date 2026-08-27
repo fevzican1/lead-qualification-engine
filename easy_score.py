@@ -32,6 +32,9 @@ def from_contact_url(url: str) -> tuple[int, str]:
     elif re.search(r"/(contact-us|contactus|get-in-touch|bize-ulasin)(/|$)", path):
         stack = "contact"
         score = 86
+    elif re.search(r"/(kontakt|contacto|contatti|contactez-nous|kontakta-oss)(/|$)", path):
+        stack = "contact"
+        score = 84
     elif re.search(r"/contact(/|$)", path):
         stack = "contact"
         score = 82

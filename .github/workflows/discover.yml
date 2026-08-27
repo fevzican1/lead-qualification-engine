@@ -30,7 +30,7 @@ jobs:
         run: pip install -q httpx python-dotenv
       - name: Common Crawl CDX harvest
         timeout-minutes: 11
-        run: python scripts/cc_discover.py --out feeds/ready_queue.json --limit 60000 --per-page 1200 --deadline 480
+        run: python scripts/cc_discover.py --out feeds/ready_queue.json --limit 60000 --per-page 1200 --deadline 480 --workers 8
       - name: Commit feed
         run: |
           git config user.name "devsolve-discover"
