@@ -80,6 +80,7 @@ def remember(
         "hints": hints,
         "pain": (pain or "").strip()[:240],
         "quote": (quote or "").strip()[:180],
+        "excerpt": str(lead.get("page_excerpt") or lead.get("description") or "").strip()[:180],
         "turkish": bool(turkish),
         "stack": knowledge.stack_phrase(hints, turkish=turkish),
     }
@@ -99,12 +100,17 @@ def brief_block(row: dict[str, Any] | None) -> str:
     if not row:
         return ""
     quote = str(row.get("quote") or "").strip()
+    excerpt = str(row.get("excerpt") or "").strip()
     seen = f' Public page line: "{quote}"' if quote else ""
+    extra = f" Page excerpt: {excerpt}" if excerpt and excerpt != quote else ""
+    hints = ", ".join(str(h) for h in (row.get("hints") or []) if h)
     return (
-        f"Inbound from our contact-form note. Company: {row.get('company') or row.get('host')}. "
-        f"Stack: {row.get('stack') or ', '.join(row.get('hints') or [])}. "
-        f"Likely break: {row.get('pain')}.{seen} "
-        f"Do not re-ask which platform they use. Treat this as already seen."
+        f"Inbound from our contact-form note (this exact lead). "
+        f"Company: {row.get('company') or row.get('host')}. Host: {row.get('host')}. "
+        f"URL: {row.get('url')}. Stack phrase: {row.get('stack') or hints}. "
+        f"Detected hints: {hints or 'none'}. Likely break: {row.get('pain')}.{seen}{extra} "
+        f"Do not re-ask which platform they use. Do not invent a different stack. "
+        f"Treat this as already seen from the form they received."
     )
 
 
@@ -112,14 +118,17 @@ def opener(row: dict[str, Any]) -> str:
     who = str(row.get("company") or row.get("host") or "ekibiniz")
     stack = str(row.get("stack") or "altyapınız")
     pain = str(row.get("pain") or "").rstrip(".")
+    quote = str(row.get("quote") or "").strip()
+    seen = f' Sayfanızdaki satır: "{quote}".' if quote else ""
     if row.get("turkish"):
         return (
-            f"{who} — form notunun devamı burası. {stack} kopuğu: {pain}. "
-            f"Panel durur; 8–10 dakikada kaynak → ödeme onayı → ERP/stok'u tek id'de çizerim. "
-            f"Şu an en çok yanan hangisi: ödeme callback, stok, kargo, yoksa Excel?"
+            f"{who} — iletişim formundaki notun devamı. {stack} duruyor.{seen} "
+            f"Kopuk: {pain}. Panel durur; 8–10 dakikada kaynak → ödeme onayı → ERP/stok'u tek id'de çizerim. "
+            f"Şu an operasyonda en çok yanan hangisi: callback, stok yarışı, kargo, yoksa Excel?"
         )
+    seen_en = f' Line on your page: "{quote}".' if quote else ""
     return (
-        f"{who} — this chat continues the note we left on your form. On {stack} the break is: {pain}. "
-        f"Your panel stays; in 8–10 minutes I sketch source → payment OK → ERP/stock on one id. "
-        f"What is burning now: payment callback, stock, shipping, or Excel?"
+        f"{who} — this continues the note on your contact form. {stack} is in use.{seen_en} "
+        f"Break: {pain}. Panel stays; in 8–10 minutes I sketch source → payment OK → ERP/stock on one id. "
+        f"What is burning in ops: callback, stock race, shipping, or Excel?"
     )

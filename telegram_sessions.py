@@ -109,9 +109,17 @@ def mark_hot(chat_id: int) -> None:
     _put(chat_id, hot_pinged=True, last_at=_now().isoformat())
 
 
+def mark_declined(chat_id: int) -> None:
+    _put(chat_id, declined=True, followup_sent=True, last_at=_now().isoformat())
+
+
+def is_declined(chat_id: int) -> bool:
+    return bool(_row(chat_id).get("declined"))
+
+
 def should_send_proof(chat_id: int) -> bool:
     row = _row(chat_id)
-    if row.get("proof_sent") or row.get("takeover"):
+    if row.get("proof_sent") or row.get("takeover") or row.get("declined"):
         return False
     return bool(row.get("started_at"))
 
@@ -154,7 +162,7 @@ def due_followups() -> list[dict[str, Any]]:
             continue
         if row.get("followup_sent") or row.get("hot_pinged") or row.get("payment_sent"):
             continue
-        if row.get("takeover"):
+        if row.get("takeover") or row.get("declined"):
             continue
         if int(row.get("user_replies") or 0) > 2:
             continue
@@ -177,10 +185,10 @@ def followup_text(row: dict[str, Any]) -> str:
     price = f"${config.PRICE_USD}"
     if row.get("turkish", True):
         return (
-            f"Merhaba {who}, dün bahsettiğim {price}'lık iyileştirme raporunu "
-            "inceleme şansınız oldu mu? İstemiyorsanız STOP yazmanız yeterli."
+            f"Merhaba {who} — dün bıraktığım {price} köprü taslağı duruyor. "
+            "Uygunsa bir satır yazmanız yeterli; değilse STOP."
         )
     return (
-        f"Hi {who} — did you get a chance to look at the {price} improvement note "
-        "from yesterday? Reply STOP if you want this dropped."
+        f"Hi {who} — the {price} bridge sketch from yesterday is still here. "
+        "One line if useful; STOP if not."
     )

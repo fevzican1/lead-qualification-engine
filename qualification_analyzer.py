@@ -219,62 +219,70 @@ def _form_note(lead: dict[str, Any], *, turkish: bool) -> tuple[str, str]:
     variant = int(hashlib.sha1(host.encode("utf-8", errors="ignore")).hexdigest(), 16) % 6
 
     if turkish:
-        seen = f' Sayfanizda: "{quote}."' if quote else ""
-        subject = f"{who}: {stack} kopugu"[:80]
+        seen = f' Sayfanızda duran satır: "{quote}"' if quote else ""
+        subject = f"{who}: {stack} kopuğu"[:80]
         notes = (
             (
-                f"Telegram'da 8 dk cizim (ikinci form yok): {link} "
-                f"— {who}, {stack}:{seen} {pain}. Panel durur."
+                f"{who} — {stack} kurulumunuza dışarıdan baktım.{seen} "
+                f"Kopuk halka: {pain}. Paneli değiştirmiyoruz; ödeme onayı ile sipariş/ERP satırını "
+                f"tek id'de kilitleriz (iş {price}). 8 dakikalık akış çizimi, ikinci form yok: {link}"
             ),
             (
-                f"{link} — {who} icin {stack} kopugu net: {pain}.{seen} "
-                f"10 dakikada kutulari cizerim, baska form yok."
+                f"Telegram: {link} — {who} / {stack}.{seen} "
+                f"{pain}. {sender} mevcut paneli bırakır, yalnızca o kopuğu kapatır. "
+                f"Kutulari burada çizerim; uygunsa iş {price}."
             ),
             (
-                f"Cevap burada, Telegram: {link} | {who} / {stack}: {pain}.{seen} "
-                f"{sender}, tek kopru."
+                f"{who} ekibine net tespit: {stack}.{seen} {pain}. "
+                f"Çözüm yeni bir yazılım suite'i değil, sizin stack'inize özel bir köprü. "
+                f"Çizim Telegram'da (başka form doldurtmam): {link}"
             ),
             (
-                f"{who} — {stack} tespit.{seen} {pain}. "
-                f"Akisi Telegram'da kilitlerim: {link}"
+                f"{link} — {who} sitesinde {stack} görünüyor.{seen} "
+                f"Ben {pain} demek istiyorum. 10 dakikada kaynak → ödeme OK → hedef tek kayıt. "
+                f"Panel durur, iş {price}."
             ),
             (
-                f"Yazmaniz yeterli: {link} — {who} sitesinde {stack}, sorun {pain}. "
-                f"Is {price}, panel yerinde kalir."
+                f"{who} — rakipler 'entegrasyon yaparız' yazar. Sizde {stack} var.{seen} "
+                f"Somut kopuk: {pain}. Kapsam 1 köprü, {price}. Sohbet: {link}"
             ),
             (
-                f"{link} {who} paneline disaridan baktim: {stack}.{seen} "
-                f"Eksik halka {pain}. Sohbet Telegram'da, ikinci form yok."
+                f"{who} paneline dışarıdan baktım: {stack}.{seen} Eksik halka {pain}. "
+                f"{sender} 8–10 dakikalık taslak çıkarır; uymuyorsa zorlamam. Telegram: {link}"
             ),
         )
         note = notes[variant]
     else:
-        seen = f' On the public page: "{quote}."' if quote else ""
+        seen = f' Public page line: "{quote}"' if quote else ""
         subject = f"{who}: {stack} gap"[:80]
         notes = (
             (
-                f"8-min sketch on Telegram (no second form): {link} "
-                f"— {who}, {stack}:{seen} {pain}. Panel stays."
+                f"{who} — I looked at your {stack} setup from outside.{seen} "
+                f"The broken link: {pain}. We do not replace the panel; we lock payment OK and the "
+                f"order/ERP row on one id (job {price}). 8-min sketch, no second form: {link}"
             ),
             (
-                f"{link} — {who} / {stack} break: {pain}.{seen} "
-                f"I draw the boxes in 10 minutes, no extra form."
+                f"Telegram: {link} — {who} / {stack}.{seen} "
+                f"{pain}. {sender} leaves the panel, closes only that gap. "
+                f"I draw the boxes here; if it fits, the job is {price}."
             ),
             (
-                f"Reply here, Telegram: {link} | {who} / {stack}: {pain}.{seen} "
-                f"{sender}, one bridge."
+                f"Concrete read on {who}: {stack}.{seen} {pain}. "
+                f"Not a new suite — one bridge for your stack. "
+                f"Sketch on Telegram (I will not dump another form): {link}"
             ),
             (
-                f"{who} — {stack} read.{seen} {pain}. "
-                f"I lock the flow on Telegram: {link}"
+                f"{link} — {who} is running {stack}.{seen} "
+                f"I mean {pain}. 10 minutes: source → payment OK → destination on one record. "
+                f"Panel stays, job {price}."
             ),
             (
-                f"Just write: {link} — {who} runs {stack}, break is {pain}. "
-                f"Job {price}, panel stays."
+                f"{who} — anyone can write 'we do integrations'. Your page shows {stack}.{seen} "
+                f"The break: {pain}. Scope is one bridge, {price}. Chat: {link}"
             ),
             (
-                f"{link} I looked at {who} from outside: {stack}.{seen} "
-                f"Missing link: {pain}. Chat is Telegram, no second form."
+                f"I looked at {who} from outside: {stack}.{seen} Missing link: {pain}. "
+                f"{sender} sketches in 8–10 minutes; if it is not a fit I will not push. Telegram: {link}"
             ),
         )
         note = notes[variant]

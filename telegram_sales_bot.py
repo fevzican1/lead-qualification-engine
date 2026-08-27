@@ -54,6 +54,13 @@ _BUY_RE = re.compile(
     re.I,
 )
 
+_DECLINE_RE = re.compile(
+    r"ilgilenmiyorum|istemiyorum|gerek\s*yok|hayır\s*teşekkür|hayir\s*tesekkur|"
+    r"rahatsız\s*etme|bir\s*daha\s*yazma|not interested|no thanks|"
+    r"don't contact|do not contact|stop writing|şimdilik\s*olmaz|simdilik\s*olmaz",
+    re.I,
+)
+
 _HOT_RE = re.compile(
     r"fiyat|ne kadar|ücret|ucret|kaç\s*dolar|kac\s*dolar|price|how much|cost|"
     r"ne zaman başla|ne zaman basla|when (can|do) we start|kaç günde|kac gunde|"
@@ -223,7 +230,9 @@ def _schedule_proof(chat_id: int, bot: Any, *, turkish: bool) -> None:
 
 
 async def _hot_ping(chat_id: int, update: Update, text: str) -> None:
-    if _is_owner(chat_id) or not telegram_sessions.should_hot_ping(chat_id):
+    if _is_owner(chat_id) or telegram_sessions.is_declined(chat_id):
+        return
+    if not telegram_sessions.should_hot_ping(chat_id):
         return
     if not _is_hot(text):
         return
@@ -416,6 +425,28 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     telegram_sessions.touch_user(chat_id, user_text, username=_username(update))
+
+    if _DECLINE_RE.search(user_text) and not _BUY_RE.search(user_text):
+        telegram_sessions.mark_declined(chat_id)
+        task = _proof_tasks.pop(chat_id, None)
+        if task:
+            task.cancel()
+        turkish = bool((_briefs.get(chat_id) or {}).get("turkish", True))
+        if turkish:
+            text = (
+                "Anladım, zorlamam. Bu sohbet açık kalır; kopuk tekrar yanarsa yazmanız yeterli. "
+                "Listeden çıkmak için STOP."
+            )
+        else:
+            text = (
+                "Understood — I will not push. This chat stays open if the break comes back. "
+                "STOP removes you from the list."
+            )
+        _remember(chat_id, "user", user_text)
+        _remember(chat_id, "assistant", text)
+        await update.message.reply_text(text)
+        return
+
     await _hot_ping(chat_id, update, user_text)
 
     if telegram_sessions.is_takeover(chat_id):

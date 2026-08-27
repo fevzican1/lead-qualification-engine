@@ -119,12 +119,12 @@ def caption(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
         lead = f"{who}: " if who else ""
         return (
             f"{lead}checkout / ödeme kopuğu bu kartta. Kırmızı kutu kilitlenmesi gereken halka. "
-            f"Bu hafta kaç sipariş elle kapanıyor? Sayıyı yazın, akışı ona göre çizerim. "
-            f"İş {config.price_label()}, panel durur."
+            f"İş {config.price_label()}, panel durur. Uyuyorsa bu hafta elle kapanan sipariş sayısını yazın; "
+            "uymuyorsa zorlamam."
         )
     lead = f"{who}: " if who else ""
     return (
         f"{lead}this is the checkout/payment break. The red box is the link that should lock on one id. "
-        f"How many orders this week close by hand? Send the number and I lock the flow to it. "
-        f"Job {config.price_label()}, panel stays."
+        f"Job {config.price_label()}, panel stays. If it fits, send how many orders close by hand this week; "
+        "if not, I will not push."
     )

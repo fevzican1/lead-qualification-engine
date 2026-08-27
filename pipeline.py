@@ -448,7 +448,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
                 leads,
                 seen=seen,
                 min_score=min_score,
-                limit=cap_hourly - hour_n,
+                limit=_visit_budget(cap_hourly - hour_n),
             )
             if direct:
                 for job in direct:
@@ -480,13 +480,57 @@ def run_pipeline(args: argparse.Namespace) -> int:
                 continue
 
         http_left = domain_store.http_budget_remaining()
+        _, hour_n = knowledge.submit_counts(leads)
+        if submitting and hour_n < cap_hourly:
+            extra = _queue_direct_jobs(
+                leads,
+                seen=seen,
+                min_score=min_score,
+                limit=_visit_budget(cap_hourly - hour_n),
+            )
+            if extra:
+                for job in extra:
+                    seen.add(_url_key(str(job.get("url") or "")))
+                logger.info(
+                    "Chromium-direct extra %s (HTTP %s) hour %s/%s",
+                    len(extra),
+                    domain_store.http_budget_label(),
+                    hour_n,
+                    cap_hourly,
+                )
+                processed = _run_browser_pipeline(
+                    extra,
+                    leads,
+                    leads_path,
+                    min_score=min_score,
+                    headless=headless,
+                    submitting=submitting,
+                )
+                all_processed.extend(processed)
+                leads = load_leads(leads_path)
+                hit_cap = False
+                for item in processed:
+                    target_keys.add(_url_key(item.get("url") or ""))
+                    status = str(item.get("status") or "")
+                    if status in DONE_STATUSES or status in domain_store.TERMINAL:
+                        domain_store.mark(str(item.get("url") or ""), status)
+                    if status in {"queued_hourly_cap", "queued_daily_cap"}:
+                        hit_cap = True
+                if hit_cap:
+                    break
+                _, hour_n = knowledge.submit_counts(leads)
+                if hour_n >= cap_hourly:
+                    break
+                continue
         if probes_used >= max_probes or http_left < 1:
             logger.info(
-                "Stop new probes — used %s/%s http_left=%s (%s)",
+                "Stop new probes — used %s/%s http_left=%s (%s) hour %s/%s",
                 probes_used,
                 max_probes,
                 http_left,
                 domain_store.http_budget_label(),
+                hour_n,
+                cap_hourly,
             )
             break
         take = min(probe_n, max_probes - probes_used, http_left)
@@ -524,6 +568,13 @@ def run_pipeline(args: argparse.Namespace) -> int:
     return 0
 
 
+def _visit_budget(remain: int) -> int:
+    """Visit extra hosts so CAPTCHA/skip does not drop the hour below 20 submits."""
+    if remain <= 0:
+        return 0
+    return min(64, max(remain * 3, 24 if remain >= 8 else remain * 4))
+
+
 def _run_browser_pipeline(
     jobs: list[dict[str, Any]],
     leads: list[dict[str, Any]],
@@ -534,9 +585,14 @@ def _run_browser_pipeline(
     submitting: bool,
 ) -> list[dict[str, Any]]:
     min_easy = int(getattr(config, "EASY_SCORE_MIN", 55) or 55)
-    cap_take = int(knowledge.hourly_cap()) if submitting else int(getattr(config, "CHROMIUM_BATCH", 32) or 32)
     jobs = sorted(jobs, key=lambda row: -int(row.get("easy_score") or 0))
-    jobs = [job for job in jobs if int(job.get("easy_score") or 0) >= min_easy][:cap_take]
+    jobs = [job for job in jobs if int(job.get("easy_score") or 0) >= min_easy]
+    if submitting:
+        _today_n, hour_n = knowledge.submit_counts(leads)
+        remain = max(0, int(knowledge.hourly_cap()) - hour_n)
+        jobs = jobs[: _visit_budget(remain)]
+    else:
+        jobs = jobs[: int(getattr(config, "CHROMIUM_BATCH", 32) or 32)]
     if not jobs:
         logger.info("No easy-score>=%s jobs this slice — Chromium skipped", min_easy)
         return []

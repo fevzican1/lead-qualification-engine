@@ -94,8 +94,13 @@ def _sleep_after_cycle() -> int:
         wait = domain_store.seconds_until_next_utc_hour()
         logger.info("Hourly cap %s/%s — sleeping %ss until next UTC hour", hour_n, hourly, wait)
         return wait
-    # HTTP empty does not park the machine. Feed ingest + Chromium-direct keep looping.
-    wait = 90
+    # HTTP empty does not park the machine. Fill the hour toward 20–32 submits.
+    if hour_n < 20 and fuel > 0:
+        wait = 40
+    elif hour_n < hourly:
+        wait = 60
+    else:
+        wait = 90
     logger.info(
         "Hour open %s/%s fuel=%s queue=%s http=%s — next cycle in %ss",
         hour_n,
