@@ -184,8 +184,13 @@ def _get(client: httpx.Client, api: str, params: list[tuple[str, str]], tries: i
     return last
 
 
-def _num_pages(client: httpx.Client, api: str, wildcard: str, url_re: str) -> int:
-    params = _base_params(wildcard, url_re) + [("showNumPages", "true")]
+def _num_pages(client: httpx.Client, api: str, wildcard: str) -> int:
+    """Page count depends only on the URL pattern; filters are applied per page.
+
+    Passing the filters here makes CDX answer with 0 pages, which is what
+    silently starved the feed.
+    """
+    params = [("url", wildcard), ("output", "json"), ("showNumPages", "true")]
     response = _get(client, api, params)
     if response is None or response.status_code >= 400:
         return 0
@@ -246,17 +251,17 @@ def harvest(
         return deadline_s - (time.monotonic() - started)
 
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-        page_counts: dict[tuple[str, str, str], int] = {}
+        page_counts: dict[tuple[str, str], int] = {}
         for wildcard, url_re, weight in queries:
             if _left() <= 30:
                 break
             api = apis[rng.randrange(len(apis))]
-            key = (api, wildcard, url_re)
+            key = (api, wildcard)
             if key not in page_counts:
-                page_counts[key] = _num_pages(client, api, wildcard, url_re)
+                page_counts[key] = _num_pages(client, api, wildcard)
             total = page_counts[key]
             if total <= 0:
-                logger.info("CDX no pages %s %s", wildcard, url_re[:24])
+                logger.info("CDX no pages %s", wildcard)
                 continue
             picks = rng.sample(range(total), k=min(weight, total))
             for page in picks:
