@@ -130,6 +130,9 @@ def main() -> None:
         giants = domain_store.prune_enterprise_queue()
         if giants:
             print(f"Dev perakende kuyruktan çıktı: {giants}")
+        junk = domain_store.prune_noise_queue()
+        if junk:
+            print(f"Demo/hash Shopify kuyruktan çıktı: {junk}")
         reclaimed = domain_store.reclaim_false_kills()
         if reclaimed:
             print(f"Yanlış ölü işaretlenen {reclaimed} domain geri alındı")

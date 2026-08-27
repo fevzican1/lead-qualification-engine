@@ -222,7 +222,7 @@ def is_noise(url: str) -> bool:
         return True
     if "demo" in host.split(".")[0] or "1001demo" in host:
         return True
-    if re.match(r"^[0-9a-z]{4,10}-[0-9a-z]{1,4}\.myshopify\.com$", host, re.I):
+    if re.match(r"^[0-9a-f]{5,12}(?:-[0-9a-z]{1,6})?\.myshopify\.com$", host, re.I):
         return True
     return any(host == d or host.endswith("." + d) for d in NOISE) or host.endswith(".gov") or host.endswith(".gov.tr")
 
@@ -636,6 +636,28 @@ def pending_rows(*, limit: int = 40, min_easy: int = 0, max_easy: int | None = N
 def pending_urls(*, limit: int = 40) -> list[str]:
     """Return up to `limit` ready queue URLs without dropping them (pipeline still owns them)."""
     return [str(row["url"]) for row in pending_rows(limit=limit)]
+
+
+def prune_noise_queue() -> int:
+    """Drop demo / hash-Shopify / gov junk already sitting in the live queue."""
+    data = _queue()
+    keep: list[dict[str, Any]] = []
+    dropped = 0
+    for row in data.get("urls") or []:
+        if not isinstance(row, dict):
+            dropped += 1
+            continue
+        url = str(row.get("url") or "")
+        if is_noise(url):
+            dropped += 1
+            continue
+        keep.append(row)
+    if dropped:
+        data["urls"] = keep
+        data["updated_at"] = utc_now()
+        _save_json(QUEUE_PATH, data)
+        logger.info("Pruned %s noise host(s) from queue; depth=%s", dropped, len(keep))
+    return dropped
 
 
 def evict_below(score: int) -> int:

@@ -207,8 +207,6 @@ def harvest(
                     added_page,
                     len(by_host),
                 )
-                if len(lines) < per_page:
-                    break
                 time.sleep(sleep_s)
     rows = sorted(by_host.values(), key=lambda r: -int(r.get("easy_score") or 0))
     logger.info("Harvest unique hosts=%s", len(rows))

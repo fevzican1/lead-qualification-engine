@@ -13,7 +13,7 @@ def from_contact_url(url: str) -> tuple[int, str]:
     path = urlparse(raw).path or "/"
     stack = "contact"
     score = 0
-    if re.match(r"^[0-9a-z]{4,10}-[0-9a-z]{1,4}\.myshopify\.com$", host):
+    if re.match(r"^[0-9a-f]{5,12}(?:-[0-9a-z]{1,6})?\.myshopify\.com$", host):
         return 40, "shopify-junk"
     if "demo" in host.split(".")[0] or "1001demo" in host:
         return 20, "demo"
