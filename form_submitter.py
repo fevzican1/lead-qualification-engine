@@ -106,6 +106,11 @@ _NET_NOISE = (
     "turnstile",
     "google.com/ccm",
     "adsystem",
+    "shopifysvc.com",
+    "/.well-known/shopify/monorail",
+    "/api/collect",
+    "/cart",
+    "/localization",
 )
 
 IS_HONEYPOT_JS = """(e) => {
@@ -174,6 +179,12 @@ class FormNetWatcher:
             request = response.request
             method = (request.method or "").upper()
             if method not in {"POST", "PUT", "PATCH"}:
+                return
+            if str(getattr(request, "resource_type", "") or "").lower() in {
+                "beacon",
+                "image",
+                "script",
+            }:
                 return
             url = (request.url or "").lower()
             if any(tok in url for tok in _NET_NOISE):

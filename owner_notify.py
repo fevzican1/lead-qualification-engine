@@ -62,7 +62,9 @@ def lead_digest() -> str:
             continue
         status = str(item.get("status") or "unknown")
         counts[status] = counts.get(status, 0) + 1
-    submitted = sum(v for k, v in counts.items() if str(k).startswith("submitted"))
+    import knowledge
+
+    submitted = sum(v for k, v in counts.items() if str(k) in knowledge.CONFIRMED_SUBMIT_STATUSES)
     lines = [
         "DevSolve motor özeti (Oracle, Always Free)",
         f"Model: {config.OLLAMA_MODEL}",
@@ -123,12 +125,15 @@ def notify_pipeline(
     import knowledge
 
     today_n, hour_n = knowledge.submit_counts()
+    hourly = knowledge.hourly_cap()
+    floor = min(int(getattr(config, "HOURLY_SUBMIT_FLOOR", 30) or 30), hourly)
     send(
         "Pipeline turu bitti.\n"
-        f"Form gönderim: {submitted}\n"
+        f"Bu tur onaylı form: {submitted}\n"
+        f"Saatlik toplam onaylı form: {hour_n}/{hourly} (taban hedef {floor})\n"
         f"Atlanan (CAPTCHA / form yok / ulaşılamaz): {skipped}\n"
         f"Bu tur bakılan: {scoped}\n"
-        f"Saat {hour_n}/{knowledge.hourly_cap()} | Gün {today_n}/{knowledge.daily_cap()}\n"
+        f"Gün toplamı: {today_n}/{knowledge.daily_cap()}\n"
         f"Kuyruk: {domain_store.queue_depth()}/{getattr(config, 'QUEUE_TARGET', 150)} "
         f"| HTTP {domain_store.http_budget_label()}\n"
         "Müşteri yazarsa satış sohbeti bu bota düşer."

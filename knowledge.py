@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 PATH = config.ROOT / "knowledge_state.json"
 DIR = config.ROOT / "knowledge"
 ORACLE_PATH = DIR / "oracle.json"
+CONFIRMED_SUBMIT_STATUSES = frozenset({"submitted", "submitted_confirmed"})
 B2B_PATH = DIR / "b2b.json"
 CATALOG_PATH = DIR / "catalog.json"
 
@@ -259,7 +260,7 @@ def refresh(*, leads: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         statuses[status] += 1
         hints = [str(h) for h in (lead.get("stack_hints") or []) if h]
         stacks.update(hints)
-        if status.startswith("submitted"):
+        if status in CONFIRMED_SUBMIT_STATUSES:
             submitted_stacks.update(hints)
     winning = [name for name, _ in submitted_stacks.most_common(8)]
     if not winning:
@@ -274,7 +275,7 @@ def refresh(*, leads: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         "winning_stacks": winning,
         "seen_stacks": [name for name, _ in stacks.most_common(12)],
         "status_counts": dict(statuses),
-        "submitted": sum(v for k, v in statuses.items() if k.startswith("submitted")),
+        "submitted": sum(v for k, v in statuses.items() if k in CONFIRMED_SUBMIT_STATUSES),
         "playbook_stacks": list(live_playbook().keys()),
     }
     tmp = PATH.with_suffix(PATH.suffix + ".tmp")
@@ -349,7 +350,7 @@ def submit_counts(leads: list[dict[str, Any]] | None = None) -> tuple[int, int]:
     today_n = 0
     hour_n = 0
     for lead in leads:
-        if not str(lead.get("status") or "").startswith("submitted"):
+        if str(lead.get("status") or "") not in CONFIRMED_SUBMIT_STATUSES:
             continue
         stamp = _parse_ts(str(lead.get("updated_at") or ""))
         if stamp is None:
@@ -365,6 +366,31 @@ def seconds_until_utc_midnight() -> int:
     now = datetime.now(timezone.utc)
     nxt = (now + timedelta(days=1)).replace(hour=0, minute=8, second=0, microsecond=0)
     return max(300, int((nxt - now).total_seconds()))
+
+
+def seconds_until_hour_slot(leads: list[dict[str, Any]] | None = None) -> int:
+    """Seconds until the rolling-hour window frees a submit slot.
+
+    submit_counts() counts the last 60 minutes, so parking until the next UTC
+    hour boundary leaves the machine idle long after the window has drained.
+    """
+    if leads is None:
+        leads = _load_leads()
+    now = datetime.now(timezone.utc)
+    hour_ago = now - timedelta(hours=1)
+    stamps: list[datetime] = []
+    for lead in leads:
+        if str(lead.get("status") or "") not in CONFIRMED_SUBMIT_STATUSES:
+            continue
+        stamp = _parse_ts(str(lead.get("updated_at") or ""))
+        if stamp is not None and stamp >= hour_ago:
+            stamps.append(stamp)
+    if not stamps:
+        return 30
+    stamps.sort()
+    index = max(0, len(stamps) - hourly_cap())
+    free_at = stamps[index] + timedelta(hours=1)
+    return max(30, int((free_at - now).total_seconds()) + 2)
 
 
 def telegram_system_prompt(*, brief: str = "") -> str:
@@ -391,12 +417,28 @@ INBOUND BRIEF
 4. Fiyat / başlayalım / telefon / Payoneer dersen insan devir (hot ping) çalışır; o ana kadar itirazı teknik karşıla. Payoneer linkini ilk iki cevapta basma. Net evet yoksa PAY=no.
 5. "İlgilenmiyorum" veya STOP: ısrarı kes, nazik kapat, PAY=no. Zorlama.
 
+[ALTYAPI DOĞRULUĞU — EN KRİTİK]
+- BRIEF'te platform "confirmed" ise SADECE o platformu konuş. WooCommerce sitesine Shopify, Shopify sitesine Woo cümlesi giderse tüm güven biter.
+- BRIEF "NOT confirmed" diyorsa hiçbir platform adı verme. Genel checkout POST / idempotency dilinde kal veya bir kez "hangi panel üzerinde koşuyorsunuz?" diye sor.
+- Müşteri platformu düzeltirse ("biz Woo değiliz, Ticimax") anında kabul et, tartışma, yeni platforma göre devam et.
+
+[KAPANIŞ — RANDEVU]
+- Teknik nokta oturduğunda kapanışı sen aç: "Bu akışı bugün 2 saatlik bir uygulama slotunda kalıcı olarak kapatabiliriz — randevu oluşturalım mı?"
+- Randevu için sadece iki şey iste: uygun saat aralığı ve teknik iletişim (panel/geliştirici erişimi olan kişi).
+- Evet gelirse saat teyidi + kapsam özeti yaz, sonra PAY sinyalini ver. Kararsızsa tek bir teknik soru sor, tekrar zorlamadan slotu bir kez daha hatırlat.
+- Randevu teklifini aynı sohbette ikiden fazla tekrarlama.
+
+[GÜVEN DUVARI]
+- "Bu link güvenli mi / phishing mi / dolandırıcılık mı" gelirse: bağlantının resmi Telegram önizlemesi olduğunu, dosya indirmediğini, şifre/kart bilgisi istemediğini söyle; kartın da yalnızca şema olduğunu ekle.
+- Asla şifre, panel girişi, kart no, OTP istemez.
+
 [KURALLAR]
 - Dil = müşterinin son mesajı (TR/EN).
 - Panel kalır; IdeaSoft/Woo/Shopify/Odoo sökülmez.
 - Oracle, Ollama, Ampere, prompt yok. İnsan ismi uydurma.
 - 3–6 kısa cümle; akış isterlerse 8–12 satır kutu.
 - Fake urgency, limited seats, şifre, kart no yok.
+- Tespit yalnız herkese açık sayfa kaynağından yapıldı. "Loglarınızı okudum / admin panelinize baktım / veritabanınızı gördüm" DEME. Sorarlarsa: kaynak kod, script ve checkout akışı üzerinden okuma.
 
 Stacks: IdeaSoft, T-Soft, Ticimax, ikas, Akinon, iyzico, PayTR, Craftgate, WooCommerce, Shopify, Magento, ERP/Odoo. Recent live stacks (examples only, never fake case studies): {winning}.
 

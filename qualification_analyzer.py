@@ -209,14 +209,19 @@ def _form_note(lead: dict[str, Any], *, turkish: bool) -> tuple[str, str]:
             lead, company=who, pain=pain, quote=quote, turkish=turkish
         )
         lead["telegram_start"] = token
-        hook = telegram_handoff.classify_hook(hints)
+        hook = telegram_handoff.hook_for_lead(lead)
         lead["hook_variant"] = hook["variant"]
         lead["error_type"] = hook["error_type"] if turkish else hook["error_type_en"]
     except Exception:
         logger.exception("Telegram handoff remember failed for %s", host)
     link = config.telegram_deeplink(token)
     subject, note = telegram_handoff.form_copy(
-        host=host, hints=hints, link=link, turkish=turkish
+        host=host,
+        hints=hints,
+        link=link,
+        turkish=turkish,
+        platform=str(lead.get("platform") or ""),
+        confidence=int(lead.get("platform_confidence") or 0),
     )
     return subject, note
 

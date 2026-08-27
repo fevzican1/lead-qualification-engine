@@ -22,6 +22,7 @@ from playwright.sync_api import sync_playwright
 
 import browser
 import config
+import stack_fingerprint
 from site_signals import extract_stack_hints
 
 logger = logging.getLogger(__name__)
@@ -285,18 +286,65 @@ def _lead_payload(
     form: dict[str, Any],
     captcha: bool,
 ) -> dict[str, Any]:
+    fp = _fingerprint(page, url)
+    platform = str(fp.get("platform") or "")
+    # Source-level platform wins; text hints only fill the payment/ops layer.
+    hints = stack_fingerprint.merge_hints(
+        fp, extract_stack_hints(company_name, description, page_text)
+    )
     return {
         "url": url,
         "final_url": page.url,
         "company_name": company_name,
         "description": description,
         "page_excerpt": page_text[:3000],
-        "stack_hints": extract_stack_hints(company_name, description, page_text),
+        "stack_hints": hints[:6],
+        "platform": platform,
+        "platform_candidate": str(fp.get("candidate") or ""),
+        "platform_confidence": int(fp.get("confidence") or 0),
+        "platform_evidence": list(fp.get("evidence") or []),
+        "payment_stack": list(fp.get("secondary") or []),
         "contact_form": form,
         "captcha_detected": captcha,
         "status": "skipped_captcha" if captcha else "collected",
         "error": None,
     }
+
+
+def _fingerprint(page: Page, url: str) -> dict[str, Any]:
+    """Read HTML source, script srcs and cookies — the Wappalyzer-style signals."""
+    html = ""
+    scripts: list[str] = []
+    cookies: list[dict[str, Any]] = []
+    try:
+        html = page.content() or ""
+    except Exception:  # noqa: BLE001
+        html = ""
+    try:
+        scripts = page.evaluate(
+            "() => Array.from(document.querySelectorAll('script[src],link[href]'))"
+            ".map(n => n.src || n.href).slice(0, 80)"
+        ) or []
+    except Exception:  # noqa: BLE001
+        scripts = []
+    try:
+        cookies = page.context.cookies() or []
+    except Exception:  # noqa: BLE001
+        cookies = []
+    result = stack_fingerprint.fingerprint(
+        html=html[:400_000],
+        scripts=scripts,
+        cookies=cookies,
+        url=page.url or url,
+    )
+    logger.info(
+        "Fingerprint %s platform=%s conf=%s scores=%s",
+        url,
+        result.get("platform") or f"unconfirmed({result.get('candidate') or '-'})",
+        result.get("confidence"),
+        result.get("scores"),
+    )
+    return result
 
 
 _CHALLENGE_RE = re.compile(

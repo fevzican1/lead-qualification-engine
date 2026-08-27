@@ -17,6 +17,7 @@ import httpx
 from site_signals import extract_stack_hints, high_value_score, looks_turkish
 import easy_score
 import config
+import stack_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +120,14 @@ def probe(url: str) -> dict[str, Any]:
         header_blob = " ".join(f"{k}:{v}" for k, v in response.headers.items()).lower()
         body = (response.text or "")[:MAX_BODY]
         blob = f"{header_blob}\n{body}"
-        hints = extract_stack_hints(url, body)
+        fp = stack_fingerprint.fingerprint(
+            html=body, headers=response.headers, url=str(response.url)
+        )
+        hints = stack_fingerprint.merge_hints(fp, extract_stack_hints(url, body))
         result["stack_hints"] = hints
+        result["platform"] = str(fp.get("platform") or "")
+        result["platform_confidence"] = int(fp.get("confidence") or 0)
+        result["platform_evidence"] = list(fp.get("evidence") or [])
         result["turkish"] = looks_turkish(body)
         result["captcha"] = bool(CAPTCHA_RE.search(blob))
         result["waf_strict"] = bool(

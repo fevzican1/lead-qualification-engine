@@ -790,7 +790,11 @@ def _summarize(leads: list[dict[str, Any]], target_keys: set[str], min_score: in
             lead.get("status"),
             bool((lead.get("contact_form") or {}).get("found")),
         )
-    submitted = sum(1 for lead in scoped if str(lead.get("status") or "").startswith("submitted"))
+    submitted = sum(
+        1
+        for lead in scoped
+        if str(lead.get("status") or "") in knowledge.CONFIRMED_SUBMIT_STATUSES
+    )
     skip = sum(
         1
         for lead in scoped

@@ -229,6 +229,23 @@ def _schedule_proof(chat_id: int, bot: Any, *, turkish: bool) -> None:
     _proof_tasks[chat_id] = asyncio.create_task(_run(), name=f"proof-{chat_id}")
 
 
+async def _greet_from_token(update: Update, bot: Any, chat_id: int, row: dict[str, Any]) -> None:
+    """No empty channel: type for a beat, then the named greeting, then the card."""
+    turkish = bool(row.get("turkish", True))
+    try:
+        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        await asyncio.sleep(1.2)
+    except Exception:  # noqa: BLE001
+        logger.debug("greeting typing failed for %s", chat_id, exc_info=True)
+    text = telegram_handoff.opener(row)
+    _remember(chat_id, "assistant", text)
+    if update.message:
+        await update.message.reply_text(text)
+    else:
+        await bot.send_message(chat_id=chat_id, text=text)
+    _schedule_proof(chat_id, bot, turkish=turkish)
+
+
 async def _hot_ping(chat_id: int, update: Update, text: str) -> None:
     if _is_owner(chat_id) or telegram_sessions.is_declined(chat_id):
         return
@@ -280,9 +297,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id, company=company, turkish=turkish, username=_username(update)
     )
     if row:
-        text = telegram_handoff.opener(row)
-    else:
-        text = _cold_intro(turkish=turkish)
+        await _greet_from_token(update, context.bot, chat_id, row)
+        return
+    text = _cold_intro(turkish=turkish)
     _remember(chat_id, "assistant", text)
     await update.message.reply_text(text)
     _schedule_proof(chat_id, context.bot, turkish=turkish)
@@ -415,10 +432,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 turkish=turkish,
                 username=_username(update),
             )
-            text = telegram_handoff.opener(row)
-            _remember(chat_id, "assistant", text)
-            await update.message.reply_text(text)
-            _schedule_proof(chat_id, context.bot, turkish=turkish)
+            await _greet_from_token(update, context.bot, chat_id, row)
             return
 
     if _is_owner(chat_id):

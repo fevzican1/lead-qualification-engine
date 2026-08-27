@@ -119,7 +119,7 @@ def can_submit(lead: dict[str, Any]) -> tuple[bool, str]:
 
 
 def record_submit(lead: dict[str, Any], *, status: str) -> None:
-    if not str(status or "").startswith("submitted"):
+    if str(status or "") not in {"submitted", "submitted_confirmed"}:
         return
     form = lead.get("contact_form") or {}
     provider = provider_of(

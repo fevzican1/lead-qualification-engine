@@ -52,7 +52,7 @@ $include = @(
     "domain_store.py", "lead_discovery.py", "pacing.py", "risk_guard.py",
     "qualification_analyzer.py", "telegram_sales_bot.py", "telegram_handoff.py",
     "telegram_sessions.py", "proof_card.py",
-    "easy_score.py", "feed_ingest.py",
+    "easy_score.py", "feed_ingest.py", "stack_fingerprint.py",
     "optout.py", "owner_notify.py",
     "requirements.txt", "targets.txt", ".env", ".env.example",
     "Dockerfile", "docker-compose.yml"
