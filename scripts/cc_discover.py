@@ -1,7 +1,11 @@
 """Harvest contact-form URLs from Common Crawl CDX.
 
 Runs on GitHub Actions. Never uses Oracle HTTP probe budget.
-CDX is often 503/slow — fail fast, keep prior feed, always exit 0.
+
+The index holds billions of pages. A fixed page=0..N walk returns the same
+alphabetical head every run, so the feed stopped growing. We ask CDX how many
+pages a query has (showNumPages) and sample pages at random, which makes every
+run land on a different slice of the crawl.
 """
 
 from __future__ import annotations
@@ -9,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import random
 import re
 import sys
 import time
@@ -30,27 +35,59 @@ logger = logging.getLogger(__name__)
 COLLINFO = "https://index.commoncrawl.org/collinfo.json"
 CONTACT_PATH_RE = re.compile(
     r"(?i)/(iletisim|iletişim|contact-us|contactus|get-in-touch|"
-    r"bize-ulasin|bizeulasin|bize-ulaşın|pages/contact)(/|$|\?)"
+    r"bize-ulasin|bizeulasin|bize-ulaşın|kontakt|contacto|contatti|"
+    r"contactez-nous|kontakta-oss|pages/contact)(/|$|\?)"
     r"|/(contact)(/|$|\?)"
 )
 NEWS_HOST_RE = re.compile(
-    r"haber|gazete|news|gundem|magazin|spor|tv\d|radyo|blog\.",
+    r"haber|gazete|news|gundem|magazin|spor|tv\d|radyo|blog\.|wiki|forum",
     re.I,
 )
 NEWS_PATH_RE = re.compile(
-    r"/haber|/duyuru|/baskan|/news/|/blog/|iletisim-baskan",
+    r"/haber|/duyuru|/baskan|/news/|/blog/|iletisim-baskan|/wp-admin|/author/",
     re.I,
 )
-QUERIES: tuple[tuple[str, str, int], ...] = (
-    ("*.com.tr", r".*/iletisim(?:/|$|\?)", 8),
-    ("*.com.tr", r".*/bize-ulasin(?:/|$|\?)", 5),
-    ("*.net.tr", r".*/iletisim(?:/|$|\?)", 5),
-    ("*.com.tr", r".*/contact(?:/|$|\?)", 4),
-    ("*.myshopify.com", r".*/pages/contact(?:/|$|\?)", 3),
-    ("*.com", r".*/contact-us(?:/|$|\?)", 3),
-    ("*.io", r".*/contact(?:/|$|\?)", 2),
-    ("*.co", r".*/contact(?:/|$|\?)", 2),
+
+# TLD wildcards × contact paths. TR first (highest close rate), then EU/global
+# SMB space. Every entry is a separate CDX query with random page sampling.
+TR_PATHS = (
+    r".*/iletisim(?:/|$|\?)",
+    r".*/bize-ulasin(?:/|$|\?)",
+    r".*/contact(?:/|$|\?)",
 )
+EN_PATHS = (
+    r".*/contact-us(?:/|$|\?)",
+    r".*/contact(?:/|$|\?)",
+    r".*/get-in-touch(?:/|$|\?)",
+)
+EU_PATHS = (
+    r".*/kontakt(?:/|$|\?)",
+    r".*/contacto(?:/|$|\?)",
+    r".*/contatti(?:/|$|\?)",
+)
+
+
+def _queries() -> list[tuple[str, str, int]]:
+    """(wildcard, url regex, weight). Weight = how many random pages to pull."""
+    rows: list[tuple[str, str, int]] = []
+    for path in TR_PATHS:
+        rows.append(("*.com.tr", path, 6))
+    rows.append(("*.net.tr", TR_PATHS[0], 3))
+    rows.append(("*.tr", TR_PATHS[0], 3))
+    for path in EN_PATHS:
+        rows.append(("*.com", path, 4))
+    rows.append(("*.myshopify.com", r".*/pages/contact(?:/|$|\?)", 4))
+    rows.append(("*.co", EN_PATHS[0], 2))
+    rows.append(("*.io", EN_PATHS[1], 2))
+    rows.append(("*.net", EN_PATHS[0], 2))
+    rows.append(("*.co.uk", EN_PATHS[0], 2))
+    for wildcard in ("*.de", "*.nl", "*.pl", "*.se", "*.dk", "*.at", "*.ch"):
+        rows.append((wildcard, EU_PATHS[0], 2))
+    rows.append(("*.es", EU_PATHS[1], 2))
+    rows.append(("*.it", EU_PATHS[2], 2))
+    return rows
+
+
 FALLBACK_CDX = (
     "https://index.commoncrawl.org/CC-MAIN-2026-34-index",
     "https://index.commoncrawl.org/CC-MAIN-2026-30-index",
@@ -62,22 +99,21 @@ def _utc() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def _cdx_apis() -> list[str]:
+def _cdx_apis(limit: int = 4) -> list[str]:
     apis: list[str] = []
     try:
         response = httpx.get(COLLINFO, timeout=20.0, follow_redirects=True)
         response.raise_for_status()
-        for row in response.json()[:4]:
+        for row in response.json()[:6]:
             api = str((row or {}).get("cdx-api") or "").strip()
             if api and api not in apis:
                 apis.append(api)
-                logger.info("CDX index %s", (row or {}).get("id"))
     except Exception as exc:  # noqa: BLE001
         logger.info("collinfo skipped: %s", exc)
     for api in FALLBACK_CDX:
         if api not in apis:
             apis.append(api)
-    return apis[:3]
+    return apis[:limit]
 
 
 def _is_contact_url(url: str) -> bool:
@@ -100,7 +136,7 @@ def _keep(url: str) -> bool:
         return False
     if NEWS_HOST_RE.search(host):
         return False
-    if host.endswith(".org.tr"):
+    if host.endswith(".org.tr") or host.endswith(".gov.tr") or host.endswith(".edu.tr"):
         return False
     if not _is_contact_url(url):
         return False
@@ -120,29 +156,49 @@ def _origin_contact(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}{kept}".rstrip("/")
 
 
-def _cdx_get(client: httpx.Client, api: str, params: list[tuple[str, str]]):
-    """Short timeout + 2 tries. CDX 503 must not burn the Actions minute clock."""
+def _base_params(wildcard: str, url_re: str) -> list[tuple[str, str]]:
+    return [
+        ("url", wildcard),
+        ("output", "json"),
+        ("filter", "=status:200"),
+        ("filter", f"~url:{url_re}"),
+        ("filter", "=mime:text/html"),
+    ]
+
+
+def _get(client: httpx.Client, api: str, params: list[tuple[str, str]], tries: int = 2):
+    """CDX answers 503 a lot. Retry briefly, then move on — never hang the job."""
     last: httpx.Response | None = None
-    for attempt in range(1, 3):
+    for attempt in range(1, tries + 1):
         try:
             response = client.get(api, params=params)
         except Exception as exc:  # noqa: BLE001
-            logger.info("CDX transport fail attempt %s: %s", attempt, exc)
-            time.sleep(1.5 * attempt)
+            logger.info("CDX transport fail %s: %s", attempt, exc)
+            time.sleep(1.2 * attempt)
             continue
         last = response
-        if response.status_code in {429, 500, 502, 503}:
-            logger.info("CDX HTTP %s attempt %s — skip page", response.status_code, attempt)
-            time.sleep(1.2 * attempt)
+        if response.status_code in {429, 500, 502, 503, 504}:
+            time.sleep(1.0 * attempt)
             continue
         return response
     return last
 
 
-def _ingest_lines(
-    lines: list[str],
-    by_host: dict[str, dict[str, str | int]],
-) -> int:
+def _num_pages(client: httpx.Client, api: str, wildcard: str, url_re: str) -> int:
+    params = _base_params(wildcard, url_re) + [("showNumPages", "true")]
+    response = _get(client, api, params)
+    if response is None or response.status_code >= 400:
+        return 0
+    try:
+        payload = response.json()
+    except Exception:  # noqa: BLE001
+        return 0
+    if isinstance(payload, dict):
+        return int(payload.get("pages") or 0)
+    return 0
+
+
+def _ingest_lines(lines: list[str], by_host: dict[str, dict[str, str | int]]) -> int:
     added = 0
     for line in lines:
         try:
@@ -172,74 +228,66 @@ def _ingest_lines(
 
 def harvest(
     *,
-    per_page: int = 100,
-    max_pages: int = 8,
-    sleep_s: float = 0.2,
-    deadline_s: float = 660.0,
+    per_page: int = 1200,
+    deadline_s: float = 480.0,
+    seed: int | None = None,
 ) -> list[dict[str, str | int]]:
     started = time.monotonic()
+    rng = random.Random(seed if seed is not None else int(time.time()))
     by_host: dict[str, dict[str, str | int]] = {}
-    timeout = httpx.Timeout(18.0, connect=8.0, read=18.0, write=8.0, pool=8.0)
+    timeout = httpx.Timeout(25.0, connect=8.0, read=25.0, write=8.0, pool=8.0)
+    queries = _queries()
+    rng.shuffle(queries)
+    apis = _cdx_apis()
+    if not apis:
+        return []
+
+    def _left() -> float:
+        return deadline_s - (time.monotonic() - started)
+
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-        for api in _cdx_apis():
-            if time.monotonic() - started > deadline_s:
-                logger.info("Harvest deadline — unique=%s", len(by_host))
+        page_counts: dict[tuple[str, str, str], int] = {}
+        for wildcard, url_re, weight in queries:
+            if _left() <= 30:
                 break
-            logger.info("Harvesting %s", api)
-            for wildcard, url_re, query_pages in QUERIES:
-                if time.monotonic() - started > deadline_s:
+            api = apis[rng.randrange(len(apis))]
+            key = (api, wildcard, url_re)
+            if key not in page_counts:
+                page_counts[key] = _num_pages(client, api, wildcard, url_re)
+            total = page_counts[key]
+            if total <= 0:
+                logger.info("CDX no pages %s %s", wildcard, url_re[:24])
+                continue
+            picks = rng.sample(range(total), k=min(weight, total))
+            for page in picks:
+                if _left() <= 20:
                     break
-                pages = max(1, min(int(query_pages), int(max_pages)))
-                misses = 0
-                for page in range(pages):
-                    if time.monotonic() - started > deadline_s:
-                        break
-                    params: list[tuple[str, str]] = [
-                        ("url", wildcard),
-                        ("output", "json"),
-                        ("filter", "=status:200"),
-                        ("filter", f"~url:{url_re}"),
-                        ("filter", "=mime:text/html"),
-                        ("limit", str(per_page)),
-                        ("page", str(page)),
-                    ]
-                    response = _cdx_get(client, api, params)
-                    if response is None:
-                        misses += 1
-                        logger.info("CDX give up %s p%s", wildcard, page)
-                        if misses >= 2:
-                            break
-                        continue
-                    if response.status_code == 404:
-                        break
-                    if response.status_code >= 400:
-                        misses += 1
-                        logger.info("CDX HTTP %s %s p%s", response.status_code, wildcard, page)
-                        if misses >= 2:
-                            break
-                        continue
-                    misses = 0
-                    lines = [ln for ln in response.text.splitlines() if ln.startswith("{")]
-                    if not lines:
-                        break
-                    added_page = _ingest_lines(lines, by_host)
-                    logger.info(
-                        "CDX %s p%s lines=%s kept=%s total=%s",
-                        wildcard,
-                        page,
-                        len(lines),
-                        added_page,
-                        len(by_host),
-                    )
-                    time.sleep(sleep_s)
-            if len(by_host) >= 500:
-                break
+                params = _base_params(wildcard, url_re) + [
+                    ("limit", str(per_page)),
+                    ("page", str(page)),
+                ]
+                response = _get(client, api, params)
+                if response is None or response.status_code >= 400:
+                    continue
+                lines = [ln for ln in response.text.splitlines() if ln.startswith("{")]
+                if not lines:
+                    continue
+                added = _ingest_lines(lines, by_host)
+                logger.info(
+                    "CDX %s p%s/%s lines=%s kept=%s total=%s",
+                    wildcard,
+                    page,
+                    total,
+                    len(lines),
+                    added,
+                    len(by_host),
+                )
     rows = sorted(by_host.values(), key=lambda r: -int(r.get("easy_score") or 0))
     logger.info("Harvest unique hosts=%s elapsed=%.0fs", len(rows), time.monotonic() - started)
     return rows
 
 
-def merge_feed(path: Path, rows: list[dict[str, str | int]], *, cap: int = 12000) -> dict:
+def merge_feed(path: Path, rows: list[dict[str, str | int]], *, cap: int = 60000) -> dict:
     existing: dict[str, dict] = {}
     if path.exists():
         try:
@@ -260,21 +308,26 @@ def merge_feed(path: Path, rows: list[dict[str, str | int]], *, cap: int = 12000
                     existing[host] = item
         except json.JSONDecodeError:
             existing = {}
+    fresh = 0
     for row in rows:
         host = str(row.get("host") or "")
         url = str(row.get("url") or "")
         if not host or not _keep(url):
             continue
         prev = existing.get(host)
-        if prev and int(prev.get("easy_score") or 0) > int(row.get("easy_score") or 0):
+        if prev is None:
+            fresh += 1
+        elif int(prev.get("easy_score") or 0) > int(row.get("easy_score") or 0):
             continue
         existing[host] = row
     ranked = sorted(existing.values(), key=lambda r: -int(r.get("easy_score") or 0))[:cap]
+    logger.info("Feed merge: +%s new host(s), total %s", fresh, len(ranked))
     return {
         "version": 1,
         "source": "commoncrawl-cdx",
         "updated_at": _utc(),
         "count": len(ranked),
+        "new_hosts": fresh,
         "urls": ranked,
     }
 
@@ -283,23 +336,27 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default=str(ROOT / "feeds" / "ready_queue.json"))
-    parser.add_argument("--limit", type=int, default=12000)
-    parser.add_argument("--pages", type=int, default=8)
-    parser.add_argument("--per-page", type=int, default=100)
-    parser.add_argument("--deadline", type=int, default=660)
+    parser.add_argument("--limit", type=int, default=60000)
+    parser.add_argument("--per-page", type=int, default=1200)
+    parser.add_argument("--deadline", type=int, default=480)
+    parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, str | int]] = []
     try:
-        rows = harvest(per_page=args.per_page, max_pages=args.pages, deadline_s=float(args.deadline))
+        rows = harvest(
+            per_page=args.per_page,
+            deadline_s=float(args.deadline),
+            seed=args.seed,
+        )
     except Exception:
         logger.exception("Harvest aborted — keeping prior feed")
-    payload = merge_feed(out, rows, cap=max(100, args.limit))
+    payload = merge_feed(out, rows, cap=max(500, args.limit))
     tmp = out.with_suffix(".tmp.json")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(out)
-    print(f"Feed {payload['count']} URL(s) -> {out}")
+    print(f"Feed {payload['count']} URL(s) (+{payload.get('new_hosts', 0)} new) -> {out}")
     return 0
 
 

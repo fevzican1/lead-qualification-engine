@@ -115,11 +115,20 @@ def notify_pipeline(
     skipped: int = 0,
 ) -> None:
     del counts
+    if scoped <= 0:
+        # Cap-full or empty slice. A "Form gönderim: 0" line here reads like a
+        # breakdown, so stay quiet and let the hourly cycle note speak.
+        logger.info("Pipeline slice empty — owner notify skipped")
+        return
+    import knowledge
+
+    today_n, hour_n = knowledge.submit_counts()
     send(
         "Pipeline turu bitti.\n"
         f"Form gönderim: {submitted}\n"
         f"Atlanan (CAPTCHA / form yok / ulaşılamaz): {skipped}\n"
         f"Bu tur bakılan: {scoped}\n"
+        f"Saat {hour_n}/{knowledge.hourly_cap()} | Gün {today_n}/{knowledge.daily_cap()}\n"
         f"Kuyruk: {domain_store.queue_depth()}/{getattr(config, 'QUEUE_TARGET', 150)} "
         f"| HTTP {domain_store.http_budget_label()}\n"
         "Müşteri yazarsa satış sohbeti bu bota düşer."

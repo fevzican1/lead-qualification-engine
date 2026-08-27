@@ -569,10 +569,14 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
 
 def _visit_budget(remain: int) -> int:
-    """Visit extra hosts so CAPTCHA/skip does not drop the hour below 20 submits."""
+    """Visit extra hosts so CAPTCHA/skip does not drop the hour below the floor.
+
+    Roughly a third of contact pages are CAPTCHA or have no open form, so the
+    hour needs about three visits per post it wants to land.
+    """
     if remain <= 0:
         return 0
-    return min(64, max(remain * 3, 24 if remain >= 8 else remain * 4))
+    return min(96, max(remain * 3, 24 if remain >= 8 else remain * 4))
 
 
 def _run_browser_pipeline(

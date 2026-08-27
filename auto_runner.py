@@ -81,6 +81,39 @@ def _run(script: str, extra: list[str] | None = None, *, timeout: int | None = N
         return 1
 
 
+_starve_pinged_hour: list[str] = []
+
+
+def _hourly_floor() -> int:
+    floor = int(getattr(config, "HOURLY_SUBMIT_FLOOR", 30) or 30)
+    return min(floor, int(knowledge.hourly_cap()))
+
+
+def _warn_if_starving() -> None:
+    """Tell the owner when the feed, not the cap, is what holds the hour back."""
+    _today_n, hour_n = knowledge.submit_counts()
+    need = max(0, _hourly_floor() - hour_n)
+    if need <= 0:
+        return
+    fuel = domain_store.chromium_fuel_count()
+    # Roughly a third of visits are CAPTCHA / no-form, so budget 3 hosts per post.
+    if fuel >= need * 3:
+        return
+    stamp = time.strftime("%Y-%m-%dT%H", time.gmtime())
+    if stamp in _starve_pinged_hour:
+        return
+    _starve_pinged_hour.append(stamp)
+    del _starve_pinged_hour[:-6]
+    msg = (
+        "Kuyruk inceldi — saatlik taban riski.\n"
+        f"Bu saat form: {hour_n}/{knowledge.hourly_cap()} (taban {_hourly_floor()})\n"
+        f"Chromium yakıtı: {fuel} host (gereken ~{need * 3})\n"
+        "Harvest bir sonraki turda stok basacak. Kota aşılmıyor."
+    )
+    logger.warning("Queue starving: fuel=%s need=%s", fuel, need * 3)
+    owner_notify.send(msg)
+
+
 def _sleep_after_cycle() -> int:
     today_n, hour_n = knowledge.submit_counts()
     daily = knowledge.daily_cap()
@@ -91,11 +124,12 @@ def _sleep_after_cycle() -> int:
         logger.info("Daily cap %s/%s — sleeping %ss until a new UTC day", today_n, daily, wait)
         return wait
     if hour_n >= hourly:
-        wait = domain_store.seconds_until_next_utc_hour()
-        logger.info("Hourly cap %s/%s — sleeping %ss until next UTC hour", hour_n, hourly, wait)
+        # Rolling window: wait only until the oldest submit ages out, then resume.
+        wait = min(300, knowledge.seconds_until_hour_slot())
+        logger.info("Hourly cap %s/%s — slot opens in ~%ss", hour_n, hourly, wait)
         return wait
-    # HTTP empty does not park the machine. Fill the hour toward 20–32 submits.
-    if hour_n < 20 and fuel > 0:
+    # HTTP empty does not park the machine. Fill the hour toward the floor first.
+    if hour_n < _hourly_floor() and fuel > 0:
         wait = 40
     elif hour_n < hourly:
         wait = 60
@@ -160,6 +194,8 @@ def main() -> None:
             print(f"Feed +{fed} | kuyruk={domain_store.queue_depth()}/{cap}")
         except Exception:
             logger.exception("Feed ingest failed — catalog/heal still run")
+
+        _warn_if_starving()
 
         print("\n[1/3] Katalog kuyruğa basılıyor (HTTP yok, kota yanmaz)...")
         finder_code = _run("lead_finder.py")

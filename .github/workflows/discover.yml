@@ -2,6 +2,7 @@ name: discover-feed
 
 # Manual run: Actions → discover-feed → Run workflow (branch: master)
 # GitHub-side harvest. Does not touch Oracle HTTP 22/hour.
+# Random CDX page sampling, so every run lands on a new slice of the crawl.
 on:
   schedule:
     - cron: "20 */4 * * *"
@@ -10,10 +11,14 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: discover-feed
+  cancel-in-progress: false
+
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v5
         with:
@@ -24,8 +29,8 @@ jobs:
       - name: Install
         run: pip install -q httpx python-dotenv
       - name: Common Crawl CDX harvest
-        timeout-minutes: 13
-        run: python scripts/cc_discover.py --out feeds/ready_queue.json --limit 12000 --pages 8 --per-page 100 --deadline 660
+        timeout-minutes: 11
+        run: python scripts/cc_discover.py --out feeds/ready_queue.json --limit 60000 --per-page 1200 --deadline 480
       - name: Commit feed
         run: |
           git config user.name "devsolve-discover"
@@ -35,11 +40,12 @@ jobs:
             echo "No feed changes"
           else
             git commit -m "feed: Common Crawl contact-page harvest"
+            git pull --rebase --autostash origin master || true
             git push || echo "feed push deferred — next run will retry"
           fi
       - name: Copy feed to Oracle and ingest
         continue-on-error: true
-        timeout-minutes: 3
+        timeout-minutes: 4
         env:
           HOST: ${{ secrets.ORACLE_HOST }}
           USER: ${{ secrets.ORACLE_USER }}
