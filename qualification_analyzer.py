@@ -9,7 +9,6 @@ so Ampere RAM is not shared with Chromium.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import re
@@ -200,93 +199,26 @@ def _pain(hints: list[str], *, turkish: bool) -> str:
 
 def _form_note(lead: dict[str, Any], *, turkish: bool) -> tuple[str, str]:
     hints = list(lead.get("stack_hints") or [])
-    stack = knowledge.stack_phrase(hints, turkish=turkish)
-    pain = _pain(hints, turkish=turkish)
-    sender = (config.SENDER_COMPANY or "DevSolve").strip()
-    price = config.price_label()
     who = _company(lead)
     quote = _evidence(lead)
-    host = str(lead.get("url") or "")
+    pain = _pain(hints, turkish=turkish)
+    host = telegram_handoff._host(str(lead.get("url") or "")) or who
     token = ""
     try:
         token = telegram_handoff.remember(
             lead, company=who, pain=pain, quote=quote, turkish=turkish
         )
         lead["telegram_start"] = token
+        hook = telegram_handoff.classify_hook(hints)
+        lead["hook_variant"] = hook["variant"]
+        lead["error_type"] = hook["error_type"] if turkish else hook["error_type_en"]
     except Exception:
         logger.exception("Telegram handoff remember failed for %s", host)
     link = config.telegram_deeplink(token)
-    variant = int(hashlib.sha1(host.encode("utf-8", errors="ignore")).hexdigest(), 16) % 6
-
-    if turkish:
-        seen = f' Sayfanızda duran satır: "{quote}"' if quote else ""
-        subject = f"{who}: {stack} kopuğu"[:80]
-        notes = (
-            (
-                f"{who} — {stack} kurulumunuza dışarıdan baktım.{seen} "
-                f"Kopuk halka: {pain}. Paneli değiştirmiyoruz; ödeme onayı ile sipariş/ERP satırını "
-                f"tek id'de kilitleriz (iş {price}). 8 dakikalık akış çizimi, ikinci form yok: {link}"
-            ),
-            (
-                f"Telegram: {link} — {who} / {stack}.{seen} "
-                f"{pain}. {sender} mevcut paneli bırakır, yalnızca o kopuğu kapatır. "
-                f"Kutulari burada çizerim; uygunsa iş {price}."
-            ),
-            (
-                f"{who} ekibine net tespit: {stack}.{seen} {pain}. "
-                f"Çözüm yeni bir yazılım suite'i değil, sizin stack'inize özel bir köprü. "
-                f"Çizim Telegram'da (başka form doldurtmam): {link}"
-            ),
-            (
-                f"{link} — {who} sitesinde {stack} görünüyor.{seen} "
-                f"Ben {pain} demek istiyorum. 10 dakikada kaynak → ödeme OK → hedef tek kayıt. "
-                f"Panel durur, iş {price}."
-            ),
-            (
-                f"{who} — rakipler 'entegrasyon yaparız' yazar. Sizde {stack} var.{seen} "
-                f"Somut kopuk: {pain}. Kapsam 1 köprü, {price}. Sohbet: {link}"
-            ),
-            (
-                f"{who} paneline dışarıdan baktım: {stack}.{seen} Eksik halka {pain}. "
-                f"{sender} 8–10 dakikalık taslak çıkarır; uymuyorsa zorlamam. Telegram: {link}"
-            ),
-        )
-        note = notes[variant]
-    else:
-        seen = f' Public page line: "{quote}"' if quote else ""
-        subject = f"{who}: {stack} gap"[:80]
-        notes = (
-            (
-                f"{who} — I looked at your {stack} setup from outside.{seen} "
-                f"The broken link: {pain}. We do not replace the panel; we lock payment OK and the "
-                f"order/ERP row on one id (job {price}). 8-min sketch, no second form: {link}"
-            ),
-            (
-                f"Telegram: {link} — {who} / {stack}.{seen} "
-                f"{pain}. {sender} leaves the panel, closes only that gap. "
-                f"I draw the boxes here; if it fits, the job is {price}."
-            ),
-            (
-                f"Concrete read on {who}: {stack}.{seen} {pain}. "
-                f"Not a new suite — one bridge for your stack. "
-                f"Sketch on Telegram (I will not dump another form): {link}"
-            ),
-            (
-                f"{link} — {who} is running {stack}.{seen} "
-                f"I mean {pain}. 10 minutes: source → payment OK → destination on one record. "
-                f"Panel stays, job {price}."
-            ),
-            (
-                f"{who} — anyone can write 'we do integrations'. Your page shows {stack}.{seen} "
-                f"The break: {pain}. Scope is one bridge, {price}. Chat: {link}"
-            ),
-            (
-                f"I looked at {who} from outside: {stack}.{seen} Missing link: {pain}. "
-                f"{sender} sketches in 8–10 minutes; if it is not a fit I will not push. Telegram: {link}"
-            ),
-        )
-        note = notes[variant]
-    return subject[:80], " ".join(note.split())
+    subject, note = telegram_handoff.form_copy(
+        host=host, hints=hints, link=link, turkish=turkish
+    )
+    return subject, note
 
 
 def _heuristic_score(lead: dict[str, Any]) -> int:
