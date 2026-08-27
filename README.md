@@ -1,0 +1,118 @@
+# B2B Lead Qualification & Telegram Sales Engine
+
+Modular Python toolkit that:
+
+1. Collects public company copy and contact-form metadata from a URL list
+2. Scores each site against your ICP with OpenAI (`gpt-4o-mini`, JSON mode)
+3. Optionally posts a personalized pitch to a discovered contact form
+4. Runs an inbound Telegram bot that answers questions and shares a Payoneer link only after purchase intent
+
+```mermaid
+flowchart LR
+  targets[targets.txt] --> collector[collector.py]
+  collector --> leads[(leads.json)]
+  collector --> qualifier[qualification_analyzer.py]
+  qualifier --> leads
+  qualifier --> submitter[form_submitter.py]
+  submitter --> leads
+  telegram[telegram_sales_bot.py] --> payoneer[PAYONEER_PAYMENT_URL]
+```
+
+`pipeline.py` is the outbound orchestrator. `telegram_sales_bot.py` is a separate long-running process.
+
+## Responsible use
+
+Use this only on websites and inboxes you are authorized to contact, and only in ways that comply with applicable anti-spam, privacy, and computer-access laws (including consent / lawful-basis rules in your jurisdiction). The submitter **does not** solve CAPTCHAs, log into accounts, or bypass access controls — protected forms are skipped. Form posting is opt-in (`--submit`); the default pipeline run only collects and qualifies.
+
+## Layout
+
+| File | Role |
+|------|------|
+| `config.py` | Loads `.env` (`OPENAI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `PAYONEER_PAYMENT_URL`, product/ICP/sender fields) |
+| `collector.py` | Playwright scan: description, company name, contact form, CAPTCHA flag |
+| `qualification_analyzer.py` | `fit_score` 0–100 + Telegram-directed value proposition |
+| `form_submitter.py` | Maps fields, waits 20–40s, submits; skips CAPTCHA / missing forms |
+| `telegram_sales_bot.py` | Inbound sales chat; payment URL only on purchase intent |
+| `pipeline.py` | Orchestrates collect → qualify → optional submit; writes `leads.json` |
+
+## Setup
+
+Python 3.10+ recommended.
+
+```powershell
+cd $env:USERPROFILE\lead-qualification-engine
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+playwright install chromium
+copy .env.example .env
+copy targets.example.txt targets.txt
+```
+
+Edit `.env` with real keys and your product/ICP copy. Edit `targets.txt` with authorized URLs (one per line).
+
+Create a bot with [@BotFather](https://t.me/BotFather), paste the token as `TELEGRAM_BOT_TOKEN`, and set `TELEGRAM_BOT_USERNAME` to the bot username without `@`.
+
+## Run the pipeline
+
+Qualify only (no form posts):
+
+```powershell
+python pipeline.py --targets targets.txt
+```
+
+Qualify and submit forms that pass `MIN_FIT_SCORE`:
+
+```powershell
+python pipeline.py --targets targets.txt --submit
+```
+
+Useful flags:
+
+- `--limit 3` — first N targets
+- `--min-score 80` — override `.env`
+- `--headful` — visible browser
+- `--leads path\to\leads.json` — state file
+
+State is saved after every lead so a crash can be resumed. Status values include `collected`, `qualified`, `submitted`, `submitted_unconfirmed`, `skipped_captcha_detected`, `skipped_no_contact_form`, `failed`.
+
+## Run the Telegram bot
+
+```powershell
+python telegram_sales_bot.py
+```
+
+The bot keeps a short per-chat memory, answers in JSON mode internally, and appends `PAYONEER_PAYMENT_URL` only when the model flags purchase intent (or the user clearly asks how to pay).
+
+## Lead record shape
+
+Each object in `leads.json` looks like:
+
+```json
+{
+  "url": "https://example.com",
+  "company_name": "Example",
+  "description": "...",
+  "page_excerpt": "...",
+  "contact_form": {
+    "found": true,
+    "page_url": "https://example.com/contact",
+    "fields": [{"name": "email", "purpose": "email"}]
+  },
+  "captcha_detected": false,
+  "fit_score": 72,
+  "fit_rationale": "...",
+  "value_proposition": "...",
+  "should_contact": true,
+  "status": "qualified",
+  "updated_at": "2026-08-22T12:00:00+00:00"
+}
+```
+
+## Modules as CLIs
+
+```powershell
+python collector.py https://example.com
+python qualification_analyzer.py
+python telegram_sales_bot.py
+```

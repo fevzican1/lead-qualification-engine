@@ -1,0 +1,36 @@
+name: discover-feed
+
+# GitHub-side harvest. Does not touch Oracle HTTP 22/hour.
+# Free-plan minutes are not 24/7 — every 4 hours is enough to keep a 10k stock.
+on:
+  schedule:
+    - cron: "20 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -q httpx python-dotenv
+      - name: Common Crawl CDX harvest
+        run: python scripts/cc_discover.py --out feeds/ready_queue.json --limit 12000 --pages 6 --per-page 100
+      - name: Commit feed
+        run: |
+          git config user.name "devsolve-discover"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add feeds/ready_queue.json
+          if git diff --cached --quiet; then
+            echo "No feed changes"
+          else
+            git commit -m "feed: Common Crawl contact-page harvest"
+            git push
+          fi

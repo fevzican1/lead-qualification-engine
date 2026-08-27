@@ -1,0 +1,23 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    # Do not publish 11434 on a public VM.
+
+  engine:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    env_file:
+      - .env
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: deepseek-r1:14b
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    command: python -c "import time,subprocess,os; os.chdir('/app'); subprocess.Popen(['python','telegram_sales_bot.py']); subprocess.call(['python','auto_runner.py'])"
+
+volumes:
+  ollama:
