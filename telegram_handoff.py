@@ -112,17 +112,14 @@ def opener(row: dict[str, Any]) -> str:
     who = str(row.get("company") or row.get("host") or "ekibiniz")
     stack = str(row.get("stack") or "altyapınız")
     pain = str(row.get("pain") or "").rstrip(".")
-    price = config.price_label()
     if row.get("turkish"):
         return (
-            f"{who} — form notunun devamı burası. {stack} tarafında genelde şu kopuk: {pain}. "
-            f"Panel durur; 8–10 dakikada kaynak → ödeme onayı → ERP/stok kaydını çizerim. "
-            f"İş {price} flat, Payoneer yalnız 'yapalım' derseniz. "
+            f"{who} — form notunun devamı burası. {stack} kopuğu: {pain}. "
+            f"Panel durur; 8–10 dakikada kaynak → ödeme onayı → ERP/stok'u tek id'de çizerim. "
             f"Şu an en çok yanan hangisi: ödeme callback, stok, kargo, yoksa Excel?"
         )
     return (
-        f"{who} — this chat continues the note we left on your form. On {stack} the usual break is: {pain}. "
+        f"{who} — this chat continues the note we left on your form. On {stack} the break is: {pain}. "
         f"Your panel stays; in 8–10 minutes I sketch source → payment OK → ERP/stock on one id. "
-        f"Job is {price} flat, Payoneer only after a clear yes. "
         f"What is burning now: payment callback, stock, shipping, or Excel?"
     )

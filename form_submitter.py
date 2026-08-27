@@ -344,7 +344,7 @@ def _submit_with_page(
             filled = max(filled, _fill_formless(page, message, subject=subject, last_field=last_field))
         _tick_consent(page)
         if filled == 0:
-            result["status"] = "failed"
+            result["status"] = "skipped_submit_failed"
             result["error"] = "Could not map any visible form fields"
             return result
 
@@ -389,27 +389,27 @@ def _submit_with_page(
             )
             return result
         if not clicked:
-            result["status"] = "failed"
+            result["status"] = "skipped_submit_failed"
             result["error"] = "No visible submit control found"
             return result
         # Click happened but no POST and no thank-you — do not burn the hourly cap.
-        result["status"] = "failed"
+        result["status"] = "skipped_submit_failed"
         result["error"] = "Submit click did not produce a form POST or thank-you"
         logger.info("Unconfirmed click for %s — not counting as submitted", lead.get("url"))
         return result
     except PlaywrightTimeout as exc:
         logger.warning("Timeout submitting %s: %s", lead.get("url"), exc)
-        result["status"] = "skipped_submit_failed" if fast else "failed"
+        result["status"] = "skipped_submit_failed"
         result["error"] = f"timeout: {exc}"
         return result
     except TimeoutError as exc:
         logger.warning("Site budget submitting %s: %s", lead.get("url"), exc)
-        result["status"] = "skipped_submit_failed" if fast else "failed"
+        result["status"] = "skipped_submit_failed"
         result["error"] = f"timeout: {exc}"
         return result
     except Exception as exc:  # noqa: BLE001
         logger.exception("Submit failed for %s", lead.get("url"))
-        result["status"] = "failed"
+        result["status"] = "skipped_submit_failed"
         result["error"] = str(exc)
         return result
     finally:

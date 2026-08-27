@@ -2,7 +2,7 @@ name: discover-feed
 
 # Manual run: Actions → discover-feed → Run workflow (branch: master)
 # GitHub-side harvest. Does not touch Oracle HTTP 22/hour.
-# Free-plan minutes are not 24/7 — every 4 hours is enough to keep a 10k stock.
+# After harvest, copies feeds/ready_queue.json onto Oracle if ORACLE_* secrets exist.
 on:
   schedule:
     - cron: "20 */4 * * *"
@@ -14,7 +14,7 @@ permissions:
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,7 +23,7 @@ jobs:
       - name: Install
         run: pip install -q httpx python-dotenv
       - name: Common Crawl CDX harvest
-        run: python scripts/cc_discover.py --out feeds/ready_queue.json --limit 12000 --pages 6 --per-page 100
+        run: python scripts/cc_discover.py --out feeds/ready_queue.json --limit 12000 --pages 12 --per-page 100
       - name: Commit feed
         run: |
           git config user.name "devsolve-discover"
@@ -35,3 +35,25 @@ jobs:
             git commit -m "feed: Common Crawl contact-page harvest"
             git push
           fi
+      - name: Copy feed to Oracle and ingest
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOST:-}" ] || [ -z "${SSH_KEY:-}" ]; then
+            echo "ORACLE_HOST / ORACLE_SSH_KEY not set — feed stays on GitHub until next deploy"
+            exit 0
+          fi
+          USER="${USER:-ubuntu}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle.key
+          chmod 600 ~/.ssh/oracle.key
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            "${USER}@${HOST}" "mkdir -p /opt/devsolve/feeds"
+          scp -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            feeds/ready_queue.json "${USER}@${HOST}:/opt/devsolve/feeds/ready_queue.json"
+          ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            "${USER}@${HOST}" "cd /opt/devsolve && .venv/bin/python feed_ingest.py"

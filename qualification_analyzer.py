@@ -219,86 +219,62 @@ def _form_note(lead: dict[str, Any], *, turkish: bool) -> tuple[str, str]:
     variant = int(hashlib.sha1(host.encode("utf-8", errors="ignore")).hexdigest(), 16) % 6
 
     if turkish:
-        seen = f' Sayfanizda su satir duruyor: "{quote}."' if quote else ""
+        seen = f' Sayfanizda: "{quote}."' if quote else ""
         subject = f"{who}: {stack} kopugu"[:80]
         notes = (
             (
-                f"{who} ekibine not — {stack} net gorunuyor.{seen} "
-                f"Sahada bu genelde soyle kiriliyor: {pain}. "
-                f"{sender} platformu degistirmez; odeme onayi ile siparis/ERP satirini ayni id'de kilitler. "
-                f"Is {price} flat, yalnizca 'yapalim' derseniz Payoneer. "
-                f"{who} icin 8-10 dakikalik akisi Telegram'da cizerim: {link}"
+                f"Telegram'da 8 dk cizim (ikinci form yok): {link} "
+                f"— {who}, {stack}:{seen} {pain}. Panel durur."
             ),
             (
-                f"Merhaba {who} — {stack} kurulumunuza baktim.{seen} "
-                f"Darboğaz: {pain}. Bunu Excel veya gecikmeli webhook ile yasamak zorunda degilsiniz. "
-                f"{sender} mevcut paneli birakir, sadece kopuk halkayi kapatir ({price}). "
-                f"Taslagi gormek icin Telegram'dan yazmaniz yeterli: {link}"
+                f"{link} — {who} icin {stack} kopugu net: {pain}.{seen} "
+                f"10 dakikada kutulari cizerim, baska form yok."
             ),
             (
-                f"{who} sitesi {stack} uzerinde.{seen} "
-                f"Operasyon tarafinda {pain}. "
-                f"Teklif net: yeni bir yazilim suite'i degil, sizin stack'inize ozel bir kopru, {price}. "
-                f"10 dakikada kutulari cizerim — {link}"
+                f"Cevap burada, Telegram: {link} | {who} / {stack}: {pain}.{seen} "
+                f"{sender}, tek kopru."
             ),
             (
-                f"{who} icin somut tespit: {stack}.{seen} "
-                f"{pain}. {sender} bunu kaynak -> odeme -> hedef tek kayitta kapatir; "
-                f"magazayi veya ERP'yi degistirtmeyiz. {price}, Payoneer sadece net niyet sonrasi. "
-                f"Cizimi burada birakirim: {link}"
+                f"{who} — {stack} tespit.{seen} {pain}. "
+                f"Akisi Telegram'da kilitlerim: {link}"
             ),
             (
-                f"{who} — rakiplerinize 'entegrasyon yapariz' yazmak kolay. "
-                f"Sizin sayfada {stack} var.{seen} "
-                f"Ben {pain} problemini kastediyorum. Cozum {price}, kapsam 1 kopru. "
-                f"Telegram: {link}"
+                f"Yazmaniz yeterli: {link} — {who} sitesinde {stack}, sorun {pain}. "
+                f"Is {price}, panel yerinde kalir."
             ),
             (
-                f"{who} paneline disaridan baktim: {stack}.{seen} "
-                f"Eksik halka {pain}. {sender} 10 dakikalik bir akis taslagi cikarir; "
-                f"uygunsa is {price}. Baska bir form doldurtmam, sohbet Telegram'da: {link}"
+                f"{link} {who} paneline disaridan baktim: {stack}.{seen} "
+                f"Eksik halka {pain}. Sohbet Telegram'da, ikinci form yok."
             ),
         )
         note = notes[variant]
     else:
-        seen = f' On the public page you currently say: "{quote}."' if quote else ""
+        seen = f' On the public page: "{quote}."' if quote else ""
         subject = f"{who}: {stack} gap"[:80]
         notes = (
             (
-                f"Note for {who} — {stack} is clearly in use.{seen} "
-                f"That usually breaks like this: {pain}. "
-                f"{sender} will not rip out the platform; we lock payment OK and the order/ERP row on one id. "
-                f"Job is {price} flat, Payoneer only after a clear yes. "
-                f"I will sketch {who}'s flow in 8-10 minutes on Telegram: {link}"
+                f"8-min sketch on Telegram (no second form): {link} "
+                f"— {who}, {stack}:{seen} {pain}. Panel stays."
             ),
             (
-                f"Hi {who} — I looked at your {stack} setup.{seen} "
-                f"The bottleneck is {pain}. You should not have to live that in Excel or a late webhook. "
-                f"{sender} leaves the current panel in place and only closes the broken link ({price}). "
-                f"If you want the sketch, just write on Telegram: {link}"
+                f"{link} — {who} / {stack} break: {pain}.{seen} "
+                f"I draw the boxes in 10 minutes, no extra form."
             ),
             (
-                f"{who} is running {stack}.{seen} "
-                f"On the ops side, {pain}. "
-                f"The offer is not a new suite — one bridge for your stack, {price}. "
-                f"I can draw the boxes in 10 minutes: {link}"
+                f"Reply here, Telegram: {link} | {who} / {stack}: {pain}.{seen} "
+                f"{sender}, one bridge."
             ),
             (
-                f"Concrete read on {who}: {stack}.{seen} "
-                f"{pain}. {sender} closes source -> pay -> destination on one record; "
-                f"we do not make you replace the shop or the ERP. {price}, Payoneer after intent. "
-                f"Sketch lives here: {link}"
+                f"{who} — {stack} read.{seen} {pain}. "
+                f"I lock the flow on Telegram: {link}"
             ),
             (
-                f"{who} — anyone can write 'we do integrations'. "
-                f"Your page shows {stack}.{seen} "
-                f"I mean this failure: {pain}. Fix is {price}, one bridge. "
-                f"Telegram: {link}"
+                f"Just write: {link} — {who} runs {stack}, break is {pain}. "
+                f"Job {price}, panel stays."
             ),
             (
-                f"I looked at {who} from the outside: {stack}.{seen} "
-                f"The missing link is {pain}. {sender} produces a 10-minute flow sketch; "
-                f"if it fits, the job is {price}. I will not dump another form on you — Telegram: {link}"
+                f"{link} I looked at {who} from outside: {stack}.{seen} "
+                f"Missing link: {pain}. Chat is Telegram, no second form."
             ),
         )
         note = notes[variant]

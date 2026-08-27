@@ -13,9 +13,13 @@ def from_contact_url(url: str) -> tuple[int, str]:
     path = urlparse(raw).path or "/"
     stack = "contact"
     score = 0
+    if re.match(r"^[0-9a-z]{4,10}-[0-9a-z]{1,4}\.myshopify\.com$", host):
+        return 40, "shopify-junk"
+    if "demo" in host.split(".")[0] or "1001demo" in host:
+        return 20, "demo"
     if "myshopify.com" in host or "/cdn/shop" in raw or "/pages/contact" in path:
         stack = "shopify"
-        score = 92
+        score = 86
     elif "hsforms" in raw or "hubspot" in raw:
         stack = "hubspot"
         score = 90
@@ -31,8 +35,12 @@ def from_contact_url(url: str) -> tuple[int, str]:
     elif re.search(r"/contact(/|$)", path):
         stack = "contact"
         score = 82
-    if host.endswith(".com.tr") or host.endswith(".tr"):
+    if host.endswith(".com.tr"):
+        score = min(100, score + 6)
+    elif host.endswith(".tr"):
         score = min(100, score + 2)
+    if host.endswith(".org.tr"):
+        score = min(score, 78)
     return clamp(score), stack
 
 

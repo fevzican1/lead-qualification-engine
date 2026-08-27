@@ -37,7 +37,7 @@ import owner_notify
 import pacing
 import prefilter
 import easy_score
-from collector import scan_one
+from collector import collect_error_status, scan_one
 from form_submitter import submit_lead
 from qualification_analyzer import qualify_lead
 
@@ -52,6 +52,8 @@ DONE_STATUSES = {
     "skipped_no_open_form",
     "skipped_unsubscribed",
     "skipped_submit_failed",
+    "skipped_unreachable",
+    "skipped_enterprise",
 }
 
 
@@ -200,9 +202,13 @@ def _queue_direct_jobs(
             if not url or key in seen:
                 continue
             lead = known.get(key) or {}
-            if lead.get("status") in DONE_STATUSES:
+            if lead.get("status") in DONE_STATUSES or lead.get("status") == "failed":
                 continue
             if optout.is_url_opted_out(url) or _is_enterprise(url) or domain_store.is_processed(url):
+                continue
+            if domain_store.is_noise(url):
+                continue
+            if str(row.get("source") or "") == "catalog":
                 continue
             if lead and eligible_for_submit(lead, min_score):
                 continue
@@ -261,11 +267,12 @@ def _collect_one(page: Page, url: str, probe: dict[str, Any]) -> dict[str, Any]:
         logger.exception("Collector failed for %s", url)
         return {
             "url": url,
-            "status": "failed",
+            "status": collect_error_status(str(exc)),
             "error": str(exc),
             "contact_form": {"found": False},
             "captcha_detected": False,
             "waf_strict": bool(probe.get("waf_strict")),
+            "easy_score": 10,
         }
     lead["waf_strict"] = bool(probe.get("waf_strict") or lead.get("waf_strict"))
     lead["priority"] = int(probe.get("priority") or lead.get("priority") or 0)
@@ -303,6 +310,17 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
     config.require_pipeline_keys(submitting=submitting)
     leads = load_leads(leads_path)
+    n_old = 0
+    for lead in leads:
+        if str(lead.get("status") or "") != "failed":
+            continue
+        if (lead.get("contact_form") or {}).get("found"):
+            lead["status"] = "skipped_submit_failed"
+        else:
+            lead["status"] = "skipped_unreachable"
+        n_old += 1
+    if n_old:
+        logger.info("Reclassified %s old failed rows to skip statuses", n_old)
     pruned = domain_store.prune_dead_queue(leads)
     if pruned:
         logger.info("Pruned %s dead captcha/no-form host(s) from queue", pruned)
@@ -344,9 +362,11 @@ def run_pipeline(args: argparse.Namespace) -> int:
             if key in seen:
                 continue
             lead = known.get(key) or {}
-            if lead.get("status") in DONE_STATUSES:
+            if lead.get("status") in DONE_STATUSES or lead.get("status") == "failed":
                 continue
             if optout.is_url_opted_out(url) or _is_enterprise(url) or domain_store.is_processed(url):
+                continue
+            if domain_store.is_noise(url):
                 continue
             if not _needs_http_probe(url, lead, min_score):
                 continue
@@ -554,11 +574,19 @@ def _run_browser_pipeline(
                 leads = upsert(leads, item)
                 save_leads(leads_path, leads)
 
+                if item.get("status") in domain_store.DEAD_QUEUE or item.get("status") == "failed":
+                    if item.get("status") == "failed":
+                        item["status"] = collect_error_status(str(item.get("error") or "collect"))
+                        leads = upsert(leads, item)
+                        save_leads(leads_path, leads)
+                    processed.append(item)
+                    logger.info("Skip %s status=%s", item.get("url"), item.get("status"))
+                    continue
                 form_ok = bool((item.get("contact_form") or {}).get("found")) and not item.get(
                     "captcha_detected"
                 )
                 if item.get("status") == "skipped_captcha" or (
-                    item.get("status") != "failed" and not form_ok
+                    item.get("status") not in {"failed"} and not form_ok
                 ):
                     if item.get("status") != "skipped_captcha":
                         item = _skip_no_form(item)
@@ -623,17 +651,11 @@ def _run_browser_pipeline(
                     page=submit_page,
                     during_delay=during_delay if waf else None,
                 )
-                if str(submitted.get("status") or "") == "failed":
+                if str(submitted.get("status") or "") in {"failed", "skipped_submit_failed"}:
                     attempts = int(qualified.get("submit_attempts") or submitted.get("submit_attempts") or 0) + 1
                     submitted["submit_attempts"] = attempts
-                    err = str(submitted.get("error") or "").lower()
-                    if attempts >= 2 or "timeout" in err:
-                        submitted["status"] = "skipped_submit_failed"
-                        logger.info("Fast-drop submit %s after %s try (%s)", submitted.get("url"), attempts, err[:80])
-                elif str(submitted.get("status") or "") == "skipped_submit_failed":
-                    submitted["submit_attempts"] = max(
-                        2, int(qualified.get("submit_attempts") or submitted.get("submit_attempts") or 0) + 1
-                    )
+                    submitted["status"] = "skipped_submit_failed"
+                    logger.info("Drop submit %s after %s try (%s)", submitted.get("url"), attempts, str(submitted.get("error") or "")[:80])
                 pacing.record_submit(submitted, status=str(submitted.get("status") or ""))
                 leads = upsert(leads, submitted)
                 save_leads(leads_path, leads)
@@ -709,7 +731,13 @@ def _summarize(leads: list[dict[str, Any]], target_keys: set[str], min_score: in
             bool((lead.get("contact_form") or {}).get("found")),
         )
     submitted = sum(1 for lead in scoped if str(lead.get("status") or "").startswith("submitted"))
-    owner_notify.notify_pipeline(counts, submitted=submitted, scoped=len(scoped))
+    skip = sum(
+        1
+        for lead in scoped
+        if str(lead.get("status") or "")
+        in domain_store.DEAD_QUEUE | {"skipped_submit_failed", "skipped_unsubscribed"}
+    )
+    owner_notify.notify_pipeline(counts, submitted=submitted, scoped=len(scoped), skipped=skip)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

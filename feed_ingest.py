@@ -5,6 +5,7 @@ GitHub HTTP is not a site probe and does not consume DAILY_HTTP_PROBE_LIMIT.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from typing import Any
@@ -13,6 +14,7 @@ import httpx
 
 import config
 import domain_store
+import easy_score
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,12 @@ def _pull_github() -> list[dict[str, Any]]:
     except Exception as exc:  # noqa: BLE001
         logger.info("GitHub feed pull skipped: %s", exc)
         return []
+    if isinstance(payload, dict) and payload.get("encoding") == "base64" and payload.get("content"):
+        try:
+            payload = json.loads(base64.b64decode(payload["content"]).decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            logger.info("GitHub contents decode failed: %s", exc)
+            return []
     rows = payload.get("urls") if isinstance(payload, dict) else payload
     logger.info("Pulled GitHub feed rows=%s", len(rows or []))
     return [row for row in (rows or []) if isinstance(row, dict)]
@@ -74,7 +82,7 @@ def ingest(*, limit: int | None = None) -> int:
             continue
         if domain_store.is_noise(url):
             continue
-        score = int(row.get("easy_score") or 0)
+        score, _stack = easy_score.from_contact_url(url)
         if score < min_score:
             continue
         prev = merged.get(host)

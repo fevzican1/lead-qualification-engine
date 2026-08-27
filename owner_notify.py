@@ -107,12 +107,19 @@ def send(text: str, *, chat_id: int | None = None) -> bool:
     return False
 
 
-def notify_pipeline(counts: dict[str, Any], *, submitted: int, scoped: int) -> None:
+def notify_pipeline(
+    counts: dict[str, Any],
+    *,
+    submitted: int,
+    scoped: int,
+    skipped: int = 0,
+) -> None:
+    del counts
     send(
         "Pipeline turu bitti.\n"
-        f"İşlenen: {scoped}\n"
         f"Form gönderim: {submitted}\n"
-        f"Kırılım: {counts}\n"
+        f"Atlanan (CAPTCHA / form yok / ulaşılamaz): {skipped}\n"
+        f"Bu tur bakılan: {scoped}\n"
         f"Kuyruk: {domain_store.queue_depth()}/{getattr(config, 'QUEUE_TARGET', 150)} "
         f"| HTTP {domain_store.http_budget_label()}\n"
         "Müşteri yazarsa satış sohbeti bu bota düşer."

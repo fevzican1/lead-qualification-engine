@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -144,6 +145,7 @@ NOISE = {
     "t.me",
     "whatsapp.com",
     "apple.com",
+    "1001demo.com.tr",
 }
 
 TERMINAL = {
@@ -156,12 +158,15 @@ TERMINAL = {
     "skipped_unsubscribed",
     "skipped_enterprise",
     "skipped_submit_failed",
+    "skipped_unreachable",
 }
 
 DEAD_QUEUE = {
     "skipped_captcha",
     "skipped_no_form",
     "skipped_no_open_form",
+    "skipped_unreachable",
+    "skipped_enterprise",
 }
 
 
@@ -214,6 +219,10 @@ def is_enterprise(url: str) -> bool:
 def is_noise(url: str) -> bool:
     host = host_of(url)
     if not host or "." not in host:
+        return True
+    if "demo" in host.split(".")[0] or "1001demo" in host:
+        return True
+    if re.match(r"^[0-9a-z]{4,10}-[0-9a-z]{1,4}\.myshopify\.com$", host, re.I):
         return True
     return any(host == d or host.endswith("." + d) for d in NOISE) or host.endswith(".gov") or host.endswith(".gov.tr")
 

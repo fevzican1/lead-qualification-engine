@@ -118,7 +118,7 @@ def find_leads(batch: int | None = None) -> list[str]:
         host = _domain(url)
         if not host:
             continue
-        if domain_store.enqueue(url, source="catalog", easy_score=68):
+        if domain_store.enqueue(url, source="catalog", easy_score=60):
             added.append(url)
 
     if added:

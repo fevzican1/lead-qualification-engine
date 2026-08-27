@@ -254,6 +254,12 @@ def _scan_one_body(page: Page, url: str, *, timeout_ms: int) -> dict[str, Any]:
     return lead
 
 
+def collect_error_status(error: str) -> str:
+    """Collect exceptions are dead hosts (DNS/timeout/redirect), not retryable 'failed'."""
+    del error
+    return "skipped_unreachable"
+
+
 def _failed_lead(url: str, error: str) -> dict[str, Any]:
     return {
         "url": _normalize_url(url),
@@ -264,8 +270,9 @@ def _failed_lead(url: str, error: str) -> dict[str, Any]:
         "stack_hints": [],
         "contact_form": {"found": False, "page_url": None, "fields": []},
         "captcha_detected": False,
-        "status": "failed",
+        "status": collect_error_status(error),
         "error": error,
+        "easy_score": 10,
     }
 
 

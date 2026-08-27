@@ -118,11 +118,13 @@ def caption(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
     if turkish:
         lead = f"{who}: " if who else ""
         return (
-            f"{lead}sitenizdeki bahsettiğim checkout / ödeme kopuğunun analizi şöyle. "
-            f"Kırmızı kutu kilitlenmesi gereken halka. İş {config.price_label()}, panel durur."
+            f"{lead}checkout / ödeme kopuğu bu kartta. Kırmızı kutu kilitlenmesi gereken halka. "
+            f"Bu hafta kaç sipariş elle kapanıyor? Sayıyı yazın, akışı ona göre çizerim. "
+            f"İş {config.price_label()}, panel durur."
         )
     lead = f"{who}: " if who else ""
     return (
-        f"{lead}here is the checkout/payment break I mentioned. "
-        f"The red box is the link that should lock on one id. Job {config.price_label()}, panel stays."
+        f"{lead}this is the checkout/payment break. The red box is the link that should lock on one id. "
+        f"How many orders this week close by hand? Send the number and I lock the flow to it. "
+        f"Job {config.price_label()}, panel stays."
     )

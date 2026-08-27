@@ -30,22 +30,27 @@ logger = logging.getLogger(__name__)
 COLLINFO = "https://index.commoncrawl.org/collinfo.json"
 CONTACT_PATH_RE = re.compile(
     r"(?i)/(iletisim|iletişim|contact-us|contactus|get-in-touch|"
-    r"bize-ulasin|bizeulasin|pages/contact)(/|$|\?)"
+    r"bize-ulasin|bizeulasin|bize-ulaşın|pages/contact)(/|$|\?)"
     r"|/(contact)(/|$|\?)"
 )
 NEWS_HOST_RE = re.compile(
     r"haber|gazete|news|gundem|magazin|spor|tv\d|radyo|blog\.",
     re.I,
 )
-QUERIES: tuple[tuple[str, str], ...] = (
-    ("*.com.tr", r".*/iletisim(?:/|$|\?)"),
-    ("*.com.tr", r".*/contact(?:/|$|\?)"),
-    ("*.net.tr", r".*/iletisim(?:/|$|\?)"),
-    ("*.org.tr", r".*/iletisim(?:/|$|\?)"),
-    ("*.myshopify.com", r".*/pages/contact(?:/|$|\?)"),
-    ("*.com", r".*/contact-us(?:/|$|\?)"),
-    ("*.io", r".*/contact(?:/|$|\?)"),
-    ("*.co", r".*/contact(?:/|$|\?)"),
+NEWS_PATH_RE = re.compile(
+    r"/haber|/duyuru|/baskan|/news/|/blog/|iletisim-baskan",
+    re.I,
+)
+# (wildcard, url regex, max pages). TR contact pages first; skip .org.tr NGOs.
+QUERIES: tuple[tuple[str, str, int], ...] = (
+    ("*.com.tr", r".*/iletisim(?:/|$|\?)", 12),
+    ("*.com.tr", r".*/bize-ulasin(?:/|$|\?)", 8),
+    ("*.com.tr", r".*/contact(?:/|$|\?)", 6),
+    ("*.net.tr", r".*/iletisim(?:/|$|\?)", 8),
+    ("*.myshopify.com", r".*/pages/contact(?:/|$|\?)", 4),
+    ("*.com", r".*/contact-us(?:/|$|\?)", 4),
+    ("*.io", r".*/contact(?:/|$|\?)", 3),
+    ("*.co", r".*/contact(?:/|$|\?)", 3),
 )
 
 
@@ -84,6 +89,8 @@ def _is_contact_url(url: str) -> bool:
         return False
     if "/password" in path or "/cgi-sys/" in path:
         return False
+    if NEWS_PATH_RE.search(path):
+        return False
     return bool(CONTACT_PATH_RE.search(path))
 
 
@@ -95,6 +102,8 @@ def _keep(url: str) -> bool:
     if not host or domain_store.is_noise(url) or domain_store.is_enterprise(url):
         return False
     if NEWS_HOST_RE.search(host):
+        return False
+    if host.endswith(".org.tr"):
         return False
     if not _is_contact_url(url):
         return False
@@ -114,17 +123,36 @@ def _origin_contact(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}{kept}".rstrip("/")
 
 
+def _cdx_get(client: httpx.Client, api: str, params: list[tuple[str, str]]):
+    last: httpx.Response | None = None
+    for attempt in range(1, 4):
+        try:
+            response = client.get(api, params=params)
+        except Exception as exc:  # noqa: BLE001
+            logger.info("CDX transport fail attempt %s: %s", attempt, exc)
+            time.sleep(2.0 * attempt)
+            continue
+        last = response
+        if response.status_code in {429, 500, 502, 503}:
+            logger.info("CDX HTTP %s attempt %s — retry", response.status_code, attempt)
+            time.sleep(2.5 * attempt)
+            continue
+        return response
+    return last
+
+
 def harvest(
     *,
     per_page: int = 100,
-    max_pages: int = 6,
+    max_pages: int = 12,
     sleep_s: float = 0.35,
 ) -> list[dict[str, str | int]]:
     api = _latest_cdx()
     by_host: dict[str, dict[str, str | int]] = {}
     with httpx.Client(timeout=90.0, follow_redirects=True) as client:
-        for wildcard, url_re in QUERIES:
-            for page in range(max_pages):
+        for wildcard, url_re, query_pages in QUERIES:
+            pages = max(1, min(int(query_pages), int(max_pages)))
+            for page in range(pages):
                 params: list[tuple[str, str]] = [
                     ("url", wildcard),
                     ("output", "json"),
@@ -134,18 +162,16 @@ def harvest(
                     ("limit", str(per_page)),
                     ("page", str(page)),
                 ]
-                try:
-                    response = client.get(api, params=params)
-                except Exception as exc:  # noqa: BLE001
-                    logger.info("CDX fail %s page %s: %s", wildcard, page, exc)
-                    time.sleep(2.0)
+                response = _cdx_get(client, api, params)
+                if response is None:
+                    logger.info("CDX give up %s page %s", wildcard, page)
                     continue
                 if response.status_code == 404:
                     break
                 if response.status_code >= 400:
-                    logger.info("CDX HTTP %s %s p%s", response.status_code, wildcard, page)
+                    logger.info("CDX HTTP %s %s p%s — next page", response.status_code, wildcard, page)
                     time.sleep(2.0)
-                    break
+                    continue
                 lines = [ln for ln in response.text.splitlines() if ln.startswith("{")]
                 if not lines:
                     break
@@ -174,13 +200,14 @@ def harvest(
                     }
                     added_page += 1
                 logger.info(
-                    "CDX %s p%s lines=%s kept_hosts=%s",
+                    "CDX %s p%s lines=%s kept_hosts=%s total=%s",
                     wildcard,
                     page,
                     len(lines),
                     added_page,
+                    len(by_host),
                 )
-                if len(lines) < max(10, per_page // 5):
+                if len(lines) < per_page:
                     break
                 time.sleep(sleep_s)
     rows = sorted(by_host.values(), key=lambda r: -int(r.get("easy_score") or 0))
@@ -196,14 +223,25 @@ def merge_feed(path: Path, rows: list[dict[str, str | int]], *, cap: int = 12000
             for item in payload.get("urls") or []:
                 if not isinstance(item, dict):
                     continue
-                host = str(item.get("host") or domain_store.host_of(str(item.get("url") or "")))
+                url = str(item.get("url") or "")
+                if not _keep(url):
+                    continue
+                host = str(item.get("host") or domain_store.host_of(url))
                 if host:
+                    score, stack = easy_score.from_contact_url(url)
+                    item = dict(item)
+                    item["easy_score"] = int(score)
+                    item["stack"] = stack
+                    item["host"] = host
                     existing[host] = item
         except json.JSONDecodeError:
             existing = {}
     for row in rows:
         host = str(row.get("host") or "")
         if not host:
+            continue
+        url = str(row.get("url") or "")
+        if not _keep(url):
             continue
         prev = existing.get(host)
         if prev and int(prev.get("easy_score") or 0) > int(row.get("easy_score") or 0):
@@ -224,7 +262,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default=str(ROOT / "feeds" / "ready_queue.json"))
     parser.add_argument("--limit", type=int, default=12000)
-    parser.add_argument("--pages", type=int, default=6)
+    parser.add_argument("--pages", type=int, default=12)
     parser.add_argument("--per-page", type=int, default=100)
     args = parser.parse_args()
     out = Path(args.out)

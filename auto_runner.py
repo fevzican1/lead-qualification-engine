@@ -3,10 +3,12 @@ Continuous loop: refill the lead queue, then qualify and submit.
 
 Each cycle:
   1. reload B2B/Oracle knowledge
-  2. catalog dump into the queue (zero HTTP) until QUEUE_MAX
-  3. HTTP discovery if the buffer is still thin
-  4. pipeline.py --submit (Chromium slice, daily/hourly form caps)
-  5. sleep 1h if under daily cap; until next UTC day if daily submit cap
+  2. ingest Common Crawl feed (zero Oracle HTTP)
+  3. catalog dump into the queue (zero HTTP) until QUEUE_MAX
+  4. HTTP discovery only if fuel is thin AND probe budget remains
+  5. pipeline.py --submit (Chromium slice, daily/hourly form caps)
+  6. sleep 90s while the hour is open — HTTP empty does not park the loop.
+     Sleep until next UTC hour only on hourly form cap; until midnight on daily form cap.
 """
 
 from __future__ import annotations
@@ -83,8 +85,6 @@ def _sleep_after_cycle() -> int:
     today_n, hour_n = knowledge.submit_counts()
     daily = knowledge.daily_cap()
     hourly = knowledge.hourly_cap()
-    target = int(getattr(config, "QUEUE_TARGET", 150) or 150)
-    day_left, _, hour_left, _ = domain_store.http_budget_parts()
     fuel = domain_store.chromium_fuel_count()
     if today_n >= daily:
         wait = min(knowledge.seconds_until_utc_midnight(), max(config.AUTO_RUNNER_SLEEP_SECONDS, 3600))
@@ -94,34 +94,14 @@ def _sleep_after_cycle() -> int:
         wait = domain_store.seconds_until_next_utc_hour()
         logger.info("Hourly cap %s/%s — sleeping %ss until next UTC hour", hour_n, hourly, wait)
         return wait
-    if fuel > 0:
-        wait = 90
-        logger.info(
-            "Hour still open %s/%s chromium_fuel=%s — retry in %ss (HTTP not required)",
-            hour_n,
-            hourly,
-            fuel,
-            wait,
-        )
-        return wait
-    if hour_left <= 0 or day_left <= 0:
-        wait = domain_store.seconds_until_next_utc_hour() if hour_left <= 0 else min(
-            knowledge.seconds_until_utc_midnight(), domain_store.seconds_until_next_utc_hour()
-        )
-        logger.info(
-            "No Chromium fuel and HTTP empty (%s) — sleep %ss then restock",
-            domain_store.http_budget_label(),
-            wait,
-        )
-        return wait
-    wait = max(120, min(300, domain_store.seconds_until_next_utc_hour()))
+    # HTTP empty does not park the machine. Feed ingest + Chromium-direct keep looping.
+    wait = 90
     logger.info(
-        "Room left today %s/%s queue=%s/%s fuel=%s http=%s — next cycle in %ss",
-        today_n,
-        daily,
-        domain_store.queue_depth(),
-        target,
+        "Hour open %s/%s fuel=%s queue=%s http=%s — next cycle in %ss",
+        hour_n,
+        hourly,
         fuel,
+        domain_store.queue_depth(),
         domain_store.http_budget_label(),
         wait,
     )
