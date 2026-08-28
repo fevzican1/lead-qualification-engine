@@ -5,7 +5,7 @@ name: discover-feed
 # Random CDX page sampling, so every run lands on a new slice of the crawl.
 on:
   schedule:
-    - cron: "20 */4 * * *"
+    - cron: "20 */2 * * *"
   workflow_dispatch:
 
 permissions:
@@ -18,7 +18,7 @@ concurrency:
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
         with:
@@ -29,8 +29,8 @@ jobs:
       - name: Install
         run: pip install -q httpx python-dotenv
       - name: Common Crawl CDX harvest
-        timeout-minutes: 11
-        run: python scripts/cc_discover.py --out feeds/ready_queue.json --limit 60000 --per-page 1200 --deadline 480 --workers 8
+        timeout-minutes: 14
+        run: python scripts/cc_discover.py --out feeds/ready_queue.json --limit 60000 --per-page 1200 --deadline 600 --workers 8
       - name: Commit feed
         run: |
           git config user.name "devsolve-discover"

@@ -161,6 +161,9 @@ def _base_params(wildcard: str, url_re: str) -> list[tuple[str, str]]:
     return [
         ("url", wildcard),
         ("output", "json"),
+        # One matching contact page per host keeps a page from being consumed
+        # by dozens of URLs from the same site.
+        ("collapse", "host"),
         ("filter", "=status:200"),
         ("filter", f"~url:{url_re}"),
         ("filter", "=mime:text/html"),
@@ -256,8 +259,11 @@ def harvest(
     with httpx.Client(timeout=timeout, limits=limits, follow_redirects=True) as client:
         page_counts: dict[tuple[str, str], int] = {}
         tasks: list[tuple[str, str, str, int, int]] = []
+        primary_api = apis[0]
         for wildcard, url_re, weight in queries:
-            api = apis[rng.randrange(len(apis))]
+            # Collinfo is newest-first; older indexes mostly repeat the same
+            # hosts and were starving the refill with only a few fresh rows.
+            api = primary_api
             key = (api, wildcard)
             if key not in page_counts:
                 page_counts[key] = _num_pages(client, api, wildcard)
