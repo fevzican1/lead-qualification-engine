@@ -99,6 +99,17 @@ def authorize_target_rows(leads: list[dict[str, Any]], target_urls: list[str]) -
     return changed
 
 
+def refresh_retryable_targets(target_urls: list[str]) -> set[str]:
+    """Reopen one cooled-down no-send attempt from the explicit target list."""
+    reopened: set[str] = set()
+    for url in target_urls:
+        if domain_store.requeue_if_retryable(url):
+            key = _url_key(url)
+            if key:
+                reopened.add(key)
+    return reopened
+
+
 def load_leads(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -363,11 +374,19 @@ def run_pipeline(args: argparse.Namespace) -> int:
     except (FileNotFoundError, ValueError):
         file_targets = []
     authorized_rows = authorize_target_rows(leads, file_targets)
+    reopened_targets = refresh_retryable_targets(file_targets)
+    if reopened_targets:
+        for lead in leads:
+            if _url_key(str(lead.get("url") or "")) in reopened_targets:
+                lead["status"] = "queued"
+                lead["error"] = None
     for url in file_targets:
         domain_store.enqueue(url, source="targets.txt")
     save_leads(leads_path, leads)
     if authorized_rows:
         logger.info("Authorized %s existing lead row(s) from targets allowlist", authorized_rows)
+    if reopened_targets:
+        logger.info("Reopened %s cooled-down target row(s) for one retry", reopened_targets)
     domain_store.hydrate_from_leads(leads)
     knowledge.refresh(leads=leads)
 
