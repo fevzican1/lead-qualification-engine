@@ -111,6 +111,8 @@ _NET_NOISE = (
     "/api/collect",
     "/cart",
     "/localization",
+    "maps.googleapis.com",
+    "googleapis.com/$rpc",
 )
 
 IS_HONEYPOT_JS = """(e) => {
