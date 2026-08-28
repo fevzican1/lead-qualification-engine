@@ -253,7 +253,6 @@ async def _hot_ping(chat_id: int, update: Update, text: str) -> None:
         return
     if not _is_hot(text):
         return
-    telegram_sessions.mark_hot(chat_id)
     row = _briefs.get(chat_id) or {}
     who = str(row.get("company") or row.get("host") or "—")
     user = _username(update) or "yok"
@@ -271,6 +270,7 @@ async def _hot_ping(chat_id: int, update: Update, text: str) -> None:
     )
     ok = await asyncio.to_thread(owner_notify.send, ping)
     if ok:
+        telegram_sessions.mark_hot(chat_id)
         logger.info("Hot-lead ping sent for chat %s (%s)", chat_id, who)
     else:
         logger.warning("Hot-lead ping skipped (no owner chat — /notifyme)")
@@ -469,6 +469,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             owner_notify.send,
             f"Aday {chat_id} (senin sohbetin):\n{snippet}\n\n/reply {chat_id} …",
         )
+        return
+
+    if telegram_sessions.is_payment_sent(chat_id):
+        logger.info("Payment already sent; closing automated sales loop for chat %s", chat_id)
         return
 
     _remember(chat_id, "user", user_text)

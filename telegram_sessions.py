@@ -137,7 +137,11 @@ def should_hot_ping(chat_id: int) -> bool:
 
 
 def mark_payment(chat_id: int) -> None:
-    _put(chat_id, payment_sent=True, last_at=_now().isoformat())
+    _put(chat_id, payment_sent=True, followup_sent=True, last_at=_now().isoformat())
+
+
+def is_payment_sent(chat_id: int) -> bool:
+    return bool(_row(chat_id).get("payment_sent"))
 
 
 def set_takeover(chat_id: int, on: bool) -> None:
