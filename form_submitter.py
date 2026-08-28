@@ -5,7 +5,7 @@ Fills a previously discovered public contact form with the sender identity from
 `.env` and the personalized value proposition from the qualifier.
 
 Behaviour:
-- Adaptive jitter before submit: 15–30s on ordinary sites, 45–60s on WAF/Cloudflare.
+- Adaptive jitter before submit: 5–8s on ordinary sites, 8–12s on WAF/Cloudflare.
 - Fills only visible input/textarea controls; skips hidden and honeypot fields.
 - Types at 30–70ms per character. Never solves CAPTCHAs.
 - Submit cascade: scroll → requestSubmit → MouseEvent click → Enter.

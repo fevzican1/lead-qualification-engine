@@ -236,16 +236,20 @@ def main() -> None:
             continue
 
         print("\n[3/3] Formlar dolduruluyor...")
-        pipe_timeout = int(getattr(config, "PIPELINE_TIMEOUT_SECONDS", 60) or 60)
+        # PIPELINE_TIMEOUT_SECONDS is the per-site hang budget. Give the
+        # subprocess enough time to finish the whole Chromium batch so one
+        # slow site cannot truncate otherwise healthy submissions.
+        pipe_timeout = int(getattr(config, "PIPELINE_TIMEOUT_SECONDS", 30) or 30)
+        batch_timeout = pipe_timeout * max(2, int(getattr(config, "CHROMIUM_BATCH", 32) or 32)) + 60
         pipeline_code = _run(
             "pipeline.py",
             ["--targets", str(config.TARGETS_PATH), "--submit"],
-            timeout=pipe_timeout,
+            timeout=batch_timeout,
         )
         if pipeline_code == 124:
-            logger.warning("pipeline hung — killed after %ss", pipe_timeout)
+            logger.warning("pipeline batch hung — killed after %ss", batch_timeout)
             owner_notify.send(
-                f"Pipeline bir sitede takıldı, {pipe_timeout // 60} dk sonra kestik. "
+                f"Pipeline batch takıldı, {batch_timeout // 60} dk sonra kestik. "
                 "Sonraki tur devam edecek — bildirim kesilmesin diye."
             )
         elif pipeline_code != 0:
