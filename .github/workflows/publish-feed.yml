@@ -34,8 +34,6 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: pip install -q httpx python-dotenv
-      - name: Merge and validate shards
-        run: python scripts/merge_feed_shards.py --cap 60000
       - name: Commit aggregate feed
         run: |
           git config user.name "devsolve-discover"
