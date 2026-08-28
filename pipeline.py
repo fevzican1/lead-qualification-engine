@@ -110,7 +110,8 @@ def upsert(leads: list[dict[str, Any]], lead: dict[str, Any]) -> list[dict[str, 
 
 
 def eligible_for_submit(lead: dict[str, Any], min_score: int) -> bool:
-    if optout.is_url_opted_out(str(lead.get("url") or "")):
+    url = str(lead.get("url") or "")
+    if optout.is_url_opted_out(url) or domain_store.is_deferred(url):
         return False
     status = str(lead.get("status") or "")
     if status.startswith("submitted"):

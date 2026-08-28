@@ -297,6 +297,21 @@ def requeue_if_retryable(url: str) -> bool:
     return True
 
 
+def is_deferred(url: str) -> bool:
+    """Return whether a queue lease is still active for this host."""
+    host = host_of(url)
+    if not host:
+        return True
+    now = datetime.now(timezone.utc)
+    for row in _queue().get("urls") or []:
+        if not isinstance(row, dict) or host_of(str(row.get("url") or "")) != host:
+            continue
+        next_try = _parse_ts(str(row.get("next_try") or ""))
+        if next_try is not None and next_try > now:
+            return True
+    return False
+
+
 def mark(url: str, status: str, *, source: str = "pipeline") -> None:
     host = host_of(url)
     if not host:
