@@ -77,8 +77,9 @@ def ingest(*, limit: int | None = None) -> int:
     merged: dict[str, dict[str, Any]] = {}
     retry_budget = room
     for row in [*_load_file(), *_pull_github()]:
-        url = domain_store.origin_url(str(row.get("url") or ""))
-        host = domain_store.host_of(url)
+        url = str(row.get("url") or "").strip()
+        canonical = domain_store.origin_url(url)
+        host = domain_store.host_of(canonical)
         if not host or domain_store.is_enterprise(url):
             continue
         if domain_store.is_processed(url):
@@ -89,13 +90,20 @@ def ingest(*, limit: int | None = None) -> int:
             continue
         if domain_store.is_noise(url):
             continue
+        # Score the harvested contact path before enqueue canonicalizes the
+        # queue row to its origin; otherwise /contact becomes "/" and every
+        # feed row is incorrectly rejected as score 0.
         score, _stack = easy_score.from_contact_url(url)
         if score < min_score:
             continue
         prev = merged.get(host)
         if prev and int(prev.get("easy_score") or 0) >= score:
             continue
-        merged[host] = {"url": url, "easy_score": score, "stack": row.get("stack") or ""}
+        merged[host] = {
+            "url": canonical,
+            "easy_score": score,
+            "stack": row.get("stack") or "",
+        }
 
     ranked = sorted(merged.values(), key=lambda r: -int(r["easy_score"]))
     added = 0
