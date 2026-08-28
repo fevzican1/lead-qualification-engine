@@ -1,0 +1,17 @@
+name: discover-cc-global
+
+on:
+  schedule:
+    - cron: "10 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  shard:
+    uses: ./.github/workflows/harvest-shard.yml
+    with:
+      profile: global
+      source: commoncrawl-global
+      output: feeds/shards/commoncrawl-global.json

@@ -1,0 +1,60 @@
+name: harvest-shard
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        required: true
+        type: string
+      source:
+        required: true
+        type: string
+      output:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    concurrency:
+      group: ${{ github.workflow }}-${{ inputs.profile }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -q httpx python-dotenv
+      - name: Harvest isolated shard
+        run: |
+          python scripts/harvest_shard.py \
+            --profile "${{ inputs.profile }}" \
+            --source "${{ inputs.source }}" \
+            --out "${{ inputs.output }}" \
+            --limit 6000 \
+            --per-page 800 \
+            --deadline 480 \
+            --workers 1
+      - name: Commit shard
+        run: |
+          git config user.name "devsolve-discover"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${{ inputs.output }}"
+          if git diff --cached --quiet; then
+            echo "No shard changes"
+            exit 0
+          fi
+          git commit -m "feed: update ${{ inputs.source }} shard"
+          for attempt in 1 2 3; do
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            sleep $((attempt * 5))
+          done
+          echo "Shard push failed after retries"
+          exit 1

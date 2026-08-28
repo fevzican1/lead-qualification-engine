@@ -103,6 +103,8 @@ def ingest(*, limit: int | None = None) -> int:
             "url": canonical,
             "easy_score": score,
             "stack": row.get("stack") or "",
+            "source": str(row.get("source") or "public-discovery")[:80],
+            "profile": str(row.get("profile") or "")[:40],
         }
 
     ranked = sorted(merged.values(), key=lambda r: -int(r["easy_score"]))
@@ -112,7 +114,7 @@ def ingest(*, limit: int | None = None) -> int:
             break
         if domain_store.enqueue(
             str(row["url"]),
-            source="cc-feed",
+            source=str(row.get("source") or "public-discovery"),
             easy_score=int(row["easy_score"]),
         ):
             added += 1

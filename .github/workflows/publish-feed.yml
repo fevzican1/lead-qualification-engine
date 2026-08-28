@@ -1,0 +1,79 @@
+name: publish-feed
+
+on:
+  schedule:
+    - cron: "05,35 * * * *"
+  workflow_run:
+    workflows:
+      - discover-feed
+      - discover-cc-tr
+      - discover-cc-global
+      - discover-cc-eu
+      - discover-cc-platform
+      - discover-tranco-sitemap
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-feed
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -q httpx python-dotenv
+      - name: Merge and validate shards
+        run: python scripts/merge_feed_shards.py --cap 60000
+      - name: Commit aggregate feed
+        run: |
+          git config user.name "devsolve-discover"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add feeds/ready_queue.json
+          if git diff --cached --quiet; then
+            echo "No aggregate feed changes"
+            exit 0
+          fi
+          git commit -m "feed: publish multi-source discovery queue"
+          for attempt in 1 2 3; do
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            sleep $((attempt * 5))
+          done
+          echo "Aggregate feed push failed after retries"
+          exit 1
+      - name: Sync aggregate feed to Oracle
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOST:-}" ] || [ -z "${SSH_KEY:-}" ]; then
+            echo "ORACLE_HOST / ORACLE_SSH_KEY not set — feed remains on GitHub"
+            exit 0
+          fi
+          USER="${USER:-ubuntu}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle.key
+          chmod 600 ~/.ssh/oracle.key
+          ssh-keyscan -T 8 -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
+            "${USER}@${HOST}" "mkdir -p /opt/devsolve/feeds"
+          scp -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
+            feeds/ready_queue.json "${USER}@${HOST}:/opt/devsolve/feeds/ready_queue.json.tmp"
+          ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
+            "${USER}@${HOST}" "mv -f /opt/devsolve/feeds/ready_queue.json.tmp /opt/devsolve/feeds/ready_queue.json && flock -w 20 /tmp/devsolve-feed.lock -c 'cd /opt/devsolve && .venv/bin/python feed_ingest.py'"

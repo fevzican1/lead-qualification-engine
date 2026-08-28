@@ -36,7 +36,7 @@ ORACLE_FREE = {
     "ollama_parallel": 1,
     "smtp": False,
     "public_ollama": False,
-    "daily_submit_limit": 300,
+    "daily_submit_limit": 400,
     "hourly_submit_limit": 32,
 }
 

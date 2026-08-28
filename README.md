@@ -24,6 +24,10 @@ flowchart LR
 
 Use this only on websites and inboxes you are authorized to contact, and only in ways that comply with applicable anti-spam, privacy, and computer-access laws (including consent / lawful-basis rules in your jurisdiction). The submitter **does not** solve CAPTCHAs, log into accounts, or bypass access controls — protected forms are skipped. Form posting is opt-in (`--submit`); the default pipeline run only collects and qualifies.
 
+## Discovery feeds
+
+GitHub Actions runs bounded, staggered public discovery shards and a single serialized publisher. Shards write only `feeds/shards/`; the publisher builds `feeds/ready_queue.json` and performs one atomic Oracle sync, so discovery does not consume the Oracle HTTP probe budget. Tranco sitemap discovery is sequential and capped; Google scraping and unlicensed data-provider APIs are intentionally not used.
+
 ## Layout
 
 | File | Role |
@@ -31,7 +35,7 @@ Use this only on websites and inboxes you are authorized to contact, and only in
 | `config.py` | Loads `.env` (`OPENAI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `PAYONEER_PAYMENT_URL`, product/ICP/sender fields) |
 | `collector.py` | Playwright scan: description, company name, contact form, CAPTCHA flag |
 | `qualification_analyzer.py` | `fit_score` 0–100 + Telegram-directed value proposition |
-| `form_submitter.py` | Maps fields, waits 20–40s, submits; skips CAPTCHA / missing forms |
+| `form_submitter.py` | Maps fields, waits 5–12s, submits; skips CAPTCHA / missing forms |
 | `telegram_sales_bot.py` | Inbound sales chat; payment URL only on purchase intent |
 | `pipeline.py` | Orchestrates collect → qualify → optional submit; writes `leads.json` |
 

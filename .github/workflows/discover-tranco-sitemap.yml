@@ -1,0 +1,50 @@
+name: discover-tranco-sitemap
+
+on:
+  schedule:
+    - cron: "50 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    concurrency:
+      group: discover-tranco-sitemap
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -q httpx python-dotenv
+      - name: Discover public sitemap contacts
+        run: |
+          python scripts/tranco_sitemap.py \
+            --out feeds/shards/tranco-sitemap.json \
+            --max-domains 400 \
+            --deadline 480 \
+            --delay 0.2 \
+            --limit 4000
+      - name: Commit shard
+        run: |
+          git config user.name "devsolve-discover"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add feeds/shards/tranco-sitemap.json
+          if git diff --cached --quiet; then
+            echo "No shard changes"
+            exit 0
+          fi
+          git commit -m "feed: update Tranco sitemap shard"
+          for attempt in 1 2 3; do
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            sleep $((attempt * 5))
+          done
+          echo "Tranco shard push failed after retries"
+          exit 1

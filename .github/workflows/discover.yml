@@ -11,62 +11,10 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: discover-feed
-  cancel-in-progress: false
-
 jobs:
-  harvest:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 1
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-      - name: Install
-        run: pip install -q httpx python-dotenv
-      - name: Common Crawl CDX harvest
-        timeout-minutes: 14
-        run: python scripts/cc_discover.py --out feeds/ready_queue.json --limit 60000 --per-page 1200 --deadline 600 --workers 8
-      - name: Commit feed
-        run: |
-          git config user.name "devsolve-discover"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add feeds/ready_queue.json
-          if git diff --cached --quiet; then
-            echo "No feed changes"
-          else
-            git commit -m "feed: Common Crawl contact-page harvest"
-            git pull --rebase --autostash origin master || true
-            git push || echo "feed push deferred — next run will retry"
-          fi
-      - name: Copy feed to Oracle and ingest
-        continue-on-error: true
-        timeout-minutes: 4
-        env:
-          HOST: ${{ secrets.ORACLE_HOST }}
-          USER: ${{ secrets.ORACLE_USER }}
-          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
-        run: |
-          set -u
-          if [ -z "${HOST:-}" ] || [ -z "${SSH_KEY:-}" ]; then
-            echo "ORACLE_HOST / ORACLE_SSH_KEY not set — feed stays on GitHub"
-            exit 0
-          fi
-          USER="${USER:-ubuntu}"
-          mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle.key
-          chmod 600 ~/.ssh/oracle.key
-          ssh-keyscan -T 8 -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-          ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
-            -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
-            "${USER}@${HOST}" "mkdir -p /opt/devsolve/feeds"
-          scp -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
-            -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
-            feeds/ready_queue.json "${USER}@${HOST}:/opt/devsolve/feeds/ready_queue.json"
-          ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
-            -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
-            "${USER}@${HOST}" "cd /opt/devsolve && .venv/bin/python feed_ingest.py"
+  shard:
+    uses: ./.github/workflows/harvest-shard.yml
+    with:
+      profile: all
+      source: commoncrawl-cdx
+      output: feeds/shards/commoncrawl-cdx.json

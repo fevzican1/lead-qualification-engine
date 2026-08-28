@@ -1,0 +1,17 @@
+name: discover-cc-platform
+
+on:
+  schedule:
+    - cron: "40 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  shard:
+    uses: ./.github/workflows/harvest-shard.yml
+    with:
+      profile: platform
+      source: commoncrawl-platform
+      output: feeds/shards/commoncrawl-platform.json

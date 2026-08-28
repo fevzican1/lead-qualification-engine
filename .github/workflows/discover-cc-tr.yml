@@ -1,0 +1,17 @@
+name: discover-cc-tr
+
+on:
+  schedule:
+    - cron: "00 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  shard:
+    uses: ./.github/workflows/harvest-shard.yml
+    with:
+      profile: tr
+      source: commoncrawl-tr
+      output: feeds/shards/commoncrawl-tr.json

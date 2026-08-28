@@ -68,7 +68,7 @@ EU_PATHS = (
 )
 
 
-def _queries() -> list[tuple[str, str, int]]:
+def _queries(profile: str = "all") -> list[tuple[str, str, int]]:
     """(wildcard, url regex, weight). Weight = how many random pages to pull."""
     rows: list[tuple[str, str, int]] = []
     for path in TR_PATHS:
@@ -86,6 +86,31 @@ def _queries() -> list[tuple[str, str, int]]:
         rows.append((wildcard, EU_PATHS[0], 2))
     rows.append(("*.es", EU_PATHS[1], 2))
     rows.append(("*.it", EU_PATHS[2], 2))
+    profile = (profile or "all").strip().lower()
+    if profile == "tr":
+        return [row for row in rows if row[0] in {"*.com.tr", "*.net.tr", "*.tr"}]
+    if profile == "global":
+        return [
+            row
+            for row in rows
+            if row[0] in {"*.com", "*.co", "*.io", "*.net", "*.co.uk"}
+            and row[0] != "*.myshopify.com"
+        ]
+    if profile == "eu":
+        return [row for row in rows if row[0] in {"*.de", "*.nl", "*.pl", "*.se", "*.dk", "*.at", "*.ch", "*.es", "*.it"}]
+    if profile == "platform":
+        return [row for row in rows if row[0] == "*.myshopify.com"]
+    if profile == "longtail":
+        rows.extend(
+            [
+                ("*.biz", EN_PATHS[0], 2),
+                ("*.info", EN_PATHS[0], 2),
+                ("*.shop", EN_PATHS[0], 2),
+                ("*.store", EN_PATHS[0], 2),
+                ("*.online", EN_PATHS[0], 2),
+            ]
+        )
+        return [row for row in rows if row[0] in {"*.biz", "*.info", "*.shop", "*.store", "*.online"}]
     return rows
 
 
@@ -241,15 +266,18 @@ def harvest(
     deadline_s: float = 480.0,
     seed: int | None = None,
     workers: int = 8,
+    profile: str = "all",
 ) -> list[dict[str, str | int]]:
     started = time.monotonic()
     rng = random.Random(seed if seed is not None else int(time.time()))
     by_host: dict[str, dict[str, str | int]] = {}
     timeout = httpx.Timeout(30.0, connect=10.0, read=30.0, write=10.0, pool=10.0)
     limits = httpx.Limits(max_connections=workers * 2, max_keepalive_connections=workers)
-    queries = _queries()
+    queries = _queries(profile)
     rng.shuffle(queries)
     apis = _cdx_apis()
+    if profile == "longtail" and len(apis) > 1:
+        apis = apis[1:] + apis[:1]
     if not apis:
         return []
 
@@ -383,6 +411,11 @@ def main() -> int:
     parser.add_argument("--deadline", type=int, default=480)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument(
+        "--profile",
+        choices=("all", "tr", "global", "eu", "platform", "longtail"),
+        default="all",
+    )
     args = parser.parse_args()
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -393,6 +426,7 @@ def main() -> int:
             deadline_s=float(args.deadline),
             seed=args.seed,
             workers=max(1, args.workers),
+            profile=args.profile,
         )
     except Exception:
         logger.exception("Harvest aborted — keeping prior feed")

@@ -109,7 +109,7 @@ if FORM_DELAY_FAST_MAX_SECONDS >= 20:
     FORM_DELAY_FAST_MAX_SECONDS = 8.0
 LEAD_BATCH_SIZE: int = _get_int("LEAD_BATCH_SIZE", 15)
 AUTO_RUNNER_SLEEP_SECONDS: int = _get_int("AUTO_RUNNER_SLEEP_SECONDS", 21_600)
-DAILY_SUBMIT_LIMIT: int = _get_int("DAILY_SUBMIT_LIMIT", 300)
+DAILY_SUBMIT_LIMIT: int = _get_int("DAILY_SUBMIT_LIMIT", 400)
 HOURLY_SUBMIT_LIMIT: int = _get_int("HOURLY_SUBMIT_LIMIT", 32)
 # Target floor inside the cap: keep the hour at 30+ posts, never above the cap.
 HOURLY_SUBMIT_FLOOR: int = _get_int("HOURLY_SUBMIT_FLOOR", 30)
