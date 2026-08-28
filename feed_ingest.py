@@ -105,6 +105,7 @@ def ingest(*, limit: int | None = None) -> int:
             "stack": row.get("stack") or "",
             "source": str(row.get("source") or "public-discovery")[:80],
             "profile": str(row.get("profile") or "")[:40],
+            "authorized_contact": row.get("authorized_contact") is True,
         }
 
     ranked = sorted(merged.values(), key=lambda r: -int(r["easy_score"]))
@@ -116,6 +117,7 @@ def ingest(*, limit: int | None = None) -> int:
             str(row["url"]),
             source=str(row.get("source") or "public-discovery"),
             easy_score=int(row["easy_score"]),
+            authorized_contact=bool(row.get("authorized_contact")),
         ):
             added += 1
     logger.info("Feed ingest +%s (min_score=%s, queue=%s/%s)", added, min_score, domain_store.queue_depth(), cap)

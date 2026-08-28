@@ -78,6 +78,27 @@ def load_targets(path: Path) -> list[str]:
     return urls
 
 
+def authorize_target_rows(leads: list[dict[str, Any]], target_urls: list[str]) -> int:
+    """Apply the operator-owned target allowlist to existing lead rows.
+
+    Discovery rows stay analysis-only. This only upgrades rows whose host is
+    explicitly present in the configured targets file and never clears an
+    opt-out or changes a submission status.
+    """
+    target_keys = {_url_key(url) for url in target_urls if _url_key(url)}
+    changed = 0
+    for lead in leads:
+        key = _url_key(str(lead.get("url") or ""))
+        if (
+            key in target_keys
+            and not optout.is_url_opted_out(key)
+            and lead.get("authorized_contact") is not True
+        ):
+            lead["authorized_contact"] = True
+            changed += 1
+    return changed
+
+
 def load_leads(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -337,16 +358,18 @@ def run_pipeline(args: argparse.Namespace) -> int:
     if pruned:
         logger.info("Pruned %s dead captcha/no-form host(s) from queue", pruned)
     leads = _retry_map_fails(leads)
-    save_leads(leads_path, leads)
-    domain_store.hydrate_from_leads(leads)
-    knowledge.refresh(leads=leads)
-
     try:
         file_targets = load_targets(_resolve(args.targets))
     except (FileNotFoundError, ValueError):
         file_targets = []
+    authorized_rows = authorize_target_rows(leads, file_targets)
     for url in file_targets:
         domain_store.enqueue(url, source="targets.txt")
+    save_leads(leads_path, leads)
+    if authorized_rows:
+        logger.info("Authorized %s existing lead row(s) from targets allowlist", authorized_rows)
+    domain_store.hydrate_from_leads(leads)
+    knowledge.refresh(leads=leads)
 
     cap_daily = knowledge.daily_cap()
     cap_hourly = knowledge.hourly_cap()

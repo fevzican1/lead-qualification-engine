@@ -471,12 +471,19 @@ def prune_enterprise_queue() -> int:
     return dropped
 
 
-def enqueue(url: str, *, source: str = "discovery", easy_score: int = 40) -> bool:
+def enqueue(
+    url: str,
+    *,
+    source: str = "discovery",
+    easy_score: int = 40,
+    authorized_contact: bool | None = None,
+) -> bool:
     url = origin_url(url)
     if not url or is_processed(url) or is_enterprise(url) or is_noise(url):
         return False
     if optout.is_url_opted_out(url):
         return False
+    authorized = source == "targets.txt" if authorized_contact is None else bool(authorized_contact)
     data = _queue()
     host = host_of(url)
     for item in data["urls"]:
@@ -485,8 +492,15 @@ def enqueue(url: str, *, source: str = "discovery", easy_score: int = 40) -> boo
         if host_of(str(item.get("url") or "")) != host:
             continue
         prev = int(item.get("easy_score") or 0)
+        changed = False
+        if authorized and item.get("authorized_contact") is not True:
+            item["authorized_contact"] = True
+            item["source"] = source
+            changed = True
         if easy_score > prev:
             item["easy_score"] = int(easy_score)
+            changed = True
+        if changed:
             data["updated_at"] = utc_now()
             _save_json(QUEUE_PATH, data)
         return False
@@ -497,7 +511,7 @@ def enqueue(url: str, *, source: str = "discovery", easy_score: int = 40) -> boo
         {
             "url": url,
             "source": source,
-            "authorized_contact": source == "targets.txt",
+            "authorized_contact": authorized,
             "queued_at": utc_now(),
             "fails": 0,
             "easy_score": int(easy_score),
