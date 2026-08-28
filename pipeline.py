@@ -38,6 +38,7 @@ import owner_notify
 import pacing
 import prefilter
 import easy_score
+import optimized_payload
 import target_pool
 from collector import collect_error_status, scan_one
 from form_submitter import submit_lead
@@ -702,6 +703,7 @@ def _run_browser_pipeline(
                     else:
                         logger.info("Collecting %s", url)
                         item = _collect_one(collect_page, url, meta.get(url) or {})
+                        item = optimized_payload.merge_into_lead(item)
 
                 leads = upsert(leads, item)
                 save_leads(leads_path, leads)

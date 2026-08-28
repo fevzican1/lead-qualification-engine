@@ -142,6 +142,10 @@ LEADS_PATH: Path = ROOT / "leads.json"
 TARGETS_PATH: Path = ROOT / "targets.txt"
 AUTHORIZED_TARGETS_PATH: Path = ROOT / "authorized_targets.txt"
 REVIEW_QUEUE_PATH: Path = ROOT / "review_queue.json"
+INGEST_API_PORT: int = _get_int("INGEST_API_PORT", 8787)
+INGEST_BIND_HOST: str = _get("INGEST_BIND_HOST", "127.0.0.1")
+INGEST_API_TOKEN: str = _get("INGEST_API_TOKEN")
+PAYLOAD_OPTIMIZER_MIN_SCORE: int = _get_int("PAYLOAD_OPTIMIZER_MIN_SCORE", 85)
 OPTOUTS_PATH: Path = ROOT / "optouts.json"
 
 

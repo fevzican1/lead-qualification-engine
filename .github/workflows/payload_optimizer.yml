@@ -1,0 +1,79 @@
+name: payload-optimizer
+
+# Hourly GitHub-side optimizer: fetch HTML, personalize hooks, push to Oracle ingest.
+# Oracle HTTP probe budget is untouched — all fetches run on GitHub runners.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: payload-optimizer
+  cancel-in-progress: false
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+      ORACLE_USER: ${{ secrets.ORACLE_USER }}
+      ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+      INGEST_API_TOKEN: ${{ secrets.INGEST_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -q httpx python-dotenv
+      - name: Build optimized payloads on GitHub runner
+        run: |
+          python scripts/payload_optimizer.py \
+            --min-score 85 \
+            --limit 96 \
+            --workers 8 \
+            --timeout 12 \
+            --out optimized_batch.json
+      - name: Push batch to Oracle ingest API (SSH localhost)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -s optimized_batch.json ]; then
+            echo "No optimized targets this hour"
+            exit 0
+          fi
+          if [ -z "${ORACLE_HOST:-}" ] || [ -z "${ORACLE_SSH_KEY:-}" ]; then
+            echo "Oracle secrets missing — batch stays in workflow artifact only"
+            exit 0
+          fi
+          if [ -z "${INGEST_API_TOKEN:-}" ]; then
+            echo "INGEST_API_TOKEN missing — add repo secret to enable Oracle ingest"
+            exit 0
+          fi
+          USER="${ORACLE_USER:-ubuntu}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$ORACLE_SSH_KEY" > ~/.ssh/oracle.key
+          chmod 600 ~/.ssh/oracle.key
+          ssh-keyscan -T 8 -H "$ORACLE_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          scp -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            -o ConnectTimeout=12 -o BatchMode=yes \
+            optimized_batch.json "${USER}@${ORACLE_HOST}:/tmp/optimized_batch.json"
+          ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            -o ConnectTimeout=12 -o BatchMode=yes \
+            "${USER}@${ORACLE_HOST}" \
+            "curl -fsS -X POST http://127.0.0.1:8787/api/v1/ingest \
+              -H 'Authorization: Bearer ${INGEST_API_TOKEN}' \
+              -H 'Content-Type: application/json' \
+              --data-binary @/tmp/optimized_batch.json"
+      - name: Upload optimizer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: optimized-batch
+          path: optimized_batch.json
+          if-no-files-found: warn

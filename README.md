@@ -30,6 +30,8 @@ The bounded agent layer names a platform only after multiple source-level marker
 
 GitHub Actions runs 250 logical Common Crawl shards through five bounded, staggered fleet workflows, refreshing each family every 30 minutes. Shards write only `feeds/shards/`; the single serialized publisher validates, deduplicates, builds `feeds/ready_queue.json`, and performs one atomic Oracle sync, so discovery does not consume the Oracle HTTP probe budget. A low-watermark workflow starts one family early when Oracle fuel falls below 80, without requeueing submitted or opted-out hosts. Tranco sitemap discovery is sequential and capped; Google scraping and unlicensed data-provider APIs are intentionally not used.
 
+The hourly `payload-optimizer` workflow runs on GitHub runners (not Oracle): it fetches HTML for score ≥85 discovery candidates, analyzes platform/SEO/checkout gaps, pre-builds personalized form hooks and Telegram `/start` handoffs, then pushes the batch to Oracle `POST /api/v1/ingest` over SSH localhost. Oracle stores the payloads in `feeds/optimized_cache.json` and enqueues them with `authorized_contact=true` without spending HTTP probe budget on discovery fetches.
+
 ## Layout
 
 | File | Role |

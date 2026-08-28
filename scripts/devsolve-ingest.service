@@ -1,0 +1,17 @@
+[Unit]
+Description=DevSolve optimized payload ingest API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/devsolve
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/opt/devsolve/.env
+ExecStart=/opt/devsolve/.venv/bin/python /opt/devsolve/ingest_api.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -18,6 +18,7 @@ import config
 import bounded_agents
 import knowledge
 import optout
+import optimized_payload
 import telegram_handoff
 from site_signals import compact_excerpt, extract_stack_hints, high_value_score, looks_turkish
 
@@ -124,10 +125,16 @@ def qualify_lead(lead: dict[str, Any], *, model: Optional[str] = None) -> dict[s
         str(lead.get("page_excerpt") or ""),
         " ".join(hints),
     )
-    subject, pitch = _form_note(updated, turkish=turkish)
-    courtesy = optout.form_courtesy_line(turkish=turkish)
-    if "STOP" not in pitch:
-        pitch = f"{pitch} {courtesy}"
+    if lead.get("optimized_payload") and (lead.get("value_proposition") or "").strip():
+        subject = str(lead.get("form_subject") or "")[:120]
+        pitch = str(lead.get("value_proposition") or "")
+        if "STOP" not in pitch:
+            pitch = f"{pitch} {optout.form_courtesy_line(turkish=turkish)}"
+    else:
+        subject, pitch = _form_note(updated, turkish=turkish)
+        courtesy = optout.form_courtesy_line(turkish=turkish)
+        if "STOP" not in pitch:
+            pitch = f"{pitch} {courtesy}"
 
     updated.update(
         {

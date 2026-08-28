@@ -314,6 +314,26 @@ def lookup(token: str) -> dict[str, Any] | None:
     return dict(row) if isinstance(row, dict) else None
 
 
+def import_handoffs(rows: dict[str, dict[str, Any]]) -> int:
+    """Merge pre-built handoff rows from GitHub payload_optimizer."""
+    if not rows:
+        return 0
+    data = _load()
+    n = 0
+    for token, row in rows.items():
+        clean = re.sub(r"[^A-Za-z0-9_-]", "", str(token or "").strip())[:64]
+        if not clean or not isinstance(row, dict):
+            continue
+        merged = dict(row)
+        merged.setdefault("at", datetime.now(timezone.utc).replace(microsecond=0).isoformat())
+        data[clean] = merged
+        n += 1
+    if n:
+        _save(data)
+        logger.info("Imported %s Telegram handoff row(s) from optimizer", n)
+    return n
+
+
 def brief_block(row: dict[str, Any] | None) -> str:
     if not row:
         return ""
