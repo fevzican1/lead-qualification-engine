@@ -236,23 +236,15 @@ def main() -> None:
             continue
 
         print("\n[3/3] Formlar dolduruluyor...")
-        # PIPELINE_TIMEOUT_SECONDS is the per-site hang budget. Give the
-        # subprocess enough time to finish the whole Chromium batch so one
-        # slow site cannot truncate otherwise healthy submissions.
-        pipe_timeout = int(getattr(config, "PIPELINE_TIMEOUT_SECONDS", 30) or 30)
-        batch_timeout = pipe_timeout * max(2, int(getattr(config, "CHROMIUM_BATCH", 32) or 32)) + 60
+        # Each page operation has its own bounded Playwright timeout. Do not
+        # kill the whole visit batch using a fixed wall-clock limit: the
+        # hourly-floor visit budget can legitimately be 72–96 hosts.
         pipeline_code = _run(
             "pipeline.py",
             ["--targets", str(config.TARGETS_PATH), "--submit"],
-            timeout=batch_timeout,
+            timeout=None,
         )
-        if pipeline_code == 124:
-            logger.warning("pipeline batch hung — killed after %ss", batch_timeout)
-            owner_notify.send(
-                f"Pipeline batch takıldı, {batch_timeout // 60} dk sonra kestik. "
-                "Sonraki tur devam edecek — bildirim kesilmesin diye."
-            )
-        elif pipeline_code != 0:
+        if pipeline_code != 0:
             logger.warning("pipeline exited %s — will retry next cycle", pipeline_code)
             owner_notify.send(f"Pipeline turu hata ile bitti (kod {pipeline_code}). Sonraki tur denenecek.")
 
