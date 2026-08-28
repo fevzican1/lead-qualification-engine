@@ -291,7 +291,10 @@ def harvest(
         rng.shuffle(queries)
     elif not queries:
         return []
-    apis = _cdx_apis(timeout_s=8.0 if shard_count > 1 else 20.0)
+    apis = _cdx_apis(
+        limit=2 if shard_count > 1 else 4,
+        timeout_s=8.0 if shard_count > 1 else 20.0,
+    )
     if profile == "longtail" and len(apis) > 1:
         apis = apis[1:] + apis[:1]
     if not apis:
@@ -321,7 +324,10 @@ def harvest(
             # the newest endpoint is unavailable or reports no pages.
             api = ""
             total = 0
-            candidates = apis[:2] if shard_count > 1 else apis[:3]
+            # A logical slot has one bounded API attempt. Older indexes are
+            # rotated into the first position on later runs; trying every
+            # fallback here made an unavailable index consume the whole fleet.
+            candidates = apis[:1] if shard_count > 1 else apis[:3]
             for candidate in candidates:
                 key = (candidate, wildcard)
                 if key not in page_counts:
