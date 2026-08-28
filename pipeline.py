@@ -705,6 +705,15 @@ def _run_browser_pipeline(
                     logger.info("Prefetch collect during WAF jitter: %s", nurl)
                     prefetch["lead"] = _collect_one(collect_page, nurl, meta.get(nurl) or {})
 
+                # Persist a short lease before entering Playwright. If the
+                # outer runner kills a hung site, the next cycle must not pick
+                # the same host again immediately and starve the whole batch.
+                domain_store.defer(
+                    str(qualified.get("url") or ""),
+                    reason="submit_in_progress_guard",
+                    count_fail=False,
+                    easy_score=easy_score.from_lead(qualified),
+                )
                 logger.info("Submitting %s", qualified.get("url"))
                 submitted = submit_lead(
                     qualified,

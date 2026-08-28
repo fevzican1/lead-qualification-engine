@@ -236,7 +236,7 @@ def main() -> None:
             continue
 
         print("\n[3/3] Formlar dolduruluyor...")
-        pipe_timeout = int(getattr(config, "PIPELINE_TIMEOUT_SECONDS", 1500) or 1500)
+        pipe_timeout = int(getattr(config, "PIPELINE_TIMEOUT_SECONDS", 60) or 60)
         pipeline_code = _run(
             "pipeline.py",
             ["--targets", str(config.TARGETS_PATH), "--submit"],
