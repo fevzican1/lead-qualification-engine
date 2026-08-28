@@ -159,6 +159,7 @@ TERMINAL = {
     "skipped_enterprise",
     "skipped_submit_failed",
     "skipped_unreachable",
+    "skipped_unauthorized",
 }
 
 DEAD_QUEUE = {

@@ -55,6 +55,7 @@ DONE_STATUSES = {
     "skipped_submit_failed",
     "skipped_unreachable",
     "skipped_enterprise",
+    "skipped_unauthorized",
 }
 
 
@@ -95,6 +96,10 @@ def authorize_target_rows(leads: list[dict[str, Any]], target_urls: list[str]) -
             and lead.get("authorized_contact") is not True
         ):
             lead["authorized_contact"] = True
+            if str(lead.get("status") or "") == "skipped_unauthorized":
+                domain_store.unmark(key)
+                lead["status"] = "queued"
+                lead["error"] = None
             changed += 1
     return changed
 
@@ -643,7 +648,12 @@ def _run_browser_pipeline(
     submitting: bool,
 ) -> list[dict[str, Any]]:
     min_easy = int(getattr(config, "EASY_SCORE_MIN", 55) or 55)
-    jobs = sorted(jobs, key=lambda row: -int(row.get("easy_score") or 0))
+    jobs.sort(
+        key=lambda row: (
+            not bool(row.get("authorized_contact")),
+            -int(row.get("easy_score") or 0),
+        )
+    )
     jobs = [job for job in jobs if int(job.get("easy_score") or 0) >= min_easy]
     if submitting:
         _today_n, hour_n = knowledge.submit_counts(leads)
@@ -711,11 +721,16 @@ def _run_browser_pipeline(
                     continue
 
                 qualified = qualify_lead(item)
+                if submitting and qualified.get("authorized_contact") is not True:
+                    qualified["status"] = "skipped_unauthorized"
+                    qualified["error"] = "Explicit authorization required"
                 leads = upsert(leads, qualified)
                 save_leads(leads_path, leads)
                 processed.append(qualified)
 
                 if not submitting:
+                    continue
+                if qualified.get("status") == "skipped_unauthorized":
                     continue
                 if not eligible_for_submit(qualified, min_score):
                     continue
