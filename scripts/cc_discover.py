@@ -259,15 +259,19 @@ def harvest(
     with httpx.Client(timeout=timeout, limits=limits, follow_redirects=True) as client:
         page_counts: dict[tuple[str, str], int] = {}
         tasks: list[tuple[str, str, str, int, int]] = []
-        primary_api = apis[0]
         for wildcard, url_re, weight in queries:
-            # Collinfo is newest-first; older indexes mostly repeat the same
-            # hosts and were starving the refill with only a few fresh rows.
-            api = primary_api
-            key = (api, wildcard)
-            if key not in page_counts:
-                page_counts[key] = _num_pages(client, api, wildcard)
-            total = page_counts[key]
+            # Collinfo is newest-first. Fall through to older indexes only when
+            # the newest endpoint is unavailable or reports no pages.
+            api = ""
+            total = 0
+            for candidate in apis[:3]:
+                key = (candidate, wildcard)
+                if key not in page_counts:
+                    page_counts[key] = _num_pages(client, candidate, wildcard)
+                if page_counts[key] > 0:
+                    api = candidate
+                    total = page_counts[key]
+                    break
             if total <= 0:
                 logger.info("CDX no pages %s", wildcard)
                 continue
