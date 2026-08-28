@@ -24,7 +24,11 @@ jobs:
       ORACLE_USER: ${{ secrets.ORACLE_USER }}
       ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
       - name: Start fleets when Oracle fuel or queue is low
         shell: bash
         run: |
