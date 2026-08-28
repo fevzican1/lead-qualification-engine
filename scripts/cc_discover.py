@@ -125,10 +125,10 @@ def _utc() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def _cdx_apis(limit: int = 4) -> list[str]:
+def _cdx_apis(limit: int = 4, timeout_s: float = 20.0) -> list[str]:
     apis: list[str] = []
     try:
-        response = httpx.get(COLLINFO, timeout=20.0, follow_redirects=True)
+        response = httpx.get(COLLINFO, timeout=timeout_s, follow_redirects=True)
         response.raise_for_status()
         for row in response.json()[:6]:
             api = str((row or {}).get("cdx-api") or "").strip()
@@ -213,14 +213,14 @@ def _get(client: httpx.Client, api: str, params: list[tuple[str, str]], tries: i
     return last
 
 
-def _num_pages(client: httpx.Client, api: str, wildcard: str) -> int:
+def _num_pages(client: httpx.Client, api: str, wildcard: str, *, tries: int = 2) -> int:
     """Page count depends only on the URL pattern; filters are applied per page.
 
     Passing the filters here makes CDX answer with 0 pages, which is what
     silently starved the feed.
     """
     params = [("url", wildcard), ("output", "json"), ("showNumPages", "true")]
-    response = _get(client, api, params)
+    response = _get(client, api, params, tries=tries)
     if response is None or response.status_code >= 400:
         return 0
     try:
@@ -274,18 +274,24 @@ def harvest(
     started = time.monotonic()
     rng = random.Random(seed if seed is not None else int(time.time()))
     by_host: dict[str, dict[str, str | int]] = {}
-    timeout = httpx.Timeout(30.0, connect=10.0, read=30.0, write=10.0, pool=10.0)
-    limits = httpx.Limits(max_connections=workers * 2, max_keepalive_connections=workers)
     shard_count = max(1, int(shard_count))
     shard_index = int(shard_index)
     if shard_index < 0 or shard_index >= shard_count:
         raise ValueError(f"shard_index must be between 0 and {shard_count - 1}")
+    timeout = httpx.Timeout(
+        12.0 if shard_count > 1 else 30.0,
+        connect=5.0 if shard_count > 1 else 10.0,
+        read=12.0 if shard_count > 1 else 30.0,
+        write=8.0 if shard_count > 1 else 10.0,
+        pool=8.0 if shard_count > 1 else 10.0,
+    )
+    limits = httpx.Limits(max_connections=workers * 2, max_keepalive_connections=workers)
     queries = _queries(profile)
     if shard_count == 1:
         rng.shuffle(queries)
     elif not queries:
         return []
-    apis = _cdx_apis()
+    apis = _cdx_apis(timeout_s=8.0 if shard_count > 1 else 20.0)
     if profile == "longtail" and len(apis) > 1:
         apis = apis[1:] + apis[:1]
     if not apis:
@@ -315,10 +321,16 @@ def harvest(
             # the newest endpoint is unavailable or reports no pages.
             api = ""
             total = 0
-            for candidate in apis[:3]:
+            candidates = apis[:2] if shard_count > 1 else apis[:3]
+            for candidate in candidates:
                 key = (candidate, wildcard)
                 if key not in page_counts:
-                    page_counts[key] = _num_pages(client, candidate, wildcard)
+                    page_counts[key] = _num_pages(
+                        client,
+                        candidate,
+                        wildcard,
+                        tries=1 if shard_count > 1 else 2,
+                    )
                 if page_counts[key] > 0:
                     api = candidate
                     total = page_counts[key]
