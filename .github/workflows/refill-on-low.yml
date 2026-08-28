@@ -1,0 +1,82 @@
+name: refill-on-low
+
+# Discovery is still performed on GitHub. This workflow only reads the
+# Oracle queue depth over SSH and starts one staggered fleet when fuel is low.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: refill-on-low
+  cancel-in-progress: false
+
+jobs:
+  refill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+      ORACLE_USER: ${{ secrets.ORACLE_USER }}
+      ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Start one fleet when queue is below watermark
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${ORACLE_HOST:-}" ] || [ -z "${ORACLE_SSH_KEY:-}" ]; then
+            echo "Oracle secrets are not configured; scheduled fleets remain active."
+            exit 0
+          fi
+          ORACLE_USER="${ORACLE_USER:-ubuntu}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$ORACLE_SSH_KEY" > ~/.ssh/oracle.key
+          chmod 600 ~/.ssh/oracle.key
+          ssh-keyscan -T 8 -H "$ORACLE_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          queue="$(
+            ssh -i ~/.ssh/oracle.key \
+              -o StrictHostKeyChecking=accept-new \
+              -o IdentitiesOnly=yes \
+              -o ConnectTimeout=8 \
+              -o ConnectionAttempts=1 \
+              -o BatchMode=yes \
+              "${ORACLE_USER}@${ORACLE_HOST}" \
+              "cd /opt/devsolve && .venv/bin/python -c 'import domain_store; print(domain_store.queue_depth())'"
+          )"
+          if ! [[ "$queue" =~ ^[0-9]+$ ]]; then
+            echo "Unable to read numeric Oracle queue depth: $queue"
+            exit 0
+          fi
+          echo "Oracle queue depth: $queue"
+          if [ "$queue" -ge 80 ]; then
+            echo "Watermark is healthy; no emergency fleet needed."
+            exit 0
+          fi
+
+          # One family per six-minute slot prevents five fleets from hitting
+          # Common Crawl at once. Existing workflow concurrency prevents a
+          # duplicate run of the same family from piling up.
+          slot=$(( ($(date -u +%M) / 6) % 5 ))
+          families=(
+            discover-cc-longtail
+            discover-cc-tr
+            discover-cc-global
+            discover-cc-eu
+            discover-cc-platform
+          )
+          workflow="${families[$slot]}"
+          running="$(
+            gh run list --workflow "$workflow" --json status \
+              --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length'
+          )"
+          if [ "$running" -gt 0 ]; then
+            echo "$workflow is already running; no duplicate dispatch."
+            exit 0
+          fi
+          echo "Dispatching $workflow for low queue watermark."
+          gh workflow run "$workflow" --ref "${GITHUB_REF_NAME}"

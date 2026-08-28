@@ -10,19 +10,40 @@ on:
         required: true
         type: string
       output:
-        required: true
+        required: false
         type: string
+        default: ""
+      shard_count:
+        required: false
+        type: number
+        default: 50
+      start_delay_seconds:
+        required: false
+        type: number
+        default: 0
 
 permissions:
   contents: write
 
+concurrency:
+  group: discovery-${{ inputs.source }}
+  cancel-in-progress: false
+
 jobs:
-  harvest:
+  gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
-    concurrency:
-      group: ${{ github.workflow }}-${{ inputs.profile }}
-      cancel-in-progress: false
+    timeout-minutes: 25
+    steps:
+      - name: Stagger fleet start
+        env:
+          DELAY_SECONDS: ${{ inputs.start_delay_seconds }}
+        run: |
+          if [ "$DELAY_SECONDS" -gt 0 ]; then sleep "$DELAY_SECONDS"; fi
+
+  harvest:
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
         with:
@@ -32,29 +53,60 @@ jobs:
           python-version: "3.12"
       - name: Install
         run: pip install -q httpx python-dotenv
-      - name: Harvest isolated shard
+      - name: Harvest 50 logical shards
+        env:
+          SHARD_COUNT: ${{ inputs.shard_count }}
         run: |
-          python scripts/harvest_shard.py \
+          python scripts/harvest_fleet.py \
             --profile "${{ inputs.profile }}" \
             --source "${{ inputs.source }}" \
-            --out "${{ inputs.output }}" \
-            --limit 6000 \
+            --out-dir feeds/shards \
+            --shard-count "$SHARD_COUNT" \
             --per-page 800 \
-            --deadline 480 \
+            --shard-deadline 30 \
+            --fleet-deadline 1320 \
             --workers 1
-      - name: Commit shard
+      - name: Upload fleet shards
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-${{ inputs.source }}
+          path: feeds/shards/${{ inputs.source }}-*.json
+          if-no-files-found: error
+
+  commit:
+    needs: harvest
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    concurrency:
+      group: discovery-shard-commit
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+      - name: Download fleet shards
+        uses: actions/download-artifact@v4
+        with:
+          name: fleet-${{ inputs.source }}
+          path: feeds/shards
+      - name: Commit fleet shards
         run: |
           git config user.name "devsolve-discover"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${{ inputs.output }}"
-          if git diff --cached --quiet; then
-            echo "No shard changes"
-            exit 0
-          fi
-          git commit -m "feed: update ${{ inputs.source }} shard"
-          for attempt in 1 2 3; do
-            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+          for attempt in 1 2 3 4 5; do
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || {
+              git rebase --skip || git rebase --abort || true
+            }
+            git add "feeds/shards/${{ inputs.source }}-"*.json
+            if git diff --cached --quiet; then
+              echo "No fleet shard changes"
+              exit 0
+            fi
+            git commit -m "feed: update ${{ inputs.source }} fleet shards"
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              exit 0
+            fi
             sleep $((attempt * 5))
           done
-          echo "Shard push failed after retries"
+          echo "Fleet shard push failed after retries"
           exit 1

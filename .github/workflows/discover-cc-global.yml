@@ -2,7 +2,7 @@ name: discover-cc-global
 
 on:
   schedule:
-    - cron: "10 */2 * * *"
+    - cron: "12,42 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -14,4 +14,4 @@ jobs:
     with:
       profile: global
       source: commoncrawl-global
-      output: feeds/shards/commoncrawl-global.json
+      shard_count: 50

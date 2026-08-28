@@ -2,7 +2,7 @@ name: discover-cc-tr
 
 on:
   schedule:
-    - cron: "00 */2 * * *"
+    - cron: "6,36 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -14,4 +14,4 @@ jobs:
     with:
       profile: tr
       source: commoncrawl-tr
-      output: feeds/shards/commoncrawl-tr.json
+      shard_count: 50

@@ -33,7 +33,11 @@ def _rows(payload: Any) -> list[dict[str, Any]]:
     return [row for row in (values or []) if isinstance(row, dict)]
 
 
-def _candidate(row: dict[str, Any], fallback_source: str) -> dict[str, Any] | None:
+def _candidate(
+    row: dict[str, Any],
+    fallback_source: str,
+    fallback_profile: str = "",
+) -> dict[str, Any] | None:
     raw_url = str(row.get("url") or "").strip()
     if not raw_url or not cc_discover._keep(raw_url):
         return None
@@ -47,7 +51,9 @@ def _candidate(row: dict[str, Any], fallback_source: str) -> dict[str, Any] | No
         "stack": str(row.get("stack") or stack),
         "host": host,
         "source": str(row.get("source") or fallback_source)[:80],
-        "profile": str(row.get("profile") or "")[:40],
+        "profile": str(row.get("profile") or fallback_profile)[:40],
+        "shard_index": row.get("shard_index"),
+        "shard_count": row.get("shard_count"),
     }
 
 
@@ -66,6 +72,50 @@ def _better(left: dict[str, Any], right: dict[str, Any]) -> bool:
     return left_key > right_key
 
 
+def _valid_shard(payload: Any, path: Path) -> bool:
+    """Reject malformed/empty replacements without discarding old good data."""
+    if not isinstance(payload, dict):
+        logger.warning("Ignoring non-object shard %s", path.name)
+        return False
+    rows = payload.get("urls")
+    if not isinstance(rows, list):
+        logger.warning("Ignoring shard without urls list %s", path.name)
+        return False
+    declared = payload.get("count")
+    if declared is not None:
+        try:
+            count = int(declared)
+        except (TypeError, ValueError):
+            logger.warning("Ignoring shard with bad count %s", path.name)
+            return False
+        if count != len(rows):
+            logger.warning("Ignoring shard with bad count %s", path.name)
+            return False
+    shard_count = payload.get("shard_count")
+    shard_index = payload.get("shard_index")
+    if shard_count is not None:
+        try:
+            count = int(shard_count)
+            index = int(shard_index)
+        except (TypeError, ValueError):
+            logger.warning("Ignoring shard with invalid identity %s", path.name)
+            return False
+        if count < 1 or index < 0 or index >= count:
+            logger.warning("Ignoring shard with invalid identity %s", path.name)
+            return False
+    if len(rows) > 10000:
+        logger.warning("Ignoring unexpectedly large shard %s", path.name)
+        return False
+    updated_at = str(payload.get("updated_at") or "").strip()
+    if updated_at:
+        try:
+            datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        except ValueError:
+            logger.warning("Ignoring shard with bad timestamp %s", path.name)
+            return False
+    return bool(rows)
+
+
 def merge(*, feed_path: Path, shard_dir: Path, cap: int) -> dict[str, Any]:
     previous: dict[str, Any] = {}
     if feed_path.exists():
@@ -76,7 +126,11 @@ def merge(*, feed_path: Path, shard_dir: Path, cap: int) -> dict[str, Any]:
 
     by_host: dict[str, dict[str, Any]] = {}
     for row in _rows(previous):
-        item = _candidate(row, str(previous.get("source") or "legacy-feed"))
+        item = _candidate(
+            row,
+            str(previous.get("source") or "legacy-feed"),
+            str(previous.get("profile") or ""),
+        )
         if item is not None and (item["host"] not in by_host or _better(item, by_host[item["host"]])):
             by_host[item["host"]] = item
 
@@ -86,9 +140,12 @@ def merge(*, feed_path: Path, shard_dir: Path, cap: int) -> dict[str, Any]:
         except json.JSONDecodeError:
             logger.warning("Ignoring invalid shard %s", path.name)
             continue
+        if not _valid_shard(payload, path):
+            continue
         fallback = str(payload.get("source") or path.stem) if isinstance(payload, dict) else path.stem
+        profile = str(payload.get("profile") or "") if isinstance(payload, dict) else ""
         for row in _rows(payload):
-            item = _candidate(row, fallback)
+            item = _candidate(row, fallback, profile)
             if item is None:
                 continue
             host = item["host"]

@@ -26,7 +26,7 @@ Use this only on websites and inboxes you are authorized to contact, and only in
 
 ## Discovery feeds
 
-GitHub Actions runs bounded, staggered public discovery shards and a single serialized publisher. Shards write only `feeds/shards/`; the publisher builds `feeds/ready_queue.json` and performs one atomic Oracle sync, so discovery does not consume the Oracle HTTP probe budget. Tranco sitemap discovery is sequential and capped; Google scraping and unlicensed data-provider APIs are intentionally not used.
+GitHub Actions runs 250 logical Common Crawl shards through five bounded, staggered fleet workflows, refreshing each family every 30 minutes. Shards write only `feeds/shards/`; the single serialized publisher validates, deduplicates, builds `feeds/ready_queue.json`, and performs one atomic Oracle sync, so discovery does not consume the Oracle HTTP probe budget. A low-watermark workflow starts one family early when Oracle fuel falls below 80, without requeueing submitted or opted-out hosts. Tranco sitemap discovery is sequential and capped; Google scraping and unlicensed data-provider APIs are intentionally not used.
 
 ## Layout
 

@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,15 +35,26 @@ def main() -> int:
     parser.add_argument("--per-page", type=int, default=800)
     parser.add_argument("--deadline", type=int, default=480)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-count", type=int, default=1)
+    parser.add_argument("--rotation", type=int, default=None)
     args = parser.parse_args()
 
     rows: list[dict] = []
+    shard_count = max(1, int(args.shard_count))
+    shard_index = int(args.shard_index)
+    rotation = args.rotation
+    if rotation is None and shard_count > 1:
+        rotation = int(time.time() // 1800)
     try:
         rows = harvest(
             per_page=max(100, args.per_page),
             deadline_s=max(60.0, float(args.deadline)),
             workers=max(1, min(args.workers, 2)),
             profile=args.profile,
+            shard_index=shard_index,
+            shard_count=shard_count,
+            rotation=rotation,
         )
     except Exception:
         logger.exception("Shard harvest failed")
@@ -51,11 +63,23 @@ def main() -> int:
             print(f"Keeping previous shard after harvest failure: {out}")
             return 0
 
+    if not rows and Path(args.out).exists():
+        print(f"Keeping previous non-empty shard after empty harvest: {args.out}")
+        return 0
+
     rows = rows[: max(100, args.limit)]
+    for row in rows:
+        row.setdefault("source", args.source)
+        row.setdefault("profile", args.profile)
+        row["shard_index"] = shard_index
+        row["shard_count"] = shard_count
     payload = {
         "version": 1,
         "source": args.source,
         "profile": args.profile,
+        "shard_index": shard_index,
+        "shard_count": shard_count,
+        "rotation": rotation,
         "updated_at": _utc(),
         "count": len(rows),
         "urls": rows,

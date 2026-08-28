@@ -2,7 +2,7 @@ name: discover-cc-eu
 
 on:
   schedule:
-    - cron: "30 */2 * * *"
+    - cron: "18,48 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -14,4 +14,4 @@ jobs:
     with:
       profile: eu
       source: commoncrawl-eu
-      output: feeds/shards/commoncrawl-eu.json
+      shard_count: 50

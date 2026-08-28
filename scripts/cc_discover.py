@@ -267,14 +267,24 @@ def harvest(
     seed: int | None = None,
     workers: int = 8,
     profile: str = "all",
+    shard_index: int = 0,
+    shard_count: int = 1,
+    rotation: int | None = None,
 ) -> list[dict[str, str | int]]:
     started = time.monotonic()
     rng = random.Random(seed if seed is not None else int(time.time()))
     by_host: dict[str, dict[str, str | int]] = {}
     timeout = httpx.Timeout(30.0, connect=10.0, read=30.0, write=10.0, pool=10.0)
     limits = httpx.Limits(max_connections=workers * 2, max_keepalive_connections=workers)
+    shard_count = max(1, int(shard_count))
+    shard_index = int(shard_index)
+    if shard_index < 0 or shard_index >= shard_count:
+        raise ValueError(f"shard_index must be between 0 and {shard_count - 1}")
     queries = _queries(profile)
-    rng.shuffle(queries)
+    if shard_count == 1:
+        rng.shuffle(queries)
+    elif not queries:
+        return []
     apis = _cdx_apis()
     if profile == "longtail" and len(apis) > 1:
         apis = apis[1:] + apis[:1]
@@ -287,7 +297,20 @@ def harvest(
     with httpx.Client(timeout=timeout, limits=limits, follow_redirects=True) as client:
         page_counts: dict[tuple[str, str], int] = {}
         tasks: list[tuple[str, str, str, int, int]] = []
-        for wildcard, url_re, weight in queries:
+        if shard_count > 1:
+            # A fleet slot owns one query and one moving CDX page slice. This
+            # keeps 250 logical shards bounded: each slot makes one count
+            # request and one data request, rather than repeating the whole
+            # profile. The rotation changes every 30-minute epoch so a slot
+            # does not revisit the same alphabetical head on every run.
+            query_number = shard_index % len(queries)
+            slot_number = shard_index // len(queries)
+            selected = [queries[query_number]]
+        else:
+            selected = queries
+            query_number = 0
+            slot_number = 0
+        for local_number, (wildcard, url_re, weight) in enumerate(selected):
             # Collinfo is newest-first. Fall through to older indexes only when
             # the newest endpoint is unavailable or reports no pages.
             api = ""
@@ -302,6 +325,15 @@ def harvest(
                     break
             if total <= 0:
                 logger.info("CDX no pages %s", wildcard)
+                continue
+            if shard_count > 1:
+                epoch = int(rotation if rotation is not None else time.time() // 1800)
+                # The relatively prime stride gives each slot a different
+                # slice while successive 30-minute runs move through the
+                # available page space.
+                stride = max(1, total // 17)
+                page = (slot_number + epoch * stride + query_number) % total
+                tasks.append((api, wildcard, url_re, page, total))
                 continue
             # Wide TLDs hold tens of thousands of pages; pull more slices there.
             picks = min(weight * (4 if total > 2000 else 2), total)
@@ -411,6 +443,9 @@ def main() -> int:
     parser.add_argument("--deadline", type=int, default=480)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-count", type=int, default=1)
+    parser.add_argument("--rotation", type=int, default=None)
     parser.add_argument(
         "--profile",
         choices=("all", "tr", "global", "eu", "platform", "longtail"),
@@ -427,6 +462,9 @@ def main() -> int:
             seed=args.seed,
             workers=max(1, args.workers),
             profile=args.profile,
+            shard_index=args.shard_index,
+            shard_count=args.shard_count,
+            rotation=args.rotation,
         )
     except Exception:
         logger.exception("Harvest aborted — keeping prior feed")

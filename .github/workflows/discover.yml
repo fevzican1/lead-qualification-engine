@@ -1,11 +1,11 @@
-name: discover-feed
+name: discover-cc-longtail
 
-# Manual run: Actions → discover-feed → Run workflow (branch: master)
+# Manual run: Actions → discover-cc-longtail → Run workflow (branch: master)
 # GitHub-side harvest. Does not touch Oracle HTTP 22/hour.
-# Random CDX page sampling, so every run lands on a new slice of the crawl.
+# Fifty deterministic CDX shards rotate through new crawl slices every run.
 on:
   schedule:
-    - cron: "20 */2 * * *"
+    - cron: "0,30 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -15,6 +15,6 @@ jobs:
   shard:
     uses: ./.github/workflows/harvest-shard.yml
     with:
-      profile: all
-      source: commoncrawl-cdx
-      output: feeds/shards/commoncrawl-cdx.json
+      profile: longtail
+      source: commoncrawl-longtail
+      shard_count: 50
