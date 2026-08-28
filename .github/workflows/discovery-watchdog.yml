@@ -1,0 +1,92 @@
+name: discovery-watchdog
+
+# GitHub scheduled workflows can stall on inactive repos. This watchdog
+# re-dispatches the five CDX fleets and publish-feed when harvest is stale.
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: discovery-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check fleet freshness and refill if stale
+        shell: bash
+        run: |
+          set -euo pipefail
+          families=(
+            discover-cc-longtail
+            discover-cc-tr
+            discover-cc-global
+            discover-cc-eu
+            discover-cc-platform
+          )
+          stale=0
+          now_epoch=$(date -u +%s)
+          for workflow in "${families[@]}"; do
+            last_iso="$(
+              gh run list --workflow "$workflow" --limit 1 --json createdAt \
+                --jq '.[0].createdAt // empty'
+            )"
+            if [ -z "$last_iso" ]; then
+              echo "$workflow has no runs — stale"
+              stale=1
+              continue
+            fi
+            last_epoch=$(date -u -d "$last_iso" +%s)
+            age=$(( now_epoch - last_epoch ))
+            echo "$workflow last run ${age}s ago ($last_iso)"
+            if [ "$age" -gt 2700 ]; then
+              stale=1
+            fi
+          done
+          publish_iso="$(
+            gh run list --workflow publish-feed --limit 1 --json createdAt \
+              --jq '.[0].createdAt // empty'
+          )"
+          if [ -n "$publish_iso" ]; then
+            publish_epoch=$(date -u -d "$publish_iso" +%s)
+            publish_age=$(( now_epoch - publish_epoch ))
+            echo "publish-feed last run ${publish_age}s ago"
+            if [ "$publish_age" -gt 2700 ]; then
+              stale=1
+            fi
+          else
+            stale=1
+          fi
+          if [ "$stale" -eq 0 ]; then
+            echo "Discovery pipeline is fresh — no dispatch."
+            exit 0
+          fi
+          echo "Discovery stale — dispatching five fleets + publish-feed."
+          delay=0
+          for workflow in "${families[@]}"; do
+            running="$(
+              gh run list --workflow "$workflow" --json status \
+                --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length'
+            )"
+            if [ "$running" -gt 0 ]; then
+              echo "$workflow already active — skip"
+              continue
+            fi
+            gh workflow run "$workflow" --ref "${GITHUB_REF_NAME}"
+            echo "Dispatched $workflow"
+            delay=$((delay + 15))
+            if [ "$delay" -lt 75 ]; then
+              sleep 15
+            fi
+          done
+          gh workflow run publish-feed --ref "${GITHUB_REF_NAME}"
+          echo "Dispatched publish-feed"

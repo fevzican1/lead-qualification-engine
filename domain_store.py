@@ -755,6 +755,34 @@ def chromium_fuel_count(*, min_easy: int | None = None) -> int:
     return len(pending_rows(limit=400, min_easy=int(min_easy)))
 
 
+def chromium_fuel_target() -> int:
+    """Minimum ready hosts before discovery urgency eases (~3 tries per hourly floor)."""
+    import knowledge
+
+    floor = int(getattr(config, "HOURLY_SUBMIT_FLOOR", 30) or 30)
+    floor = min(floor, int(knowledge.hourly_cap()))
+    refill = int(getattr(config, "QUEUE_REFILL_BELOW", 80) or 80)
+    return max(floor * 3, refill)
+
+
+def feed_eligible(url: str) -> bool:
+    """Whether a public discovery feed row may enter the queue."""
+    host = host_of(url)
+    if not host or is_enterprise(url) or is_noise(url) or optout.is_url_opted_out(url):
+        return False
+    row = (_processed().get("domains") or {}).get(host)
+    if not isinstance(row, dict):
+        return True
+    status = str(row.get("status") or "")
+    if status == "retrying":
+        return True
+    if status in RETRYABLE_NO_SEND:
+        return False
+    if status.startswith("submitted") or status in TERMINAL:
+        return False
+    return True
+
+
 def queue_depth() -> int:
     return len(_queue().get("urls") or [])
 

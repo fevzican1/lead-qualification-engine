@@ -20,28 +20,63 @@ import target_pool
 logger = logging.getLogger(__name__)
 
 FEED_PATH = config.ROOT / "feeds" / "ready_queue.json"
+FEED_STATE_PATH = config.ROOT / "feeds" / "feed_state.json"
 
 
 def _min_score() -> int:
     return int(getattr(config, "FEED_MIN_SCORE", 80) or 80)
 
 
-def _load_file() -> list[dict[str, Any]]:
-    if not FEED_PATH.exists():
-        return []
+def _load_state() -> dict[str, Any]:
+    if not FEED_STATE_PATH.exists():
+        return {}
     try:
-        payload = json.loads(FEED_PATH.read_text(encoding="utf-8"))
+        data = json.loads(FEED_STATE_PATH.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        logger.warning("Corrupt %s", FEED_PATH.name)
-        return []
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_state(data: dict[str, Any]) -> None:
+    FEED_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    data["updated_at"] = domain_store.utc_now()
+    tmp = FEED_STATE_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(FEED_STATE_PATH)
+
+
+def _decode_github_payload(payload: Any) -> dict[str, Any] | None:
+    if isinstance(payload, dict) and payload.get("encoding") == "base64" and payload.get("content"):
+        try:
+            payload = json.loads(base64.b64decode(payload["content"]).decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            logger.info("GitHub contents decode failed: %s", exc)
+            return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _rows_from_payload(payload: Any) -> list[dict[str, Any]]:
     rows = payload.get("urls") if isinstance(payload, dict) else payload
     return [row for row in (rows or []) if isinstance(row, dict)]
 
 
-def _pull_github() -> list[dict[str, Any]]:
+def _load_file() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if not FEED_PATH.exists():
+        return [], {}
+    try:
+        payload = json.loads(FEED_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        logger.warning("Corrupt %s", FEED_PATH.name)
+        return [], {}
+    if not isinstance(payload, dict):
+        return [], {}
+    return _rows_from_payload(payload), payload
+
+
+def _pull_github_raw() -> dict[str, Any] | None:
     url = str(getattr(config, "FEED_URL", "") or "").strip()
     if not url:
-        return []
+        return None
     headers = {"Accept": "application/json", "User-Agent": "devsolve-feed-ingest"}
     token = str(getattr(config, "FEED_GITHUB_TOKEN", "") or "").strip()
     if token:
@@ -49,19 +84,39 @@ def _pull_github() -> list[dict[str, Any]]:
     try:
         response = httpx.get(url, headers=headers, timeout=45.0, follow_redirects=True)
         response.raise_for_status()
-        payload = response.json()
+        return _decode_github_payload(response.json())
     except Exception as exc:  # noqa: BLE001
         logger.info("GitHub feed pull skipped: %s", exc)
-        return []
-    if isinstance(payload, dict) and payload.get("encoding") == "base64" and payload.get("content"):
-        try:
-            payload = json.loads(base64.b64decode(payload["content"]).decode("utf-8"))
-        except Exception as exc:  # noqa: BLE001
-            logger.info("GitHub contents decode failed: %s", exc)
-            return []
-    rows = payload.get("urls") if isinstance(payload, dict) else payload
-    logger.info("Pulled GitHub feed rows=%s", len(rows or []))
-    return [row for row in (rows or []) if isinstance(row, dict)]
+        return None
+
+
+def sync_github_feed() -> dict[str, Any] | None:
+    """Pull ready_queue.json from GitHub and persist locally. Zero probe budget."""
+    payload = _pull_github_raw()
+    if not payload:
+        return None
+    rows = _rows_from_payload(payload)
+    if not rows:
+        logger.info("GitHub feed empty")
+        return None
+    payload.setdefault("version", 2)
+    payload.setdefault("source", "multi-public-discovery")
+    payload["count"] = len(rows)
+    FEED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = FEED_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(FEED_PATH)
+    state = _load_state()
+    state["last_sync_at"] = domain_store.utc_now()
+    state["feed_updated_at"] = str(payload.get("updated_at") or "")
+    state["feed_count"] = len(rows)
+    _save_state(state)
+    logger.info("Synced GitHub feed rows=%s updated=%s", len(rows), state["feed_updated_at"])
+    return {
+        "count": len(rows),
+        "updated_at": state["feed_updated_at"],
+        "new_hosts": int(payload.get("new_hosts") or 0),
+    }
 
 
 def ingest(*, limit: int | None = None) -> int:
@@ -71,13 +126,15 @@ def ingest(*, limit: int | None = None) -> int:
     room = max(0, cap - domain_store.queue_depth())
     if limit is not None:
         room = min(room, max(0, int(limit)))
-    if room <= 0:
-        logger.info("Queue full %s/%s — feed ingest skip", domain_store.queue_depth(), cap)
-        return 0
+
+    file_rows, file_meta = _load_file()
+    state = _load_state()
+    feed_stamp = str(file_meta.get("updated_at") or state.get("feed_updated_at") or "")
+    feed_refresh = feed_stamp and feed_stamp != str(state.get("last_ingest_feed_at") or "")
 
     merged: dict[str, dict[str, Any]] = {}
-    retry_budget = room
-    for row in [*_load_file(), *_pull_github()]:
+    retry_budget = max(room, 24) if feed_refresh else max(room, 8)
+    for row in file_rows:
         url = str(row.get("url") or "").strip()
         canonical = domain_store.origin_url(url)
         host = domain_store.host_of(canonical)
@@ -87,13 +144,12 @@ def ingest(*, limit: int | None = None) -> int:
             if retry_budget <= 0 or not domain_store.requeue_if_retryable(url):
                 continue
             retry_budget -= 1
+        if not domain_store.feed_eligible(url) and domain_store.is_processed(url):
+            continue
         if domain_store.is_processed(url):
             continue
         if domain_store.is_noise(url):
             continue
-        # Score the harvested contact path before enqueue canonicalizes the
-        # queue row to its origin; otherwise /contact becomes "/" and every
-        # feed row is incorrectly rejected as score 0.
         score, _stack = easy_score.from_contact_url(url)
         if score < min_score:
             continue
@@ -109,6 +165,16 @@ def ingest(*, limit: int | None = None) -> int:
         }
 
     ranked = sorted(merged.values(), key=lambda r: -int(r["easy_score"]))
+    if not ranked:
+        if feed_refresh:
+            state["last_ingest_feed_at"] = feed_stamp
+            _save_state(state)
+        if room <= 0:
+            logger.info("Queue full %s/%s — feed ingest skip", domain_store.queue_depth(), cap)
+        else:
+            logger.info("Feed has no new eligible hosts (queue=%s/%s)", domain_store.queue_depth(), cap)
+        return 0
+
     staged = 0
     for row in ranked:
         target_pool.stage_candidate(
@@ -122,7 +188,7 @@ def ingest(*, limit: int | None = None) -> int:
 
     added = 0
     for row in ranked:
-        if added >= room:
+        if room > 0 and added >= room:
             break
         if domain_store.enqueue(
             str(row["url"]),
@@ -131,22 +197,28 @@ def ingest(*, limit: int | None = None) -> int:
             authorized_contact=True,
         ):
             added += 1
+
+    state["last_ingest_feed_at"] = feed_stamp
+    state["last_ingest_added"] = added
+    _save_state(state)
     logger.info(
-        "Feed ingest staged=%s approved=%s enqueued=%s (min_score=%s, queue=%s/%s)",
+        "Feed ingest staged=%s approved=%s enqueued=%s (min_score=%s, queue=%s/%s, refresh=%s)",
         staged,
         approved,
         added,
         min_score,
         domain_store.queue_depth(),
         cap,
+        feed_refresh,
     )
     return added
 
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    sync_github_feed()
     n = ingest()
-    print(f"Ingested {n} feed URL(s). Queue={domain_store.queue_depth()}")
+    print(f"Ingested {n} feed URL(s). Queue={domain_store.queue_depth()} fuel={domain_store.chromium_fuel_count()}")
     return 0
 
 

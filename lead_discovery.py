@@ -462,11 +462,11 @@ def should_run() -> bool:
 def heal_queue() -> int:
     """Cheap refill: listing-page GET + one contact HEAD. No Bing, no 4-path HEAD."""
     fuel = domain_store.chromium_fuel_count()
-    hourly = int(knowledge.hourly_cap())
-    if fuel >= hourly:
+    target = domain_store.chromium_fuel_target()
+    if fuel >= target:
         return 0
-    need = max(hourly, hourly - fuel + 8)
-    logger.info("Self-heal: chromium_fuel %s < %s — seed HTML + 1x contact HEAD", fuel, hourly)
+    need = max(12, target - fuel + 8)
+    logger.info("Self-heal: chromium_fuel %s < %s — seed HTML + 1x contact HEAD", fuel, target)
     return run_discovery(
         max_new=need,
         queries_this_run=0,

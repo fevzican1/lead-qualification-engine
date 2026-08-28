@@ -89,6 +89,10 @@ def _hourly_floor() -> int:
     return min(floor, int(knowledge.hourly_cap()))
 
 
+def _fuel_target() -> int:
+    return domain_store.chromium_fuel_target()
+
+
 def _warn_if_starving() -> None:
     """Tell the owner when the feed, not the cap, is what holds the hour back."""
     _today_n, hour_n = knowledge.submit_counts()
@@ -128,13 +132,16 @@ def _sleep_after_cycle() -> int:
         wait = min(300, knowledge.seconds_until_hour_slot())
         logger.info("Hourly cap %s/%s — slot opens in ~%ss", hour_n, hourly, wait)
         return wait
+    target = _fuel_target()
     # HTTP empty does not park the machine. Fill the hour toward the floor first.
-    if hour_n < _hourly_floor() and fuel > 0:
-        wait = 40
+    if fuel < target and hour_n < _hourly_floor():
+        wait = 20
+    elif hour_n < _hourly_floor() and fuel > 0:
+        wait = 30
     elif hour_n < hourly:
-        wait = 60
+        wait = 45
     else:
-        wait = 90
+        wait = 60
     logger.info(
         "Hour open %s/%s fuel=%s queue=%s http=%s — next cycle in %ss",
         hour_n,
@@ -197,8 +204,11 @@ def main() -> None:
                     f"Target pool auto-approve approved={pool_stats['approved']} "
                     f"promoted={pool_stats['promoted']}"
                 )
+            synced = feed_ingest.sync_github_feed()
+            if synced:
+                print(f"GitHub feed senkron: {synced.get('count', 0)} host, updated={synced.get('updated_at', '?')}")
             fed = feed_ingest.ingest()
-            print(f"Feed +{fed} | kuyruk={domain_store.queue_depth()}/{cap}")
+            print(f"Feed +{fed} | kuyruk={domain_store.queue_depth()}/{cap} | fuel={domain_store.chromium_fuel_count()}")
         except Exception:
             logger.exception("Feed ingest failed — catalog/heal still run")
 
@@ -219,19 +229,22 @@ def main() -> None:
             f"Hazır nitelikli={ready} | fuel80={fuel80} | chromium_fuel={fuel} | "
             f"kuyruk={domain_store.queue_depth()}/{cap}"
         )
-        if http_left >= 2 and fuel80 < knowledge.hourly_cap():
+        fuel_target = _fuel_target()
+        needs_fuel = fuel < fuel_target or fuel80 < fuel_target
+        if http_left >= 2 and needs_fuel:
             try:
                 added = lead_discovery.heal_queue()
                 print(
                     f"Self-heal +{added} | hazır={domain_store.ready_pool_size()} "
-                    f"| fuel={domain_store.chromium_fuel_count()} | http={domain_store.http_budget_label()}"
+                    f"| fuel={domain_store.chromium_fuel_count()}/{fuel_target} "
+                    f"| http={domain_store.http_budget_label()}"
                 )
             except Exception:
                 logger.exception("Heal failed — pipeline still runs")
         else:
-            why = "http saatlik/günlük tavan" if http_left < 2 else "hazır kuyruk yeterli"
+            why = "http saatlik/günlük tavan" if http_left < 2 else f"fuel yeterli (>={fuel_target})"
             print(
-                f"Discovery atlandı ({why}; hazır={ready}, fuel={fuel}, "
+                f"Discovery atlandı ({why}; hazır={ready}, fuel={fuel}/{fuel_target}, "
                 f"kuyruk={domain_store.queue_depth()}/{cap}, "
                 f"http={domain_store.http_budget_label()})"
             )
