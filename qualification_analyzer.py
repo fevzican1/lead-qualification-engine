@@ -15,6 +15,7 @@ import re
 from typing import Any, Optional
 
 import config
+import bounded_agents
 import knowledge
 import optout
 import telegram_handoff
@@ -112,6 +113,11 @@ def qualify_lead(lead: dict[str, Any], *, model: Optional[str] = None) -> dict[s
         str(lead.get("page_excerpt") or ""),
     )
     updated["stack_hints"] = hints
+    recon = bounded_agents.recon_context(updated)
+    updated["agent_recon"] = recon
+    updated["platform"] = recon["platform"]
+    updated["platform_confidence"] = recon["confidence"]
+    updated["platform_evidence"] = recon["evidence"]
     score = _heuristic_score(updated)
     turkish = looks_turkish(
         str(lead.get("description") or ""),

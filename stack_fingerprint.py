@@ -109,6 +109,22 @@ _IMPLIES: dict[str, tuple[str, ...]] = {
 
 MIN_SCORE = 3
 MIN_MARGIN = 2
+PLATFORM_CONFIDENCE_THRESHOLD = 95
+
+
+def _confidence_percent(top_score: int, runner_score: int, evidence_count: int) -> int:
+    """Translate source evidence into a conservative confidence percentage.
+
+    A single marker is not enough to name a platform. The public API keeps the
+    raw scores for diagnostics, while callers receive a 95% confirmation only
+    when at least two exclusive markers agree and the winner has a clear lead.
+    """
+    if top_score < MIN_SCORE or top_score - runner_score < MIN_MARGIN:
+        return 0
+    if evidence_count < 2:
+        return min(89, 70 + top_score)
+    confidence = 80 + min(12, evidence_count * 5) + min(8, top_score - runner_score)
+    return min(100, confidence)
 
 
 def _blob(
@@ -158,7 +174,14 @@ def fingerprint(
     """
     blob = _blob(html=html, headers=headers, cookies=cookies, scripts=scripts, url=url)
     if not blob.strip():
-        return {"platform": "", "confidence": 0, "evidence": [], "secondary": [], "scores": {}}
+        return {
+            "platform": "",
+            "confidence": 0,
+            "confidence_threshold": PLATFORM_CONFIDENCE_THRESHOLD,
+            "evidence": [],
+            "secondary": [],
+            "scores": {},
+        }
 
     scores: dict[str, int] = {}
     evidence: dict[str, list[str]] = {}
@@ -182,17 +205,27 @@ def fingerprint(
     secondary = [label for pattern, label in _SECONDARY if re.search(pattern, blob, re.I)]
 
     if not scores:
-        return {"platform": "", "confidence": 0, "evidence": [], "secondary": secondary, "scores": {}}
+        return {
+            "platform": "",
+            "confidence": 0,
+            "confidence_threshold": PLATFORM_CONFIDENCE_THRESHOLD,
+            "evidence": [],
+            "secondary": secondary,
+            "scores": {},
+        }
 
     ranked = sorted(scores.items(), key=lambda item: -item[1])
     top, top_score = ranked[0]
     runner_score = ranked[1][1] if len(ranked) > 1 else 0
-    confirmed = top_score >= MIN_SCORE and (top_score - runner_score) >= MIN_MARGIN
+    confidence = _confidence_percent(top_score, runner_score, len(evidence.get(top, [])))
+    confirmed = confidence >= PLATFORM_CONFIDENCE_THRESHOLD
 
     return {
         "platform": top if confirmed else "",
         "candidate": top,
-        "confidence": int(top_score),
+        "confidence": confidence,
+        "raw_score": int(top_score),
+        "confidence_threshold": PLATFORM_CONFIDENCE_THRESHOLD,
         "evidence": evidence.get(top, [])[:4],
         "secondary": secondary[:4],
         "scores": dict(ranked[:4]),

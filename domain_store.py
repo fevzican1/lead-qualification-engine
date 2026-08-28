@@ -497,6 +497,7 @@ def enqueue(url: str, *, source: str = "discovery", easy_score: int = 40) -> boo
         {
             "url": url,
             "source": source,
+            "authorized_contact": source == "targets.txt",
             "queued_at": utc_now(),
             "fails": 0,
             "easy_score": int(easy_score),
@@ -647,6 +648,7 @@ def pending_rows(*, limit: int = 40, min_easy: int = 0, max_easy: int | None = N
             "queued_at": item.get("queued_at"),
             "fails": int(item.get("fails") or 0),
             "easy_score": int(item.get("easy_score") or 0),
+            "authorized_contact": bool(item.get("authorized_contact")),
             "next_try": item.get("next_try"),
             "defer_reason": item.get("defer_reason"),
         }

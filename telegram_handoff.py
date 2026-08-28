@@ -82,6 +82,8 @@ _NEUTRAL_HOOK = {
     "probe": "iletişim/checkout POST akışı ve idempotency key",
     "probe_en": "the contact/checkout POST flow and the idempotency key",
 }
+NEUTRAL_ENGINEERING_HOOK = _NEUTRAL_HOOK
+PLATFORM_CONFIDENCE_THRESHOLD = 95
 
 
 def classify_hook(
@@ -97,13 +99,9 @@ def classify_hook(
     platform we could not prove.
     """
     name = (platform or "").strip()
-    if not name:
-        # Legacy rows: fingerprint always writes the platform first in hints.
-        for hint in hints or []:
-            candidate = str(hint).strip()
-            if candidate in _HOOKS or candidate in _TR_PANELS:
-                name = candidate
-                break
+    confirmed = bool(name) and int(confidence or 0) >= PLATFORM_CONFIDENCE_THRESHOLD
+    if not confirmed:
+        name = ""
 
     if name in _HOOKS:
         hook = dict(_HOOKS[name])
@@ -119,7 +117,7 @@ def classify_hook(
         return hook
 
     hook = dict(_NEUTRAL_HOOK)
-    hook["stack_name"] = "" if not name else name
+    hook["stack_name"] = ""
     hook["confirmed"] = "no"
     hook["confidence"] = str(confidence or 0)
     return hook

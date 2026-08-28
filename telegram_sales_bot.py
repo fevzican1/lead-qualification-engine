@@ -27,6 +27,7 @@ from telegram.ext import (
 )
 
 import config
+import bounded_agents
 import knowledge
 import ollama_client
 import optout
@@ -101,6 +102,20 @@ def _bind_token(chat_id: int, token: str) -> dict[str, Any] | None:
     if row:
         _briefs[chat_id] = row
     return row
+
+
+def _closer_brief(row: dict[str, Any] | None) -> str:
+    """Give the model the same evidence gate used by form qualification."""
+    if not row:
+        return ""
+    context = bounded_agents.closer_context(row)
+    safe_row = dict(row)
+    safe_row["platform"] = context["platform"]
+    safe_row["stack"] = context["platform"] or ""
+    safe_row["platform_confirmed"] = context["platform_confirmed"]
+    safe_row["platform_confidence"] = context["platform_confidence"]
+    safe_row["platform_evidence"] = context["platform_evidence"]
+    return telegram_handoff.brief_block(safe_row)
 
 
 def _parse_model_output(raw: str, user_text: str) -> tuple[str, bool]:
@@ -476,7 +491,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     _remember(chat_id, "user", user_text)
-    brief = telegram_handoff.brief_block(_briefs.get(chat_id))
+    brief = _closer_brief(_briefs.get(chat_id))
     messages = [
         {"role": "system", "content": knowledge.telegram_system_prompt(brief=brief)},
         *_histories[chat_id],

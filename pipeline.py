@@ -29,6 +29,7 @@ from playwright.sync_api import Page
 from playwright.sync_api import sync_playwright
 
 import browser
+import bounded_agents
 import config
 import domain_store
 import knowledge
@@ -111,7 +112,11 @@ def upsert(leads: list[dict[str, Any]], lead: dict[str, Any]) -> list[dict[str, 
 
 def eligible_for_submit(lead: dict[str, Any], min_score: int) -> bool:
     url = str(lead.get("url") or "")
-    if optout.is_url_opted_out(url) or domain_store.is_deferred(url):
+    if (
+        optout.is_url_opted_out(url)
+        or domain_store.is_deferred(url)
+        or not bounded_agents.outreach_gate(lead).get("allowed")
+    ):
         return False
     status = str(lead.get("status") or "")
     if status.startswith("submitted"):
@@ -169,6 +174,7 @@ def _ready_submit_jobs(leads: list[dict[str, Any]], min_score: int, *, limit: in
                 "stack_hints": list(lead.get("stack_hints") or []),
                 "form_likely": True,
                 "ok": True,
+                "authorized_contact": bool(lead.get("authorized_contact")),
             }
         )
         if len(jobs) >= limit * 3:
@@ -222,6 +228,10 @@ def _queue_direct_jobs(
                     "stack_hints": list(lead.get("stack_hints") or []),
                     "form_likely": True,
                     "ok": True,
+                    "authorized_contact": bool(
+                        lead.get("authorized_contact")
+                        or str(row.get("source") or "") == "targets.txt"
+                    ),
                 }
             )
             if len(jobs) >= need:
@@ -277,6 +287,7 @@ def _collect_one(page: Page, url: str, probe: dict[str, Any]) -> dict[str, Any]:
         }
     lead["waf_strict"] = bool(probe.get("waf_strict") or lead.get("waf_strict"))
     lead["priority"] = int(probe.get("priority") or lead.get("priority") or 0)
+    lead["authorized_contact"] = bool(probe.get("authorized_contact"))
     lead["easy_score"] = int(
         probe.get("easy_score")
         or lead.get("easy_score")

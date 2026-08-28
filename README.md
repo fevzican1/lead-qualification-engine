@@ -24,6 +24,8 @@ flowchart LR
 
 Use this only on websites and inboxes you are authorized to contact, and only in ways that comply with applicable anti-spam, privacy, and computer-access laws (including consent / lawful-basis rules in your jurisdiction). The submitter **does not** solve CAPTCHAs, log into accounts, or bypass access controls — protected forms are skipped. Form posting is opt-in (`--submit`); the default pipeline run only collects and qualifies.
 
+The bounded agent layer names a platform only after multiple source-level markers reach the 95% confidence policy; otherwise it uses a neutral engineering hook. A form is counted as confirmed only after a non-analytics 2xx network response, and all browser work remains time-bounded. Real submissions require `authorized_contact=true`; entries explicitly loaded from `targets.txt` are marked authorized, while public discovery rows remain analysis-only until authorized.
+
 ## Discovery feeds
 
 GitHub Actions runs 250 logical Common Crawl shards through five bounded, staggered fleet workflows, refreshing each family every 30 minutes. Shards write only `feeds/shards/`; the single serialized publisher validates, deduplicates, builds `feeds/ready_queue.json`, and performs one atomic Oracle sync, so discovery does not consume the Oracle HTTP probe budget. A low-watermark workflow starts one family early when Oracle fuel falls below 80, without requeueing submitted or opted-out hosts. Tranco sitemap discovery is sequential and capped; Google scraping and unlicensed data-provider APIs are intentionally not used.

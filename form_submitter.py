@@ -9,7 +9,7 @@ Behaviour:
 - Fills only visible input/textarea controls; skips hidden and honeypot fields.
 - Types at 30–70ms per character. Never solves CAPTCHAs.
 - Submit cascade: scroll → requestSubmit → MouseEvent click → Enter.
-- Confirms via POST/AJAX 2xx/204, not only a "thank you" string.
+- Confirms via a non-analytics POST/AJAX 2xx response, not only a "thank you" string.
 - Does not bypass logins or access controls.
 
 Only use this against properties you are authorized to contact.
@@ -182,17 +182,20 @@ class FormNetWatcher:
             method = (request.method or "").upper()
             if method not in {"POST", "PUT", "PATCH"}:
                 return
-            if str(getattr(request, "resource_type", "") or "").lower() in {
+            resource_type = str(getattr(request, "resource_type", "") or "").lower()
+            if resource_type in {
                 "beacon",
                 "image",
                 "script",
             }:
                 return
+            if resource_type and resource_type not in {"document", "fetch", "xhr"}:
+                return
             url = (request.url or "").lower()
             if any(tok in url for tok in _NET_NOISE):
                 return
             code = int(response.status or 0)
-            if 200 <= code < 400:
+            if 200 <= code < 300:
                 self.hit = True
                 self.status = code
                 self.url = request.url or ""
@@ -271,8 +274,8 @@ def _fast_fail(lead: dict[str, Any]) -> bool:
 
 def _site_budget(lead: dict[str, Any] | None = None) -> float:
     if lead is not None and _fast_fail(lead):
-        return float(getattr(config, "SUBMIT_FAST_FAIL_SECONDS", 15) or 15)
-    return float(getattr(config, "SITE_TIMEOUT_SECONDS", 90) or 90)
+        return min(30.0, float(getattr(config, "SUBMIT_FAST_FAIL_SECONDS", 15) or 15))
+    return min(30.0, float(getattr(config, "SITE_TIMEOUT_SECONDS", 30) or 30))
 
 
 def _submit_with_page(
@@ -391,8 +394,8 @@ def _submit_with_page(
         result["submit_fields_filled"] = filled
         result["submitted_url"] = form_url
         result["error"] = None
-        if net or success_dom:
-            result["status"] = "submitted_confirmed" if net else "submitted"
+        if net:
+            result["status"] = "submitted_confirmed"
             logger.info(
                 "Form post finished for %s status=%s net=%s dom=%s",
                 lead.get("url"),
@@ -400,6 +403,11 @@ def _submit_with_page(
                 net,
                 success_dom,
             )
+            return result
+        if success_dom:
+            result["status"] = "skipped_submit_failed"
+            result["error"] = "DOM success without network confirmation"
+            logger.info("DOM success without network confirmation for %s", lead.get("url"))
             return result
         if not clicked:
             result["status"] = "skipped_submit_failed"
