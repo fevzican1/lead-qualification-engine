@@ -168,6 +168,10 @@ DEAD_QUEUE = {
     "skipped_unreachable",
     "skipped_enterprise",
 }
+RETRYABLE_NO_SEND = frozenset(
+    {"skipped_no_form", "skipped_no_open_form", "skipped_unreachable"}
+)
+RETRY_COOLDOWN = timedelta(hours=12)
 
 
 def utc_now() -> str:
@@ -264,7 +268,33 @@ def is_processed(url: str) -> bool:
         return True
     if is_enterprise(url) or is_noise(url) or optout.is_url_opted_out(url):
         return True
-    return host in (_processed().get("domains") or {})
+    row = (_processed().get("domains") or {}).get(host)
+    return bool(row) and str(row.get("status") or "") != "retrying"
+
+
+def requeue_if_retryable(url: str) -> bool:
+    """Allow one cooldown retry only for hosts where no form was sent."""
+    host = host_of(url)
+    if not host or is_enterprise(url) or is_noise(url) or optout.is_url_opted_out(url):
+        return False
+    data = _processed()
+    domains = data.get("domains") or {}
+    row = domains.get(host)
+    if not isinstance(row, dict):
+        return False
+    status = str(row.get("status") or "")
+    if status not in RETRYABLE_NO_SEND or int(row.get("retry_count") or 0) >= 1:
+        return False
+    stamp = _parse_ts(str(row.get("at") or ""))
+    if stamp is not None and datetime.now(timezone.utc) - stamp < RETRY_COOLDOWN:
+        return False
+    row["status"] = "retrying"
+    row["retry_count"] = 1
+    row["retry_at"] = utc_now()
+    data["domains"] = domains
+    data["updated_at"] = utc_now()
+    _save_json(PROCESSED_PATH, data)
+    return True
 
 
 def mark(url: str, status: str, *, source: str = "pipeline") -> None:

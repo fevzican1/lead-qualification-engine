@@ -75,10 +75,17 @@ def ingest(*, limit: int | None = None) -> int:
         return 0
 
     merged: dict[str, dict[str, Any]] = {}
+    retry_budget = room
     for row in [*_load_file(), *_pull_github()]:
         url = domain_store.origin_url(str(row.get("url") or ""))
         host = domain_store.host_of(url)
-        if not host or domain_store.is_processed(url) or domain_store.is_enterprise(url):
+        if not host or domain_store.is_enterprise(url):
+            continue
+        if domain_store.is_processed(url):
+            if retry_budget <= 0 or not domain_store.requeue_if_retryable(url):
+                continue
+            retry_budget -= 1
+        if domain_store.is_processed(url):
             continue
         if domain_store.is_noise(url):
             continue
