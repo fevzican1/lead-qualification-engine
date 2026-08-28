@@ -40,14 +40,22 @@ jobs:
         run: |
           git config user.name "devsolve-discover"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add feeds/ready_queue.json
-          if git diff --cached --quiet; then
-            echo "No aggregate feed changes"
-            exit 0
-          fi
-          git commit -m "feed: publish multi-source discovery queue"
-          for attempt in 1 2 3; do
-            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+          for attempt in 1 2 3 4 5; do
+            if ! git pull --rebase --autostash origin "${GITHUB_REF_NAME}"; then
+              # A concurrent publisher may have changed only ready_queue.json.
+              # Drop the stale aggregate commit and recompute from fresh shards.
+              git rebase --skip || git rebase --abort || true
+            fi
+            python scripts/merge_feed_shards.py --cap 60000
+            git add feeds/ready_queue.json
+            if git diff --cached --quiet; then
+              echo "No aggregate feed changes"
+              exit 0
+            fi
+            git commit -m "feed: publish multi-source discovery queue"
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              exit 0
+            fi
             sleep $((attempt * 5))
           done
           echo "Aggregate feed push failed after retries"
