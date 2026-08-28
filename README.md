@@ -24,7 +24,7 @@ flowchart LR
 
 Use this only on websites and inboxes you are authorized to contact, and only in ways that comply with applicable anti-spam, privacy, and computer-access laws (including consent / lawful-basis rules in your jurisdiction). The submitter **does not** solve CAPTCHAs, log into accounts, or bypass access controls — protected forms are skipped. Form posting is opt-in (`--submit`); the default pipeline run only collects and qualifies.
 
-The bounded agent layer names a platform only after multiple source-level markers reach the 95% confidence policy; otherwise it uses a neutral engineering hook. A form is counted as confirmed only after a non-analytics 2xx network response, and all browser work remains time-bounded. Real submissions require `authorized_contact=true`; entries explicitly loaded from `targets.txt` are marked authorized, while public discovery rows remain analysis-only until authorized.
+The bounded agent layer names a platform only after multiple source-level markers reach the 95% confidence policy; otherwise it uses a neutral engineering hook. A form is counted as confirmed only after a non-analytics 2xx network response, and all browser work remains time-bounded. Public discovery rows with easy_score ≥80 are auto-approved from review_queue into authorized_targets with zero delay; opt-out, CAPTCHA, and daily/hourly caps remain the spam controls.
 
 ## Discovery feeds
 

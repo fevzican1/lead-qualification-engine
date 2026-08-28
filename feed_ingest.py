@@ -15,6 +15,7 @@ import httpx
 import config
 import domain_store
 import easy_score
+import target_pool
 
 logger = logging.getLogger(__name__)
 
@@ -105,22 +106,40 @@ def ingest(*, limit: int | None = None) -> int:
             "stack": row.get("stack") or "",
             "source": str(row.get("source") or "public-discovery")[:80],
             "profile": str(row.get("profile") or "")[:40],
-            "authorized_contact": row.get("authorized_contact") is True,
         }
 
     ranked = sorted(merged.values(), key=lambda r: -int(r["easy_score"]))
+    staged = 0
+    for row in ranked:
+        target_pool.stage_candidate(
+            str(row["url"]),
+            easy_score=int(row["easy_score"]),
+            source=str(row.get("source") or "public-discovery"),
+            profile=str(row.get("profile") or ""),
+        )
+        staged += 1
+    approved = target_pool.auto_approve()
+
     added = 0
     for row in ranked:
         if added >= room:
             break
         if domain_store.enqueue(
             str(row["url"]),
-            source=str(row.get("source") or "public-discovery"),
+            source=str(row.get("source") or "authorized-discovery"),
             easy_score=int(row["easy_score"]),
-            authorized_contact=bool(row.get("authorized_contact")),
+            authorized_contact=True,
         ):
             added += 1
-    logger.info("Feed ingest +%s (min_score=%s, queue=%s/%s)", added, min_score, domain_store.queue_depth(), cap)
+    logger.info(
+        "Feed ingest staged=%s approved=%s enqueued=%s (min_score=%s, queue=%s/%s)",
+        staged,
+        approved,
+        added,
+        min_score,
+        domain_store.queue_depth(),
+        cap,
+    )
     return added
 
 

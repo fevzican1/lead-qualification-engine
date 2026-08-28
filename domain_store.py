@@ -484,7 +484,11 @@ def enqueue(
         return False
     if optout.is_url_opted_out(url):
         return False
-    authorized = source == "targets.txt" if authorized_contact is None else bool(authorized_contact)
+    if authorized_contact is None:
+        min_auto = int(getattr(config, "FEED_MIN_SCORE", 80) or 80)
+        authorized = source == "targets.txt" or int(easy_score) >= min_auto
+    else:
+        authorized = bool(authorized_contact)
     data = _queue()
     host = host_of(url)
     for item in data["urls"]:

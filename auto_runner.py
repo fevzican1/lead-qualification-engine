@@ -189,7 +189,14 @@ def main() -> None:
         print("\n[0/3] Dış feed (Common Crawl / GitHub, Oracle HTTP yok)...")
         try:
             import feed_ingest
+            import target_pool
 
+            pool_stats = target_pool.sync()
+            if pool_stats["approved"] or pool_stats["promoted"]:
+                print(
+                    f"Target pool auto-approve approved={pool_stats['approved']} "
+                    f"promoted={pool_stats['promoted']}"
+                )
             fed = feed_ingest.ingest()
             print(f"Feed +{fed} | kuyruk={domain_store.queue_depth()}/{cap}")
         except Exception:

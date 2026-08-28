@@ -15,6 +15,7 @@ import config
 import optout
 import stack_fingerprint
 import telegram_handoff
+import target_pool
 
 PLATFORM_CONFIDENCE_THRESHOLD = stack_fingerprint.PLATFORM_CONFIDENCE_THRESHOLD
 NEUTRAL_ENGINEERING_HOOK = telegram_handoff.NEUTRAL_ENGINEERING_HOOK
@@ -46,7 +47,7 @@ def recon_context(lead: dict[str, Any]) -> dict[str, Any]:
 
 
 def outreach_gate(lead: dict[str, Any]) -> dict[str, Any]:
-    """Check local safety gates before a caller attempts an authorized submit."""
+    """Check local safety gates before a caller attempts a form submit."""
     url = str(lead.get("url") or "")
     if not url or optout.is_url_opted_out(url):
         return {"allowed": False, "reason": "opted_out"}
@@ -54,8 +55,11 @@ def outreach_gate(lead: dict[str, Any]) -> dict[str, Any]:
         return {"allowed": False, "reason": "captcha"}
     if not (lead.get("contact_form") or {}).get("found"):
         return {"allowed": False, "reason": "no_public_form"}
-    if lead.get("authorized_contact") is not True:
-        return {"allowed": False, "reason": "not_authorized"}
+    easy = int(lead.get("easy_score") or 0)
+    if lead.get("authorized_contact") is not True and not target_pool.is_authorized(
+        url, easy_score=easy
+    ):
+        return {"allowed": False, "reason": "below_auto_approve_score"}
     return {"allowed": True, "reason": "authorized"}
 
 

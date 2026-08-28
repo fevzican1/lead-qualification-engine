@@ -47,18 +47,26 @@ def test_closer_context_cannot_restore_an_unconfirmed_platform() -> None:
     assert context["platform_confirmed"] is False
 
 
-def test_outreach_gate_requires_explicit_authorization() -> None:
+def test_outreach_gate_allows_high_score_discovery() -> None:
     lead = {
         "url": "https://merchant.example/contact",
         "contact_form": {"found": True},
+        "easy_score": 80,
+    }
+    assert bounded_agents.outreach_gate(lead)["allowed"] is True
+
+
+def test_outreach_gate_blocks_low_score_without_authorization() -> None:
+    lead = {
+        "url": "https://merchant.example/contact",
+        "contact_form": {"found": True},
+        "easy_score": 65,
         "authorized_contact": False,
     }
     assert bounded_agents.outreach_gate(lead) == {
         "allowed": False,
-        "reason": "not_authorized",
+        "reason": "below_auto_approve_score",
     }
-    lead["authorized_contact"] = True
-    assert bounded_agents.outreach_gate(lead)["allowed"] is True
 
 
 def test_network_watcher_ignores_redirects_and_analytics() -> None:

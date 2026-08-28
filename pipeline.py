@@ -38,6 +38,7 @@ import owner_notify
 import pacing
 import prefilter
 import easy_score
+import target_pool
 from collector import collect_error_status, scan_one
 from form_submitter import submit_lead
 from qualification_analyzer import qualify_lead
@@ -55,7 +56,6 @@ DONE_STATUSES = {
     "skipped_submit_failed",
     "skipped_unreachable",
     "skipped_enterprise",
-    "skipped_unauthorized",
 }
 
 
@@ -96,7 +96,7 @@ def authorize_target_rows(leads: list[dict[str, Any]], target_urls: list[str]) -
             and lead.get("authorized_contact") is not True
         ):
             lead["authorized_contact"] = True
-            if str(lead.get("status") or "") == "skipped_unauthorized":
+            if str(lead.get("status") or "") in {"skipped_unauthorized", "below_auto_approve_score"}:
                 domain_store.unmark(key)
                 lead["status"] = "queued"
                 lead["error"] = None
@@ -211,7 +211,10 @@ def _ready_submit_jobs(leads: list[dict[str, Any]], min_score: int, *, limit: in
                 "stack_hints": list(lead.get("stack_hints") or []),
                 "form_likely": True,
                 "ok": True,
-                "authorized_contact": bool(lead.get("authorized_contact")),
+                "authorized_contact": target_pool.is_authorized(
+                    str(lead.get("url") or ""),
+                    easy_score=int(lead.get("easy_score") or 0),
+                ),
             }
         )
         if len(jobs) >= limit * 3:
@@ -265,10 +268,10 @@ def _queue_direct_jobs(
                     "stack_hints": list(lead.get("stack_hints") or []),
                     "form_likely": True,
                     "ok": True,
-                    "authorized_contact": bool(
-                        lead.get("authorized_contact")
-                        or str(row.get("source") or "") == "targets.txt"
-                    ),
+                    "authorized_contact": target_pool.is_authorized(
+                    url,
+                    easy_score=int(row.get("easy_score") or lead.get("easy_score") or 0),
+                ),
                 }
             )
             if len(jobs) >= need:
@@ -324,7 +327,10 @@ def _collect_one(page: Page, url: str, probe: dict[str, Any]) -> dict[str, Any]:
         }
     lead["waf_strict"] = bool(probe.get("waf_strict") or lead.get("waf_strict"))
     lead["priority"] = int(probe.get("priority") or lead.get("priority") or 0)
-    lead["authorized_contact"] = bool(probe.get("authorized_contact"))
+    lead["authorized_contact"] = bool(
+        probe.get("authorized_contact")
+        or target_pool.is_authorized(url, easy_score=int(probe.get("easy_score") or 0))
+    )
     lead["easy_score"] = int(
         probe.get("easy_score")
         or lead.get("easy_score")
@@ -378,6 +384,13 @@ def run_pipeline(args: argparse.Namespace) -> int:
         file_targets = load_targets(_resolve(args.targets))
     except (FileNotFoundError, ValueError):
         file_targets = []
+    pool_stats = target_pool.sync()
+    if pool_stats["approved"] or pool_stats["promoted"]:
+        logger.info(
+            "Target pool sync approved=%s promoted=%s",
+            pool_stats["approved"],
+            pool_stats["promoted"],
+        )
     authorized_rows = authorize_target_rows(leads, file_targets)
     reopened_targets = refresh_retryable_targets(file_targets)
     if reopened_targets:
@@ -648,12 +661,7 @@ def _run_browser_pipeline(
     submitting: bool,
 ) -> list[dict[str, Any]]:
     min_easy = int(getattr(config, "EASY_SCORE_MIN", 55) or 55)
-    jobs.sort(
-        key=lambda row: (
-            not bool(row.get("authorized_contact")),
-            -int(row.get("easy_score") or 0),
-        )
-    )
+    jobs.sort(key=lambda row: -int(row.get("easy_score") or 0))
     jobs = [job for job in jobs if int(job.get("easy_score") or 0) >= min_easy]
     if submitting:
         _today_n, hour_n = knowledge.submit_counts(leads)
@@ -721,16 +729,17 @@ def _run_browser_pipeline(
                     continue
 
                 qualified = qualify_lead(item)
-                if submitting and qualified.get("authorized_contact") is not True:
-                    qualified["status"] = "skipped_unauthorized"
-                    qualified["error"] = "Explicit authorization required"
+                if submitting:
+                    easy = int(item.get("easy_score") or qualified.get("easy_score") or 0)
+                    qualified["authorized_contact"] = target_pool.is_authorized(
+                        str(qualified.get("url") or ""),
+                        easy_score=easy,
+                    )
                 leads = upsert(leads, qualified)
                 save_leads(leads_path, leads)
                 processed.append(qualified)
 
                 if not submitting:
-                    continue
-                if qualified.get("status") == "skipped_unauthorized":
                     continue
                 if not eligible_for_submit(qualified, min_score):
                     continue

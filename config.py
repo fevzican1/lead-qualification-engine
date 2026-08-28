@@ -140,6 +140,8 @@ SUBMIT_FAST_FAIL_SECONDS: float = _get_float("SUBMIT_FAST_FAIL_SECONDS", 15.0)
 MONTHLY_SALES_TARGET: int = _get_int("MONTHLY_SALES_TARGET", 100)
 LEADS_PATH: Path = ROOT / "leads.json"
 TARGETS_PATH: Path = ROOT / "targets.txt"
+AUTHORIZED_TARGETS_PATH: Path = ROOT / "authorized_targets.txt"
+REVIEW_QUEUE_PATH: Path = ROOT / "review_queue.json"
 OPTOUTS_PATH: Path = ROOT / "optouts.json"
 
 
