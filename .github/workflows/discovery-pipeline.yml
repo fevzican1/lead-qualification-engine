@@ -1,11 +1,11 @@
 name: discovery-pipeline
 
 # Unified queue/fuel pipeline (public repo — GitHub Actions minutes are free).
-# Every 10 min: merge shards → publish feed → sync Oracle → dispatch harvest if low/stale.
+# Every 5 min: merge shards → publish feed → sync Oracle → dispatch harvest if low/stale.
 # Replaces scheduled refill-on-low + discovery-watchdog + publish-feed cron.
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
   workflow_run:
     workflows:
@@ -98,8 +98,8 @@ jobs:
             fi
           fi
           echo "Feed age ${feed_age_sec}s (primary fleet=$primary)"
-          if [ "$feed_age_sec" -gt 1800 ]; then
-            echo "Feed stale >30m — force harvest"
+          if [ "$feed_age_sec" -gt 600 ]; then
+            echo "Feed stale >10m — force harvest"
             need_harvest=1
           fi
           if [ -z "${ORACLE_HOST:-}" ] || [ -z "${ORACLE_SSH_KEY:-}" ]; then
@@ -134,7 +134,7 @@ jobs:
             last_epoch=$(date -u -d "$last_iso" +%s)
             age=$(( now_epoch - last_epoch ))
             echo "$primary last run ${age}s ago"
-            if [ "$age" -gt 2700 ]; then
+            if [ "$age" -gt 1500 ]; then
               need_harvest=1
             fi
           else
@@ -142,8 +142,12 @@ jobs:
           fi
           if [ "$need_harvest" -eq 1 ]; then
             dispatch_list=("$primary")
-            if [ "$feed_age_sec" -gt 1800 ]; then
+            if [ "$feed_age_sec" -gt 600 ]; then
               dispatch_list=("${families[@]}")
+            elif [[ "$metrics" =~ ^[0-9]+,[0-9]+,[0-9]+,[0-9]+$ ]] && [ "$fuel80" -lt "$fuel_target" ]; then
+              # Fuel thin: dispatch the primary AND the next family so the tank
+              # refills within one 5-minute cycle instead of one family per slot.
+              dispatch_list+=("${families[$(( (slot + 1) % ${#families[@]} ))]}")
             fi
             for workflow in "${dispatch_list[@]}"; do
               running="$(gh run list --workflow "$workflow" --json status --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length')"

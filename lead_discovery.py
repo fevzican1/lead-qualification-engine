@@ -470,7 +470,7 @@ def heal_queue() -> int:
     return run_discovery(
         max_new=need,
         queries_this_run=0,
-        seeds_this_run=6,
+        seeds_this_run=10,
         require_contact=True,
     )
 

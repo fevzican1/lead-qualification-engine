@@ -33,6 +33,26 @@ def _refill_below() -> int:
     return int(getattr(config, "QUEUE_REFILL_BELOW", 80) or 80)
 
 
+def _fuel_thin() -> bool:
+    """Fuel below target = the tank needs a burst fill, not a trickle."""
+    return domain_store.chromium_fuel_count() < domain_store.chromium_fuel_target()
+
+
+def _burst_scan_cap(room: int, *, force: bool, fuel_thin: bool) -> int:
+    """Feed rows scanned per ingest pass.
+
+    24/48 kept the tank on a trickle (fuel filled over 4+ cycles). When fuel is
+    thin, scan enough rows to close the whole deficit in ONE pass so a single
+    5-minute feed-sync cycle tops the tank up.
+    """
+    if fuel_thin:
+        fuel = domain_store.chromium_fuel_count()
+        target = domain_store.chromium_fuel_target()
+        deficit = max(0, target - fuel)
+        return max(120, min(480, deficit * 3 + 48))
+    return max(room, 48 if force else 24)
+
+
 def _load_state() -> dict[str, Any]:
     if not FEED_STATE_PATH.exists():
         return {}
@@ -207,7 +227,8 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
         room = min(room, max(0, int(limit)))
 
     low_queue = domain_store.queue_depth() < _refill_below()
-    force = bool(force_low or low_queue)
+    fuel_thin = _fuel_thin()
+    force = bool(force_low or low_queue or fuel_thin)
 
     file_rows, file_meta = _load_file()
     if not file_rows:
@@ -218,7 +239,7 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
     feed_refresh = bool(feed_stamp and feed_stamp != str(state.get("last_ingest_feed_at") or ""))
 
     merged: dict[str, dict[str, Any]] = {}
-    retry_budget = [max(room, 64 if force else 24 if feed_refresh else 8)]
+    retry_budget = [max(room, 96 if force else 24 if feed_refresh else 8)]
 
     scan_rows = list(file_rows)
     if force and scan_rows:
@@ -243,7 +264,7 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
         if prev and int(prev.get("easy_score") or 0) >= int(candidate["easy_score"]):
             continue
         merged[host] = candidate
-        if len(merged) >= max(room, 48 if force else 24):
+        if len(merged) >= _burst_scan_cap(room, force=force, fuel_thin=fuel_thin):
             break
 
     ranked = sorted(merged.values(), key=lambda r: -int(r["easy_score"]))
@@ -310,7 +331,9 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     sync_github_feed()
-    n = ingest(force_low=domain_store.queue_depth() < _refill_below())
+    n = ingest(
+        force_low=domain_store.queue_depth() < _refill_below() or _fuel_thin()
+    )
     print(f"Ingested {n} feed URL(s). Queue={domain_store.queue_depth()} fuel={domain_store.chromium_fuel_count()}")
     return 0
 

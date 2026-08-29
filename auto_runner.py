@@ -216,8 +216,15 @@ def main() -> None:
             feed_stamp = str((synced or {}).get("updated_at") or "")
             if synced:
                 print(f"GitHub feed senkron: {synced.get('count', 0)} host, updated={feed_stamp or '?'}")
-            fed = feed_ingest.ingest(force_low=domain_store.queue_depth() < int(getattr(config, "QUEUE_REFILL_BELOW", 80) or 80))
-            if domain_store.chromium_fuel_count() == 0:
+            fuel_now = domain_store.chromium_fuel_count()
+            fuel_target = domain_store.chromium_fuel_target()
+            fed = feed_ingest.ingest(
+                force_low=domain_store.queue_depth()
+                < int(getattr(config, "QUEUE_REFILL_BELOW", 80) or 80)
+                or fuel_now < fuel_target
+            )
+            if domain_store.chromium_fuel_count() < fuel_target:
+                # Tank still thin after one pass — pull the freshest feed and burst again.
                 synced2 = feed_ingest.sync_github_feed()
                 if synced2:
                     feed_stamp = str(synced2.get("updated_at") or feed_stamp)
