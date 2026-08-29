@@ -22,33 +22,62 @@ logger = logging.getLogger(__name__)
 PATH = config.ROOT / "owner.json"
 
 
-def load_chat_id() -> int | None:
-    for raw in (config.TELEGRAM_NOTIFY_CHAT_ID, config.TELEGRAM_OWNER_CHAT_ID):
-        text = (raw or "").strip()
-        if not text:
-            continue
-        try:
-            return int(text)
-        except ValueError:
-            continue
+def _parse_chat_id(raw: str) -> int | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def load_admin_chat_id() -> int | None:
+    """Sales-bot admin (/reply, /status) — never a customer thread."""
+    cid = _parse_chat_id(config.TELEGRAM_OWNER_CHAT_ID)
+    if cid is not None:
+        return cid
     if not PATH.exists():
         return None
     try:
         data = json.loads(PATH.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return None
-    chat_id = data.get("chat_id")
-    try:
-        return int(chat_id)
-    except (TypeError, ValueError):
+    return _parse_chat_id(str(data.get("chat_id") or ""))
+
+
+def load_notify_chat_id() -> int | None:
+    """Ops notifications only — private admin chat/channel, not customer inboxes."""
+    cid = _parse_chat_id(config.TELEGRAM_NOTIFY_CHAT_ID)
+    if cid is not None:
+        return cid
+    cid = _parse_chat_id(config.TELEGRAM_OWNER_CHAT_ID)
+    if cid is not None:
+        return cid
+    if not PATH.exists():
         return None
+    try:
+        data = json.loads(PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return _parse_chat_id(str(data.get("notify_chat_id") or data.get("chat_id") or ""))
+
+
+def load_chat_id() -> int | None:
+    """Backward compat — notify destination."""
+    return load_notify_chat_id()
 
 
 def save_chat_id(chat_id: int) -> None:
-    PATH.write_text(
-        json.dumps({"chat_id": int(chat_id)}, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    data: dict[str, Any] = {}
+    if PATH.exists():
+        try:
+            data = json.loads(PATH.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = {}
+    data["notify_chat_id"] = int(chat_id)
+    data.setdefault("chat_id", int(chat_id))
+    PATH.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 def lead_digest() -> str:
@@ -82,7 +111,7 @@ def lead_digest() -> str:
         "",
         "Telegram sohbetin boşsa bu normal: satış botu müşteriye ilk mesajı ATMAZ.",
         "Müşteri formdan t.me linkine tıklayınca satış botunda sohbet başlar.",
-        "Pipeline / sıcak lead bildirimleri operasyon botuna veya kanala gider (satış botundan ayrı).",
+        "Pipeline / sıcak lead → yalnızca ops chat (müşteri satış sohbetine gitmez).",
         "Satış devralma: satış botunda /reply CHATID metin",
         "Bu özet yalnızca sana gider. /stop müşteri çıkışıdır, bunu kapatmaz.",
     ]
@@ -90,13 +119,12 @@ def lead_digest() -> str:
 
 
 def send(text: str, *, chat_id: int | None = None) -> bool:
-    target = chat_id if chat_id is not None else load_chat_id()
+    target = chat_id if chat_id is not None else load_notify_chat_id()
     token = (config.TELEGRAM_NOTIFY_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN or "").strip()
     if not target or not token:
-        logger.info(
-            "Owner notify skipped (set TELEGRAM_NOTIFY_CHAT_ID + TELEGRAM_NOTIFY_BOT_TOKEN)"
-        )
+        logger.info("Ops notify skipped (no TELEGRAM_NOTIFY_CHAT_ID / OWNER chat in .env)")
         return False
+    body = f"[DevSolve Ops]\n{text}" if not text.startswith("[DevSolve") else text
     last_exc: Exception | None = None
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -104,7 +132,7 @@ def send(text: str, *, chat_id: int | None = None) -> bool:
         try:
             response = httpx.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": target, "text": text[:3500]},
+                json={"chat_id": target, "text": body[:3500]},
                 timeout=30.0,
             )
             response.raise_for_status()
@@ -144,5 +172,5 @@ def notify_pipeline(
         f"Gün toplamı: {today_n}/{knowledge.daily_cap()}\n"
         f"Kuyruk: {domain_store.queue_depth()}/{getattr(config, 'QUEUE_TARGET', 150)} "
         f"| HTTP {domain_store.http_budget_label()}\n"
-        "Müşteri yazarsa satış sohbeti bu bota düşer."
+        "Müşteri yazarsa yalnızca satış botundaki kendi sohbetine düşer."
     )

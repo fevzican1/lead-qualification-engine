@@ -81,7 +81,7 @@ def _remember(chat_id: int, role: str, content: str) -> None:
 
 
 def _is_owner(chat_id: int) -> bool:
-    known = owner_notify.load_chat_id()
+    known = owner_notify.load_admin_chat_id()
     return known is not None and int(known) == int(chat_id)
 
 
@@ -353,25 +353,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_notifyme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.message:
         return
-    chat_id = update.effective_chat.id
-    if config.TELEGRAM_NOTIFY_CHAT_ID.strip():
-        await update.message.reply_text(
-            "Bu bot yalnızca *müşteri satış sohbeti* içindir.\n"
-            "Pipeline / sıcak lead bildirimleri operasyon kanalına gider "
-            "(TELEGRAM_NOTIFY_* — satış botundan ayrı).\n\n"
-            "Müşteri devralma komutları (/reply, /status) burada çalışmaya devam eder."
-        )
-        return
-    known = owner_notify.load_chat_id()
-    if known is not None and int(chat_id) != int(known):
+    if not _is_owner(update.effective_chat.id):
         await update.message.reply_text(_cold_intro(turkish=_customer_lang(update)))
         return
-    owner_notify.save_chat_id(chat_id)
     await update.message.reply_text(
-        "Bu sohbet motor bildirimleri için kaydedildi (legacy mod).\n"
-        "Profesyonel ayrım için .env içine TELEGRAM_NOTIFY_BOT_TOKEN + "
-        "TELEGRAM_NOTIFY_CHAT_ID ekleyin.\n\n"
-        + owner_notify.lead_digest()
+        "Özet aşağıda. *Pipeline / sıcak lead bildirimleri* müşteri sohbetlerine "
+        "gitmez — yalnızca .env'deki ops chat ID'sine gider.\n\n"
+        + owner_notify.lead_digest(),
+        parse_mode="Markdown",
     )
 
 
@@ -603,7 +592,7 @@ async def _followup_loop(application: Application) -> None:
     await asyncio.sleep(45)
     while True:
         try:
-            owner_id = owner_notify.load_chat_id()
+            owner_id = owner_notify.load_admin_chat_id()
             for row in telegram_sessions.due_followups():
                 try:
                     chat_id = int(row.get("chat_id"))
