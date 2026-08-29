@@ -77,7 +77,7 @@ jobs:
             discover-cc-eu
             discover-cc-platform
           )
-          slot=$(( ($(date -u +%M) / 10) % ${#families[@]} ))
+          slot=$(( (10#$(date -u +%M) / 10) % ${#families[@]} ))
           workflow="${families[$slot]}"
           need_harvest=0
           if [ -z "${ORACLE_HOST:-}" ] || [ -z "${ORACLE_SSH_KEY:-}" ]; then
