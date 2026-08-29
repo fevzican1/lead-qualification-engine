@@ -30,6 +30,7 @@ if str(ROOT) not in sys.path:
 
 import domain_store  # noqa: E402
 import easy_score  # noqa: E402
+import form_preflight  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -402,9 +403,25 @@ def harvest(
                     for pending in futures:
                         pending.cancel()
                     break
-    rows = sorted(by_host.values(), key=lambda r: -int(r.get("easy_score") or 0))
-    logger.info("Harvest unique hosts=%s elapsed=%.0fs", len(rows), time.monotonic() - started)
-    return rows
+        rows = sorted(by_host.values(), key=lambda r: -int(r.get("easy_score") or 0))
+        preflight_budget = max(8.0, min(_left(), 45.0 if shard_count > 1 else 90.0))
+        if rows and preflight_budget >= 8:
+            rows = form_preflight.filter_verified_rows(
+                rows,
+                client=client,
+                deadline_s=preflight_budget,
+                workers=8 if shard_count == 1 else 6,
+                timeout=7.0 if shard_count > 1 else 8.0,
+            )
+        else:
+            rows = []
+        logger.info(
+            "Harvest unique verified hosts=%s elapsed=%.0fs",
+            len(rows),
+            time.monotonic() - started,
+        )
+        return rows
+    return []
 
 
 def merge_feed(path: Path, rows: list[dict[str, str | int]], *, cap: int = 60000) -> dict:

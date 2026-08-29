@@ -256,6 +256,8 @@ def _queue_direct_jobs(
                 continue
             if domain_store.is_noise(url):
                 continue
+            if not row.get("form_verified"):
+                continue
             if str(row.get("source") or "") == "catalog":
                 continue
             if lead and eligible_for_submit(lead, min_score):
@@ -713,6 +715,9 @@ def _run_browser_pipeline(
                         item["status"] = collect_error_status(str(item.get("error") or "collect"))
                         leads = upsert(leads, item)
                         save_leads(leads_path, leads)
+                    status = str(item.get("status") or "")
+                    if status in domain_store.DEAD_QUEUE or status in domain_store.TERMINAL:
+                        domain_store.mark(str(item.get("url") or ""), status, source="chromium-purge")
                     processed.append(item)
                     logger.info("Skip %s status=%s", item.get("url"), item.get("status"))
                     continue
@@ -726,6 +731,8 @@ def _run_browser_pipeline(
                         item = _skip_no_form(item)
                         leads = upsert(leads, item)
                         save_leads(leads_path, leads)
+                    status = str(item.get("status") or "skipped_no_open_form")
+                    domain_store.mark(str(item.get("url") or ""), status, source="chromium-purge")
                     processed.append(item)
                     logger.info("Skip %s status=%s", item.get("url"), item.get("status"))
                     continue

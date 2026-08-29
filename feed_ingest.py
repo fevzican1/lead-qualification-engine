@@ -150,6 +150,8 @@ def ingest(*, limit: int | None = None) -> int:
             continue
         if domain_store.is_noise(url):
             continue
+        if not row.get("form_verified"):
+            continue
         score, _stack = easy_score.from_contact_url(url)
         if score < min_score:
             continue
@@ -162,6 +164,7 @@ def ingest(*, limit: int | None = None) -> int:
             "stack": row.get("stack") or "",
             "source": str(row.get("source") or "public-discovery")[:80],
             "profile": str(row.get("profile") or "")[:40],
+            "form_verified": True,
         }
 
     ranked = sorted(merged.values(), key=lambda r: -int(r["easy_score"]))
@@ -195,6 +198,7 @@ def ingest(*, limit: int | None = None) -> int:
             source=str(row.get("source") or "authorized-discovery"),
             easy_score=int(row["easy_score"]),
             authorized_contact=True,
+            form_verified=True,
         ):
             added += 1
 

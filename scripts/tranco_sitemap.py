@@ -31,6 +31,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import cc_discover  # noqa: E402
 import domain_store  # noqa: E402
 import easy_score  # noqa: E402
+import form_preflight  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,18 @@ def harvest(*, max_domains: int, deadline_s: float, delay_s: float) -> list[dict
                 time.sleep(delay_s)
             if index % 100 == 0:
                 logger.info("Tranco sitemap progress %s/%s hosts=%s", index, len(domains), len(by_host))
-    return sorted(by_host.values(), key=lambda row: (-int(row["easy_score"]), str(row["host"])))
+        rows = sorted(by_host.values(), key=lambda row: (-int(row["easy_score"]), str(row["host"])))
+        budget = max(10.0, deadline_s - (time.monotonic() - started))
+        if rows and budget >= 10:
+            rows = form_preflight.filter_verified_rows(
+                rows,
+                client=client,
+                deadline_s=budget,
+                workers=6,
+                timeout=8.0,
+            )
+        return rows
+    return []
 
 
 def main() -> int:

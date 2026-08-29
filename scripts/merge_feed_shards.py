@@ -39,7 +39,7 @@ def _candidate(
     fallback_profile: str = "",
 ) -> dict[str, Any] | None:
     raw_url = str(row.get("url") or "").strip()
-    if not raw_url or not cc_discover._keep(raw_url):
+    if not raw_url or not row.get("form_verified") or not cc_discover._keep(raw_url):
         return None
     host = domain_store.host_of(raw_url)
     if not host:
@@ -54,6 +54,7 @@ def _candidate(
         "profile": str(row.get("profile") or fallback_profile)[:40],
         "shard_index": row.get("shard_index"),
         "shard_count": row.get("shard_count"),
+        "form_verified": True,
     }
 
 

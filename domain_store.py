@@ -169,9 +169,7 @@ DEAD_QUEUE = {
     "skipped_unreachable",
     "skipped_enterprise",
 }
-RETRYABLE_NO_SEND = frozenset(
-    {"skipped_no_form", "skipped_no_open_form", "skipped_unreachable"}
-)
+RETRYABLE_NO_SEND = frozenset({"skipped_unreachable"})
 RETRY_COOLDOWN = timedelta(hours=12)
 
 
@@ -450,6 +448,30 @@ def prune_dead_queue(leads: list[dict[str, Any]] | None = None) -> int:
     return extra
 
 
+def purge_unverified_queue() -> int:
+    """Drop legacy feed rows that never passed harvest form preflight."""
+    data = _queue()
+    kept: list[Any] = []
+    dropped = 0
+    for row in data.get("urls") or []:
+        if not isinstance(row, dict):
+            continue
+        source = str(row.get("source") or "")
+        if source in {"targets.txt", "catalog"}:
+            kept.append(row)
+            continue
+        if row.get("form_verified"):
+            kept.append(row)
+            continue
+        dropped += 1
+    if dropped:
+        data["urls"] = kept
+        data["updated_at"] = utc_now()
+        _save_json(QUEUE_PATH, data)
+        logger.info("Purged %s unverified queue row(s), depth=%s", dropped, len(kept))
+    return dropped
+
+
 def prune_enterprise_queue() -> int:
     """Drop retail giants that leaked into the catalog — they never buy a $200 bridge."""
     data = _queue()
@@ -478,6 +500,7 @@ def enqueue(
     source: str = "discovery",
     easy_score: int = 40,
     authorized_contact: bool | None = None,
+    form_verified: bool | None = None,
 ) -> bool:
     url = origin_url(url)
     if not url or is_processed(url) or is_enterprise(url) or is_noise(url):
@@ -505,6 +528,9 @@ def enqueue(
         if easy_score > prev:
             item["easy_score"] = int(easy_score)
             changed = True
+        if form_verified is True and item.get("form_verified") is not True:
+            item["form_verified"] = True
+            changed = True
         if changed:
             data["updated_at"] = utc_now()
             _save_json(QUEUE_PATH, data)
@@ -512,16 +538,17 @@ def enqueue(
     if len(data["urls"]) >= _queue_cap():
         if not _evict_low_score(data, below=int(getattr(config, "EASY_SCORE_MIN", 55) or 55)):
             return False
-    data["urls"].append(
-        {
-            "url": url,
-            "source": source,
-            "authorized_contact": authorized,
-            "queued_at": utc_now(),
-            "fails": 0,
-            "easy_score": int(easy_score),
-        }
-    )
+    row: dict[str, Any] = {
+        "url": url,
+        "source": source,
+        "authorized_contact": authorized,
+        "queued_at": utc_now(),
+        "fails": 0,
+        "easy_score": int(easy_score),
+    }
+    if form_verified is True:
+        row["form_verified"] = True
+    data["urls"].append(row)
     data["updated_at"] = utc_now()
     _save_json(QUEUE_PATH, data)
     return True
@@ -776,7 +803,7 @@ def feed_eligible(url: str) -> bool:
     status = str(row.get("status") or "")
     if status == "retrying":
         return True
-    if status in RETRYABLE_NO_SEND:
+    if status in DEAD_QUEUE:
         return False
     if status.startswith("submitted") or status in TERMINAL:
         return False

@@ -179,6 +179,9 @@ def main() -> None:
         junk = domain_store.prune_noise_queue()
         if junk:
             print(f"Demo/hash Shopify kuyruktan çıktı: {junk}")
+        unverified = domain_store.purge_unverified_queue()
+        if unverified:
+            print(f"Form doğrulanmamış {unverified} feed satırı kuyruktan düştü")
         reclaimed = domain_store.reclaim_false_kills()
         if reclaimed:
             print(f"Yanlış ölü işaretlenen {reclaimed} domain geri alındı")

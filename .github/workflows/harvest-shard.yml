@@ -62,8 +62,8 @@ jobs:
             --source "${{ inputs.source }}" \
             --out-dir feeds/shards \
             --shard-count "$SHARD_COUNT" \
-            --per-page 800 \
-            --shard-deadline 30 \
+            --per-page 1000 \
+            --shard-deadline 120 \
             --fleet-deadline 1320 \
             --workers 1
       - name: Upload fleet shards

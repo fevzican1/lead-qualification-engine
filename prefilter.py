@@ -14,10 +14,11 @@ from urllib.parse import urlparse
 
 import httpx
 
-from site_signals import extract_stack_hints, high_value_score, looks_turkish
-import easy_score
+import form_preflight
 import config
+import easy_score
 import stack_fingerprint
+from site_signals import extract_stack_hints, high_value_score, looks_turkish
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,14 @@ def probe(url: str) -> dict[str, Any]:
             or "cloudflare" in header_blob
         )
         result["form_likely"] = bool(FORM_HINT_RE.search(body))
+        preflight = form_preflight.analyze_html(body, header_blob=header_blob)
+        result["form_verified"] = bool(preflight.get("form_verified"))
+        if preflight.get("form_verified"):
+            result["form_likely"] = True
+        if preflight.get("captcha"):
+            result["captcha"] = True
+        if preflight.get("waf_strict"):
+            result["waf_strict"] = True
         result["easy_form"] = bool(EASY_FORM_RE.search(blob))
         result["ok"] = 200 <= response.status_code < 400
         result["easy_score"] = easy_score.from_probe(result)
@@ -203,7 +212,7 @@ def split_and_rank(urls: list[str]) -> tuple[list[dict[str, Any]], list[dict[str
             domain_store.defer(url, reason="http_fail")
             logger.info("Retry later %s (dead HTTP, not burned)", url)
             continue
-        if not item.get("form_likely"):
+        if not item.get("form_likely") and not item.get("form_verified"):
             skipped.append(_skip_lead(item, "skipped_no_form", "No contact/form hint in HTML"))
             logger.info("Skip %s (no form hint)", url)
             continue

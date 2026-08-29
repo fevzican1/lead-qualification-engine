@@ -42,6 +42,7 @@ def ingest_batch(payload: dict[str, Any]) -> dict[str, int]:
             source=str(row.get("source") or "payload-optimizer"),
             easy_score=score,
             authorized_contact=True,
+            form_verified=True,
         ):
             queued += 1
 

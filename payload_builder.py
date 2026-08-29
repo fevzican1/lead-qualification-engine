@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import config
+import form_preflight
 import payload_analyzer
 import stack_fingerprint
 import telegram_handoff
@@ -24,6 +25,10 @@ def build_target(
     """Return an ingest-ready optimized target row."""
     host = telegram_handoff._host(url)
     if not host:
+        return None
+    header_blob = " ".join(f"{k}:{v}" for k, v in (headers or {}).items()).lower()
+    preflight = form_preflight.analyze_html(html, header_blob=header_blob)
+    if not preflight.get("form_verified"):
         return None
 
     fp = stack_fingerprint.fingerprint(html=html, headers=headers or {})
@@ -110,4 +115,5 @@ def build_target(
         "page_excerpt": excerpt,
         "description": lead["description"],
         "company_name": host,
+        "form_verified": True,
     }
