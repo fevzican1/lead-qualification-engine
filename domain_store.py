@@ -170,7 +170,15 @@ DEAD_QUEUE = {
     "skipped_enterprise",
 }
 RETRYABLE_NO_SEND = frozenset({"skipped_unreachable"})
+# Starvation recycle: single-visit "no form" verdicts are often transient
+# (slow site, bot blip, page timeout). Never recycle hosts where a message
+# was actually sent (submitted*/submit_failed/unsubscribed).
+RECYCLABLE_NO_SEND = frozenset(
+    {"skipped_no_form", "skipped_captcha", "skipped_no_open_form"}
+)
 RETRY_COOLDOWN = timedelta(hours=12)
+RECYCLE_COOLDOWN = timedelta(hours=48)
+MAX_RECYCLES = 2
 
 
 def utc_now() -> str:
@@ -293,6 +301,42 @@ def requeue_if_retryable(url: str) -> bool:
     data["domains"] = domains
     data["updated_at"] = utc_now()
     _save_json(PROCESSED_PATH, data)
+    return True
+
+
+def recycle_no_send(url: str, *, budget: list[int] | None = None) -> bool:
+    """Starvation recycle: stale no-form/captcha hosts get one more visit.
+
+    Only hosts where no message was ever sent, last attempt older than
+    RECYCLE_COOLDOWN, and fewer than MAX_RECYCLES prior recycles. Keeps the
+    fuel tank alive when fresh discovery is thin, without any new probing.
+    """
+    host = host_of(url)
+    if not host or is_enterprise(url) or is_noise(url) or optout.is_url_opted_out(url):
+        return False
+    if budget is not None and budget[0] <= 0:
+        return False
+    data = _processed()
+    domains = data.get("domains") or {}
+    row = domains.get(host)
+    if not isinstance(row, dict):
+        return False
+    if str(row.get("status") or "") not in RECYCLABLE_NO_SEND:
+        return False
+    if int(row.get("recycle_count") or 0) >= MAX_RECYCLES:
+        return False
+    stamps = [str(row.get("at") or ""), str(row.get("retry_at") or ""), str(row.get("recycle_at") or "")]
+    last = max((t for t in (_parse_ts(s) for s in stamps) if t is not None), default=None)
+    if last is not None and datetime.now(timezone.utc) - last < RECYCLE_COOLDOWN:
+        return False
+    row["status"] = "retrying"
+    row["recycle_count"] = int(row.get("recycle_count") or 0) + 1
+    row["recycle_at"] = utc_now()
+    data["domains"] = domains
+    data["updated_at"] = utc_now()
+    _save_json(PROCESSED_PATH, data)
+    if budget is not None:
+        budget[0] -= 1
     return True
 
 

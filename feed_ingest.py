@@ -199,7 +199,13 @@ def _row_to_candidate(row: dict[str, Any], *, min_score: int) -> dict[str, Any] 
     }
 
 
-def _accept_host(url: str, *, retry_budget: list[int], force_low: bool) -> bool:
+def _accept_host(
+    url: str,
+    *,
+    retry_budget: list[int],
+    force_low: bool,
+    recycle_budget: list[int] | None = None,
+) -> bool:
     if not domain_store.is_processed(url):
         return True
     if retry_budget[0] <= 0:
@@ -215,6 +221,11 @@ def _accept_host(url: str, *, retry_budget: list[int], force_low: bool) -> bool:
             if domain_store.requeue_if_retryable(url):
                 retry_budget[0] -= 1
                 return True
+    if force_low and recycle_budget is not None:
+        # Starvation recycle: stale no-form/captcha hosts re-enter the queue
+        # (no message was ever sent to them) so fuel refills without new probes.
+        if domain_store.recycle_no_send(url, budget=recycle_budget):
+            return True
     return False
 
 
@@ -240,6 +251,8 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
 
     merged: dict[str, dict[str, Any]] = {}
     retry_budget = [max(room, 96 if force else 24 if feed_refresh else 8)]
+    # Recycle only on true starvation (queue nearly empty), capped per pass.
+    recycle_budget = [96 if (force and low_queue) else 0]
 
     scan_rows = list(file_rows)
     if force and scan_rows:
@@ -256,7 +269,12 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
         if not host:
             continue
         if domain_store.is_processed(canonical):
-            if not _accept_host(canonical, retry_budget=retry_budget, force_low=force):
+            if not _accept_host(
+                canonical,
+                retry_budget=retry_budget,
+                force_low=force,
+                recycle_budget=recycle_budget,
+            ):
                 continue
             if domain_store.is_processed(canonical):
                 continue
