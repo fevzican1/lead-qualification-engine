@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: payload-optimizer
@@ -109,3 +110,30 @@ jobs:
           name: optimized-batch
           path: optimized_batch.json
           if-no-files-found: warn
+      - name: Wake discovery-pipeline if stale
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          running="$(
+            gh run list --workflow discovery-pipeline.yml --json status \
+              --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length'
+          )"
+          if [ "$running" -gt 0 ]; then
+            echo "discovery-pipeline already active"
+            exit 0
+          fi
+          last_iso="$(
+            gh run list --workflow discovery-pipeline.yml --limit 1 --json createdAt \
+              --jq '.[0].createdAt // empty'
+          )"
+          if [ -z "$last_iso" ]; then
+            gh workflow run discovery-pipeline.yml --ref "${GITHUB_REF_NAME}"
+            exit 0
+          fi
+          age=$(( $(date -u +%s) - $(date -u -d "$last_iso" +%s) ))
+          echo "discovery-pipeline last run ${age}s ago"
+          if [ "$age" -gt 660 ]; then
+            gh workflow run discovery-pipeline.yml --ref "${GITHUB_REF_NAME}"
+          fi
