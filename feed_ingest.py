@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -82,6 +83,9 @@ def _pull_raw_public() -> dict[str, Any] | None:
     url = str(getattr(config, "FEED_RAW_URL", "") or "").strip()
     if not url:
         return None
+    # raw.githubusercontent.com CDN can lag master by 30+ minutes; bust cache.
+    sep = "&" if "?" in url else "?"
+    url = f"{url}{sep}ts={int(time.time())}"
     try:
         response = httpx.get(
             url,
@@ -132,10 +136,15 @@ def _persist_feed(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def sync_github_feed() -> dict[str, Any] | None:
-    """Pull ready_queue.json (raw public first, API fallback). Zero probe budget."""
-    payload = _pull_raw_public() or _pull_github_api()
-    if not payload:
+    """Pull ready_queue.json — GitHub API first (fresh), raw CDN with cache-bust fallback."""
+    candidates: list[dict[str, Any]] = []
+    for pull in (_pull_github_api, _pull_raw_public):
+        payload = pull()
+        if payload and _rows_from_payload(payload):
+            candidates.append(payload)
+    if not candidates:
         return None
+    payload = max(candidates, key=lambda p: str(p.get("updated_at") or ""))
     rows = _rows_from_payload(payload)
     if not rows:
         logger.info("Remote feed empty")
