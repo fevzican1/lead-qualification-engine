@@ -78,6 +78,11 @@ $scriptsStage = Join-Path $stage "scripts"
 New-Item -ItemType Directory -Path $scriptsStage -Force | Out-Null
 $ingestSvc = Join-Path $Root "scripts\devsolve-ingest.service"
 if (Test-Path $ingestSvc) { Copy-Item $ingestSvc (Join-Path $scriptsStage "devsolve-ingest.service") }
+$feedSync = Join-Path $Root "scripts\oracle-feed-sync.sh"
+if (Test-Path $feedSync) {
+    $feedText = [IO.File]::ReadAllText($feedSync) -replace "`r`n", "`n" -replace "`r", "`n"
+    [IO.File]::WriteAllText((Join-Path $scriptsStage "oracle-feed-sync.sh"), $feedText, (New-Object System.Text.UTF8Encoding $false))
+}
 if (Test-Path (Join-Path $Root "optouts.json")) {
     Copy-Item (Join-Path $Root "optouts.json") $stage
 }
@@ -105,8 +110,12 @@ if ($SkipSetup) {
         $tok = $env:INGEST_API_TOKEN -replace "'", "'\\''"
         $clamp += "; grep -q '^INGEST_API_TOKEN=' $AppDir/.env && sed -i 's|^INGEST_API_TOKEN=.*|INGEST_API_TOKEN=$tok|' $AppDir/.env || printf '\nINGEST_API_TOKEN=$tok\n' >> $AppDir/.env"
     }
+    $feedRaw = "https://raw.githubusercontent.com/fevzican1/lead-qualification-engine/master/feeds/ready_queue.json"
+    $clamp += "; grep -q '^FEED_RAW_URL=' $AppDir/.env && sed -i 's|^FEED_RAW_URL=.*|FEED_RAW_URL=$feedRaw|' $AppDir/.env || printf '\nFEED_RAW_URL=$feedRaw\n' >> $AppDir/.env"
     $feedUrl = "https://api.github.com/repos/fevzican1/lead-qualification-engine/contents/feeds/ready_queue.json?ref=master"
     $clamp += "; grep -q '^FEED_URL=' $AppDir/.env && sed -i 's|^FEED_URL=.*|FEED_URL=$feedUrl|' $AppDir/.env || printf '\nFEED_URL=$feedUrl\n' >> $AppDir/.env"
+    $cronLine = "*/5 * * * * $AppDir/scripts/oracle-feed-sync.sh >> $AppDir/logs/feed-sync.log 2>&1"
+    $clamp += "; mkdir -p $AppDir/logs; chmod +x $AppDir/scripts/oracle-feed-sync.sh 2>/dev/null || true; (crontab -l 2>/dev/null | grep -v oracle-feed-sync; echo '$cronLine') | crontab -"
     $pip = "cd $AppDir && .venv/bin/pip install -q pillow"
     $ingest = "if [ -f $AppDir/scripts/devsolve-ingest.service ]; then sudo cp $AppDir/scripts/devsolve-ingest.service /etc/systemd/system/devsolve-ingest.service && sudo systemctl daemon-reload && sudo systemctl enable devsolve-ingest.service; fi"
     $remote = "$extract && $clamp && $pip && $ingest && sudo systemctl restart devsolve-bot.service devsolve-runner.service devsolve-ingest.service && systemctl is-active devsolve-bot.service devsolve-runner.service devsolve-ingest.service"

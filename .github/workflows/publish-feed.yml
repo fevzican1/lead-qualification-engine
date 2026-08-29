@@ -1,8 +1,6 @@
 name: publish-feed
 
 on:
-  schedule:
-    - cron: "05,35 * * * *"
   workflow_run:
     workflows:
       - discover-cc-longtail

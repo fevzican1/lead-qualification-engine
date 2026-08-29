@@ -1,6 +1,7 @@
 """Load the Common Crawl / GitHub Actions feed into the Oracle queue.
 
 GitHub HTTP is not a site probe and does not consume DAILY_HTTP_PROBE_LIMIT.
+Public repo: pull via raw.githubusercontent.com (no token).
 """
 
 from __future__ import annotations
@@ -25,6 +26,10 @@ FEED_STATE_PATH = config.ROOT / "feeds" / "feed_state.json"
 
 def _min_score() -> int:
     return int(getattr(config, "FEED_MIN_SCORE", 80) or 80)
+
+
+def _refill_below() -> int:
+    return int(getattr(config, "QUEUE_REFILL_BELOW", 80) or 80)
 
 
 def _load_state() -> dict[str, Any]:
@@ -73,7 +78,26 @@ def _load_file() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     return _rows_from_payload(payload), payload
 
 
-def _pull_github_raw() -> dict[str, Any] | None:
+def _pull_raw_public() -> dict[str, Any] | None:
+    url = str(getattr(config, "FEED_RAW_URL", "") or "").strip()
+    if not url:
+        return None
+    try:
+        response = httpx.get(
+            url,
+            headers={"User-Agent": "devsolve-feed-ingest"},
+            timeout=45.0,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return payload if isinstance(payload, dict) else None
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Raw public feed pull failed: %s", exc)
+        return None
+
+
+def _pull_github_api() -> dict[str, Any] | None:
     url = str(getattr(config, "FEED_URL", "") or "").strip()
     if not url:
         return None
@@ -86,19 +110,12 @@ def _pull_github_raw() -> dict[str, Any] | None:
         response.raise_for_status()
         return _decode_github_payload(response.json())
     except Exception as exc:  # noqa: BLE001
-        logger.info("GitHub feed pull skipped: %s", exc)
+        logger.info("GitHub API feed pull skipped: %s", exc)
         return None
 
 
-def sync_github_feed() -> dict[str, Any] | None:
-    """Pull ready_queue.json from GitHub and persist locally. Zero probe budget."""
-    payload = _pull_github_raw()
-    if not payload:
-        return None
+def _persist_feed(payload: dict[str, Any]) -> dict[str, Any]:
     rows = _rows_from_payload(payload)
-    if not rows:
-        logger.info("GitHub feed empty")
-        return None
     payload.setdefault("version", 2)
     payload.setdefault("source", "multi-public-discovery")
     payload["count"] = len(rows)
@@ -111,15 +128,68 @@ def sync_github_feed() -> dict[str, Any] | None:
     state["feed_updated_at"] = str(payload.get("updated_at") or "")
     state["feed_count"] = len(rows)
     _save_state(state)
-    logger.info("Synced GitHub feed rows=%s updated=%s", len(rows), state["feed_updated_at"])
+    return state
+
+
+def sync_github_feed() -> dict[str, Any] | None:
+    """Pull ready_queue.json (raw public first, API fallback). Zero probe budget."""
+    payload = _pull_raw_public() or _pull_github_api()
+    if not payload:
+        return None
+    rows = _rows_from_payload(payload)
+    if not rows:
+        logger.info("Remote feed empty")
+        return None
+    state = _persist_feed(payload)
+    logger.info("Synced feed rows=%s updated=%s", len(rows), state.get("feed_updated_at"))
     return {
         "count": len(rows),
-        "updated_at": state["feed_updated_at"],
+        "updated_at": state.get("feed_updated_at"),
         "new_hosts": int(payload.get("new_hosts") or 0),
     }
 
 
-def ingest(*, limit: int | None = None) -> int:
+def _row_to_candidate(row: dict[str, Any], *, min_score: int) -> dict[str, Any] | None:
+    url = str(row.get("url") or "").strip()
+    canonical = domain_store.origin_url(url)
+    host = domain_store.host_of(canonical)
+    if not host or domain_store.is_enterprise(url) or domain_store.is_noise(url):
+        return None
+    if not row.get("form_verified"):
+        return None
+    score, _stack = easy_score.from_contact_url(url)
+    if score < min_score:
+        return None
+    return {
+        "url": canonical,
+        "easy_score": score,
+        "stack": row.get("stack") or "",
+        "source": str(row.get("source") or "public-discovery")[:80],
+        "profile": str(row.get("profile") or "")[:40],
+        "form_verified": True,
+    }
+
+
+def _accept_host(url: str, *, retry_budget: list[int], force_low: bool) -> bool:
+    if not domain_store.is_processed(url):
+        return True
+    if retry_budget[0] <= 0:
+        return False
+    if domain_store.requeue_if_retryable(url):
+        retry_budget[0] -= 1
+        return True
+    if force_low and domain_store.feed_eligible(url):
+        # Cooldown retry for unreachable-only hosts when queue is starving.
+        host = domain_store.host_of(url)
+        row = (domain_store._processed().get("domains") or {}).get(host or "")
+        if isinstance(row, dict) and str(row.get("status") or "") in domain_store.RETRYABLE_NO_SEND:
+            if domain_store.requeue_if_retryable(url):
+                retry_budget[0] -= 1
+                return True
+    return False
+
+
+def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
     """Enqueue score>=FEED_MIN_SCORE contact URLs. Zero Oracle probe budget."""
     min_score = _min_score()
     cap = int(getattr(config, "QUEUE_MAX", 1500) or 1500)
@@ -127,55 +197,62 @@ def ingest(*, limit: int | None = None) -> int:
     if limit is not None:
         room = min(room, max(0, int(limit)))
 
+    low_queue = domain_store.queue_depth() < _refill_below()
+    force = bool(force_low or low_queue)
+
     file_rows, file_meta = _load_file()
+    if not file_rows:
+        sync_github_feed()
+        file_rows, file_meta = _load_file()
     state = _load_state()
     feed_stamp = str(file_meta.get("updated_at") or state.get("feed_updated_at") or "")
-    feed_refresh = feed_stamp and feed_stamp != str(state.get("last_ingest_feed_at") or "")
+    feed_refresh = bool(feed_stamp and feed_stamp != str(state.get("last_ingest_feed_at") or ""))
 
     merged: dict[str, dict[str, Any]] = {}
-    retry_budget = max(room, 24) if feed_refresh else max(room, 8)
-    for row in file_rows:
+    retry_budget = [max(room, 64 if force else 24 if feed_refresh else 8)]
+
+    scan_rows = list(file_rows)
+    if force and scan_rows:
+        cursor = int(state.get("ingest_cursor") or 0) % len(scan_rows)
+        scan_rows = scan_rows[cursor:] + scan_rows[:cursor]
+
+    for row in scan_rows:
         url = str(row.get("url") or "").strip()
-        canonical = domain_store.origin_url(url)
+        candidate = _row_to_candidate(row, min_score=min_score)
+        if not candidate:
+            continue
+        canonical = str(candidate["url"])
         host = domain_store.host_of(canonical)
-        if not host or domain_store.is_enterprise(url):
+        if not host:
             continue
-        if domain_store.is_processed(url):
-            if retry_budget <= 0 or not domain_store.requeue_if_retryable(url):
+        if domain_store.is_processed(canonical):
+            if not _accept_host(canonical, retry_budget=retry_budget, force_low=force):
                 continue
-            retry_budget -= 1
-        if not domain_store.feed_eligible(url) and domain_store.is_processed(url):
-            continue
-        if domain_store.is_processed(url):
-            continue
-        if domain_store.is_noise(url):
-            continue
-        if not row.get("form_verified"):
-            continue
-        score, _stack = easy_score.from_contact_url(url)
-        if score < min_score:
-            continue
+            if domain_store.is_processed(canonical):
+                continue
         prev = merged.get(host)
-        if prev and int(prev.get("easy_score") or 0) >= score:
+        if prev and int(prev.get("easy_score") or 0) >= int(candidate["easy_score"]):
             continue
-        merged[host] = {
-            "url": canonical,
-            "easy_score": score,
-            "stack": row.get("stack") or "",
-            "source": str(row.get("source") or "public-discovery")[:80],
-            "profile": str(row.get("profile") or "")[:40],
-            "form_verified": True,
-        }
+        merged[host] = candidate
+        if len(merged) >= max(room, 48 if force else 24):
+            break
 
     ranked = sorted(merged.values(), key=lambda r: -int(r["easy_score"]))
     if not ranked:
-        if feed_refresh:
+        if feed_refresh or force:
             state["last_ingest_feed_at"] = feed_stamp
+            if scan_rows:
+                state["ingest_cursor"] = (int(state.get("ingest_cursor") or 0) + 32) % len(file_rows)
             _save_state(state)
         if room <= 0:
             logger.info("Queue full %s/%s — feed ingest skip", domain_store.queue_depth(), cap)
         else:
-            logger.info("Feed has no new eligible hosts (queue=%s/%s)", domain_store.queue_depth(), cap)
+            logger.info(
+                "Feed has no new eligible hosts (queue=%s/%s force=%s)",
+                domain_store.queue_depth(),
+                cap,
+                force,
+            )
         return 0
 
     staged = 0
@@ -203,18 +280,20 @@ def ingest(*, limit: int | None = None) -> int:
         ):
             added += 1
 
-    state["last_ingest_feed_at"] = feed_stamp
+    state["last_ingest_feed_at"] = feed_stamp if feed_refresh else state.get("last_ingest_feed_at", feed_stamp)
     state["last_ingest_added"] = added
+    if file_rows:
+        state["ingest_cursor"] = (int(state.get("ingest_cursor") or 0) + max(added, 1)) % len(file_rows)
     _save_state(state)
     logger.info(
-        "Feed ingest staged=%s approved=%s enqueued=%s (min_score=%s, queue=%s/%s, refresh=%s)",
+        "Feed ingest staged=%s approved=%s enqueued=%s (min_score=%s, queue=%s/%s, force=%s)",
         staged,
         approved,
         added,
         min_score,
         domain_store.queue_depth(),
         cap,
-        feed_refresh,
+        force,
     )
     return added
 
@@ -222,7 +301,7 @@ def ingest(*, limit: int | None = None) -> int:
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     sync_github_feed()
-    n = ingest()
+    n = ingest(force_low=domain_store.queue_depth() < _refill_below())
     print(f"Ingested {n} feed URL(s). Queue={domain_store.queue_depth()} fuel={domain_store.chromium_fuel_count()}")
     return 0
 

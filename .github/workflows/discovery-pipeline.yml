@@ -1,0 +1,159 @@
+name: discovery-pipeline
+
+# Unified queue/fuel pipeline (public repo — GitHub Actions minutes are free).
+# Every 10 min: merge shards → publish feed → sync Oracle → dispatch harvest if low/stale.
+# Replaces scheduled refill-on-low + discovery-watchdog + publish-feed cron.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: discovery-pipeline
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+      ORACLE_USER: ${{ secrets.ORACLE_USER }}
+      ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install -q httpx python-dotenv
+
+      - name: Merge aggregate feed
+        run: python scripts/merge_feed_shards.py --cap 60000
+
+      - name: Commit aggregate feed when changed
+        run: |
+          git config user.name "devsolve-discover"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add feeds/ready_queue.json
+          if git diff --cached --quiet; then
+            echo "No aggregate feed git changes"
+            exit 0
+          fi
+          for attempt in 1 2 3 4 5; do
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || {
+              git rebase --skip || git rebase --abort || true
+            }
+            git add feeds/ready_queue.json
+            if git diff --cached --quiet; then
+              echo "Feed already committed upstream"
+              exit 0
+            fi
+            git commit -m "feed: discovery-pipeline publish"
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          exit 1
+
+      - name: Oracle metrics and harvest dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          families=(
+            discover-cc-longtail
+            discover-cc-tr
+            discover-cc-global
+            discover-cc-eu
+            discover-cc-platform
+          )
+          slot=$(( ($(date -u +%M) / 10) % ${#families[@]} ))
+          workflow="${families[$slot]}"
+          need_harvest=0
+          if [ -z "${ORACLE_HOST:-}" ] || [ -z "${ORACLE_SSH_KEY:-}" ]; then
+            echo "Oracle SSH not configured — harvest dispatch on stale check only"
+            need_harvest=1
+          else
+            ORACLE_USER="${ORACLE_USER:-ubuntu}"
+            mkdir -p ~/.ssh
+            printf '%s\n' "$ORACLE_SSH_KEY" > ~/.ssh/oracle.key
+            chmod 600 ~/.ssh/oracle.key
+            ssh-keyscan -T 8 -H "$ORACLE_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+            metrics="$(
+              ssh -i ~/.ssh/oracle.key \
+                -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+                -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
+                "${ORACLE_USER}@${ORACLE_HOST}" \
+                "cd /opt/devsolve && .venv/bin/python -c 'import domain_store; print(f\"{domain_store.queue_depth()},{domain_store.chromium_fuel_count()},{domain_store.chromium_fuel_count(min_easy=80)},{domain_store.chromium_fuel_target()}\")'"
+            )" || metrics=""
+            if [[ "$metrics" =~ ^[0-9]+,[0-9]+,[0-9]+,[0-9]+$ ]]; then
+              IFS=',' read -r queue fuel fuel80 fuel_target <<< "$metrics"
+              echo "Oracle queue=$queue fuel=$fuel fuel80=$fuel80 target=$fuel_target"
+              if [ "$queue" -lt 80 ] || [ "$fuel80" -lt "$fuel_target" ]; then
+                need_harvest=1
+              fi
+            else
+              echo "Oracle metrics unavailable — dispatch harvest"
+              need_harvest=1
+            fi
+          fi
+          now_epoch=$(date -u +%s)
+          last_iso="$(gh run list --workflow "$workflow" --limit 1 --json createdAt --jq '.[0].createdAt // empty')"
+          if [ -n "$last_iso" ]; then
+            last_epoch=$(date -u -d "$last_iso" +%s)
+            age=$(( now_epoch - last_epoch ))
+            echo "$workflow last run ${age}s ago"
+            if [ "$age" -gt 2700 ]; then
+              need_harvest=1
+            fi
+          else
+            need_harvest=1
+          fi
+          if [ "$need_harvest" -eq 1 ]; then
+            running="$(gh run list --workflow "$workflow" --json status --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length')"
+            if [ "$running" -eq 0 ]; then
+              echo "Dispatching $workflow"
+              gh workflow run "$workflow" --ref "${GITHUB_REF_NAME}"
+            else
+              echo "$workflow already running"
+            fi
+          fi
+
+      - name: Sync aggregate feed to Oracle
+        env:
+          HOST: ${{ secrets.ORACLE_HOST }}
+          USER: ${{ secrets.ORACLE_USER }}
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOST:-}" ] || [ -z "${SSH_KEY:-}" ]; then
+            echo "ORACLE_HOST / ORACLE_SSH_KEY not set — feed on GitHub raw URL only"
+            exit 0
+          fi
+          USER="${USER:-ubuntu}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle.key
+          chmod 600 ~/.ssh/oracle.key
+          ssh-keyscan -T 8 -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
+            "${USER}@${HOST}" "mkdir -p /opt/devsolve/feeds /opt/devsolve/scripts"
+          scp -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
+            feeds/ready_queue.json "${USER}@${HOST}:/opt/devsolve/feeds/ready_queue.json.tmp"
+          scp -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
+            scripts/oracle-feed-sync.sh "${USER}@${HOST}:/opt/devsolve/scripts/oracle-feed-sync.sh"
+          ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
+            "${USER}@${HOST}" "chmod +x /opt/devsolve/scripts/oracle-feed-sync.sh && mv -f /opt/devsolve/feeds/ready_queue.json.tmp /opt/devsolve/feeds/ready_queue.json && /opt/devsolve/scripts/oracle-feed-sync.sh"

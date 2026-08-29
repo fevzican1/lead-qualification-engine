@@ -210,7 +210,7 @@ def main() -> None:
             synced = feed_ingest.sync_github_feed()
             if synced:
                 print(f"GitHub feed senkron: {synced.get('count', 0)} host, updated={synced.get('updated_at', '?')}")
-            fed = feed_ingest.ingest()
+            fed = feed_ingest.ingest(force_low=domain_store.queue_depth() < int(getattr(config, "QUEUE_REFILL_BELOW", 80) or 80))
             print(f"Feed +{fed} | kuyruk={domain_store.queue_depth()}/{cap} | fuel={domain_store.chromium_fuel_count()}")
         except Exception:
             logger.exception("Feed ingest failed — catalog/heal still run")

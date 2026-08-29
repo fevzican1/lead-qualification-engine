@@ -2,9 +2,8 @@ name: discovery-watchdog
 
 # GitHub scheduled workflows can stall on inactive repos. This watchdog
 # re-dispatches the five CDX fleets and publish-feed when harvest is stale.
+# Superseded by discovery-pipeline.yml (kept for manual dispatch).
 on:
-  schedule:
-    - cron: "*/20 * * * *"
   workflow_dispatch:
 
 permissions:

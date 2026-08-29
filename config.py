@@ -135,6 +135,11 @@ DEFER_MINUTES: int = _get_int("DEFER_MINUTES", 20)
 HTTP_RESERVE_FOR_PIPELINE: int = _get_int("HTTP_RESERVE_FOR_PIPELINE", 20)
 CHROMIUM_DIRECT_MIN: int = _get_int("CHROMIUM_DIRECT_MIN", 65)
 FEED_MIN_SCORE: int = _get_int("FEED_MIN_SCORE", 80)
+FEED_GITHUB_REPO: str = _get("FEED_GITHUB_REPO", "fevzican1/lead-qualification-engine")
+FEED_RAW_URL: str = _get(
+    "FEED_RAW_URL",
+    f"https://raw.githubusercontent.com/{_get('FEED_GITHUB_REPO', 'fevzican1/lead-qualification-engine')}/master/feeds/ready_queue.json",
+)
 FEED_URL: str = _get("FEED_URL")
 FEED_GITHUB_TOKEN: str = _get("FEED_GITHUB_TOKEN")
 SITE_TIMEOUT_SECONDS: int = _get_int("SITE_TIMEOUT_SECONDS", 45)

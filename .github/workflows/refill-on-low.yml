@@ -2,9 +2,8 @@ name: refill-on-low
 
 # Discovery runs on GitHub. This workflow reads Oracle queue + chromium fuel
 # over SSH and starts staggered fleets when either metric is below watermark.
+# Superseded by discovery-pipeline.yml (kept for manual dispatch).
 on:
-  schedule:
-    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 permissions:
