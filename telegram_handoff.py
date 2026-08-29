@@ -501,7 +501,7 @@ def opener(row: dict[str, Any]) -> str:
                 f"Şemadaki *3. adım (Kopuk)*: _{break_pt or err}_."
             )
         tail = (
-            "Mimari kart ~1 dakika içinde bu sohbete düşecek — şablon diyagramdır, "
+            "Mimari kart ~45 sn içinde bu sohbete düşecek — şablon diyagramdır, "
             "canlı admin ekranı değil. Detay isterseniz tespit maddelerini tek tek açarım."
         )
         return f"{head} {body} {tail}"
@@ -518,7 +518,7 @@ def opener(row: dict[str, Any]) -> str:
             f"Schematic *step 3 (Break)*: _{break_pt or err}_."
         )
     tail = (
-        "The architecture card lands in this chat in about a minute — schematic only, "
+        "The architecture card lands in this chat in ~45 s — schematic only, "
         "not a live admin screen. Ask for details and I will walk through each detected issue."
     )
     return f"{head} {body} {tail}"

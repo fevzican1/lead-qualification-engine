@@ -126,10 +126,11 @@ def should_send_proof(chat_id: int) -> bool:
 
 
 def seconds_until_proof(chat_id: int) -> float:
-    """Hold the card until ~75 seconds into the chat."""
+    """Hold the card until ~45 seconds into the chat."""
     row = _row(chat_id)
     started = _parse(str(row.get("started_at") or "")) or _now()
-    wait = 75 - (_now() - started).total_seconds()
+    delay = int(getattr(config, "PROOF_CARD_DELAY_SECONDS", 45) or 45)
+    wait = delay - (_now() - started).total_seconds()
     return max(0.0, wait)
 
 

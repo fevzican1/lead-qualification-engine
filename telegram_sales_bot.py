@@ -354,13 +354,23 @@ async def cmd_notifyme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not update.effective_chat or not update.message:
         return
     chat_id = update.effective_chat.id
+    if config.TELEGRAM_NOTIFY_CHAT_ID.strip():
+        await update.message.reply_text(
+            "Bu bot yalnızca *müşteri satış sohbeti* içindir.\n"
+            "Pipeline / sıcak lead bildirimleri operasyon kanalına gider "
+            "(TELEGRAM_NOTIFY_* — satış botundan ayrı).\n\n"
+            "Müşteri devralma komutları (/reply, /status) burada çalışmaya devam eder."
+        )
+        return
     known = owner_notify.load_chat_id()
     if known is not None and int(chat_id) != int(known):
         await update.message.reply_text(_cold_intro(turkish=_customer_lang(update)))
         return
     owner_notify.save_chat_id(chat_id)
     await update.message.reply_text(
-        "Bu sohbet motor bildirimleri ve sıcak-aday ping'i için kaydedildi.\n\n"
+        "Bu sohbet motor bildirimleri için kaydedildi (legacy mod).\n"
+        "Profesyonel ayrım için .env içine TELEGRAM_NOTIFY_BOT_TOKEN + "
+        "TELEGRAM_NOTIFY_CHAT_ID ekleyin.\n\n"
         + owner_notify.lead_digest()
     )
 

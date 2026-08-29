@@ -23,9 +23,14 @@ PATH = config.ROOT / "owner.json"
 
 
 def load_chat_id() -> int | None:
-    raw = (config.TELEGRAM_OWNER_CHAT_ID or "").strip()
-    if raw.isdigit():
-        return int(raw)
+    for raw in (config.TELEGRAM_NOTIFY_CHAT_ID, config.TELEGRAM_OWNER_CHAT_ID):
+        text = (raw or "").strip()
+        if not text:
+            continue
+        try:
+            return int(text)
+        except ValueError:
+            continue
     if not PATH.exists():
         return None
     try:
@@ -75,9 +80,10 @@ def lead_digest() -> str:
         f"| HTTP {domain_store.http_budget_label()}",
         f"Durumlar: {counts}",
         "",
-        "Telegram sohbetin boşsa bu normal: bot müşteriye ilk mesajı ATMAZ.",
-        "Müşteri formdan t.me linkine tıklayınca sohbet başlar; ~2 dk sonra analiz kartı gider.",
-        "Sıcak sinyal (fiyat / başlayalım / telefon) bu sohbete ping düşer: /reply CHATID metin",
+        "Telegram sohbetin boşsa bu normal: satış botu müşteriye ilk mesajı ATMAZ.",
+        "Müşteri formdan t.me linkine tıklayınca satış botunda sohbet başlar.",
+        "Pipeline / sıcak lead bildirimleri operasyon botuna veya kanala gider (satış botundan ayrı).",
+        "Satış devralma: satış botunda /reply CHATID metin",
         "Bu özet yalnızca sana gider. /stop müşteri çıkışıdır, bunu kapatmaz.",
     ]
     return "\n".join(lines)
@@ -85,9 +91,11 @@ def lead_digest() -> str:
 
 def send(text: str, *, chat_id: int | None = None) -> bool:
     target = chat_id if chat_id is not None else load_chat_id()
-    token = config.TELEGRAM_BOT_TOKEN
+    token = (config.TELEGRAM_NOTIFY_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN or "").strip()
     if not target or not token:
-        logger.info("Owner notify skipped (no chat id yet — send /notifyme on the bot)")
+        logger.info(
+            "Owner notify skipped (set TELEGRAM_NOTIFY_CHAT_ID + TELEGRAM_NOTIFY_BOT_TOKEN)"
+        )
         return False
     last_exc: Exception | None = None
     logging.getLogger("httpx").setLevel(logging.WARNING)

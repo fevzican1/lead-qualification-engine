@@ -648,14 +648,12 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
 
 def _visit_budget(remain: int) -> int:
-    """Visit extra hosts so CAPTCHA/skip does not drop the hour below the floor.
-
-    Roughly a third of contact pages are CAPTCHA or have no open form, so the
-    hour needs about three visits per post it wants to land.
-    """
+    """Cap each pipeline run so auto_runner cycles every ~5–10 minutes."""
+    slice_cap = int(getattr(config, "PIPELINE_SUBMIT_SLICE", 10) or 10)
     if remain <= 0:
         return 0
-    return min(96, max(remain * 3, 24 if remain >= 8 else remain * 4))
+    # Allow ~2× visits per target submit (CAPTCHA / no-form skips).
+    return min(slice_cap * 2, remain * 2, slice_cap + 8)
 
 
 def _run_browser_pipeline(
@@ -673,7 +671,8 @@ def _run_browser_pipeline(
     if submitting:
         _today_n, hour_n = knowledge.submit_counts(leads)
         remain = max(0, int(knowledge.hourly_cap()) - hour_n)
-        jobs = jobs[: _visit_budget(remain)]
+        slice_cap = int(getattr(config, "PIPELINE_SUBMIT_SLICE", 10) or 10)
+        jobs = jobs[: min(_visit_budget(remain), slice_cap * 2)]
     else:
         jobs = jobs[: int(getattr(config, "CHROMIUM_BATCH", 32) or 32)]
     if not jobs:

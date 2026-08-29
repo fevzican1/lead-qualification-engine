@@ -77,6 +77,9 @@ def require(name: str) -> str:
 TELEGRAM_BOT_TOKEN: str = _get("TELEGRAM_BOT_TOKEN")
 PAYONEER_PAYMENT_URL: str = _get("PAYONEER_PAYMENT_URL")
 TELEGRAM_OWNER_CHAT_ID: str = _get("TELEGRAM_OWNER_CHAT_ID")
+# Ops channel: pipeline / sıcak lead bildirimleri (müşteri satış botundan ayrı).
+TELEGRAM_NOTIFY_BOT_TOKEN: str = _get("TELEGRAM_NOTIFY_BOT_TOKEN")
+TELEGRAM_NOTIFY_CHAT_ID: str = _get("TELEGRAM_NOTIFY_CHAT_ID")
 OLLAMA_HOST: str = _get("OLLAMA_HOST", "http://127.0.0.1:11434")
 OLLAMA_MODEL: str = _get("OLLAMA_MODEL", "deepseek-r1:14b")
 PRICE_USD: int = _get_int("PRICE_USD", 200)
@@ -134,7 +137,11 @@ CHROMIUM_DIRECT_MIN: int = _get_int("CHROMIUM_DIRECT_MIN", 65)
 FEED_MIN_SCORE: int = _get_int("FEED_MIN_SCORE", 80)
 FEED_URL: str = _get("FEED_URL")
 FEED_GITHUB_TOKEN: str = _get("FEED_GITHUB_TOKEN")
-SITE_TIMEOUT_SECONDS: int = _get_int("SITE_TIMEOUT_SECONDS", 20)
+SITE_TIMEOUT_SECONDS: int = _get_int("SITE_TIMEOUT_SECONDS", 45)
+# Max hosts per pipeline --submit invocation (~5–10 min wall time).
+PIPELINE_SUBMIT_SLICE: int = _get_int("PIPELINE_SUBMIT_SLICE", 10)
+# Proof card delay after /start (seconds).
+PROOF_CARD_DELAY_SECONDS: int = _get_int("PROOF_CARD_DELAY_SECONDS", 45)
 # Second Chromium pass on a site that already failed: cut and move on.
 SUBMIT_FAST_FAIL_SECONDS: float = _get_float("SUBMIT_FAST_FAIL_SECONDS", 15.0)
 MONTHLY_SALES_TARGET: int = _get_int("MONTHLY_SALES_TARGET", 100)

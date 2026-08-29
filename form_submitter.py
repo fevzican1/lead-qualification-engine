@@ -275,7 +275,7 @@ def _fast_fail(lead: dict[str, Any]) -> bool:
 def _site_budget(lead: dict[str, Any] | None = None) -> float:
     if lead is not None and _fast_fail(lead):
         return min(30.0, float(getattr(config, "SUBMIT_FAST_FAIL_SECONDS", 15) or 15))
-    return min(30.0, float(getattr(config, "SITE_TIMEOUT_SECONDS", 30) or 30))
+    return float(getattr(config, "SITE_TIMEOUT_SECONDS", 45) or 45)
 
 
 def _submit_with_page(

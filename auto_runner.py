@@ -137,9 +137,9 @@ def _sleep_after_cycle() -> int:
     if fuel < target and hour_n < _hourly_floor():
         wait = 20
     elif hour_n < _hourly_floor() and fuel > 0:
-        wait = 30
+        wait = 20
     elif hour_n < hourly:
-        wait = 45
+        wait = 25
     else:
         wait = 60
     logger.info(
