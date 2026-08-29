@@ -15,17 +15,29 @@ from pathlib import Path
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_DIR = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 import domain_store  # noqa: E402
 import easy_score  # noqa: E402
+import form_preflight  # noqa: E402
 import payload_builder  # noqa: E402
+from cc_discover import _origin_contact  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 FEED_PATH = ROOT / "feeds" / "ready_queue.json"
 SHARD_DIR = ROOT / "feeds" / "shards"
+
+
+def _contact_url(raw: str) -> str:
+    url = (raw or "").strip()
+    if not url:
+        return ""
+    return _origin_contact(url) or url
 
 
 def _load_candidates(*, min_score: int) -> list[dict]:
@@ -39,7 +51,7 @@ def _load_candidates(*, min_score: int) -> list[dict]:
         except json.JSONDecodeError:
             logger.warning("Corrupt ready_queue.json")
     if SHARD_DIR.exists():
-        for path in sorted(SHARD_DIR.glob("commoncrawl-*.json")):
+        for path in sorted(SHARD_DIR.glob("*.json")):
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
@@ -49,8 +61,10 @@ def _load_candidates(*, min_score: int) -> list[dict]:
 
     for rows in sources:
         for row in rows:
-            url = str(row.get("url") or "").strip()
+            url = _contact_url(str(row.get("url") or ""))
             if not url:
+                continue
+            if row.get("form_verified") is False:
                 continue
             score = int(row.get("easy_score") or easy_score.from_contact_url(url)[0])
             if score < min_score:
@@ -59,15 +73,30 @@ def _load_candidates(*, min_score: int) -> list[dict]:
             if not host or domain_store.is_enterprise(url) or domain_store.is_noise(url):
                 continue
             prev = merged.get(host)
+            verified = bool(row.get("form_verified"))
             item = {
-                "url": domain_store.origin_url(url),
+                "url": url,
                 "easy_score": score,
                 "source": str(row.get("source") or "public-discovery")[:80],
                 "profile": str(row.get("profile") or "")[:40],
+                "form_verified": verified,
             }
-            if not prev or int(prev["easy_score"]) < score:
+            if not prev:
                 merged[host] = item
-    ranked = sorted(merged.values(), key=lambda row: -int(row["easy_score"]))
+                continue
+            prev_verified = bool(prev.get("form_verified"))
+            if verified and not prev_verified:
+                merged[host] = item
+            elif verified == prev_verified and int(prev["easy_score"]) < score:
+                merged[host] = item
+
+    ranked = sorted(
+        merged.values(),
+        key=lambda row: (
+            -int(bool(row.get("form_verified"))),
+            -int(row.get("easy_score") or 0),
+        ),
+    )
     return ranked
 
 
@@ -78,10 +107,14 @@ def _fetch_one(url: str, *, timeout_s: float) -> tuple[str, str, dict[str, str]]
     }
     try:
         with httpx.Client(timeout=timeout_s, follow_redirects=True, headers=headers) as client:
-            response = client.get(url)
+            checked = form_preflight.probe_contact(client, url, timeout=timeout_s)
+            if not checked.get("form_verified"):
+                return None
+            final_url = str(checked.get("url") or url)
+            response = client.get(final_url, headers=headers, timeout=timeout_s)
             if response.status_code >= 400:
                 return None
-            return url, response.text[:250_000], {k: v for k, v in response.headers.items()}
+            return final_url, response.text[:250_000], {k: v for k, v in response.headers.items()}
     except Exception as exc:  # noqa: BLE001
         logger.info("Fetch skip %s (%s)", url, exc)
         return None
@@ -115,6 +148,7 @@ def optimize_batch(
                 profile=str(row.get("profile") or ""),
             )
             if built:
+                built["form_verified"] = True
                 out.append(built)
     out.sort(key=lambda item: -int(item.get("easy_score") or 0))
     return out
@@ -131,7 +165,13 @@ def main() -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     candidates = _load_candidates(min_score=max(80, int(args.min_score)))
-    logger.info("Optimizer candidates score>=%s: %s", args.min_score, len(candidates))
+    verified_n = sum(1 for row in candidates if row.get("form_verified"))
+    logger.info(
+        "Optimizer candidates score>=%s: %s (preflight_verified=%s)",
+        args.min_score,
+        len(candidates),
+        verified_n,
+    )
     targets = optimize_batch(
         candidates,
         workers=max(1, min(int(args.workers), 12)),
@@ -142,7 +182,7 @@ def main() -> int:
     out = Path(args.out)
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Optimized {len(targets)} target(s) -> {out}")
-    return 0 if targets else 0
+    return 0
 
 
 if __name__ == "__main__":

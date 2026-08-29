@@ -256,6 +256,7 @@ def _ingest_lines(lines: list[str], by_host: dict[str, dict[str, str | int]]) ->
             "easy_score": int(score),
             "stack": stack,
             "host": host,
+            "form_verified": True,
         }
         added += 1
     return added

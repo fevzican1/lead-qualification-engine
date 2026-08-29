@@ -101,6 +101,10 @@ if ($SkipSetup) {
     $clamp += "; grep -q '^PIPELINE_TIMEOUT_SECONDS=' $AppDir/.env && sed -i 's|^PIPELINE_TIMEOUT_SECONDS=.*|PIPELINE_TIMEOUT_SECONDS=30|' $AppDir/.env || printf '\nPIPELINE_TIMEOUT_SECONDS=30\n' >> $AppDir/.env; grep -q '^SITE_TIMEOUT_SECONDS=' $AppDir/.env && sed -i 's|^SITE_TIMEOUT_SECONDS=.*|SITE_TIMEOUT_SECONDS=20|' $AppDir/.env || printf '\nSITE_TIMEOUT_SECONDS=20\n' >> $AppDir/.env; grep -q '^FORM_DELAY_STRICT_MIN_SECONDS=' $AppDir/.env && sed -i 's|^FORM_DELAY_STRICT_MIN_SECONDS=.*|FORM_DELAY_STRICT_MIN_SECONDS=8|' $AppDir/.env || printf '\nFORM_DELAY_STRICT_MIN_SECONDS=8\n' >> $AppDir/.env; grep -q '^FORM_DELAY_STRICT_MAX_SECONDS=' $AppDir/.env && sed -i 's|^FORM_DELAY_STRICT_MAX_SECONDS=.*|FORM_DELAY_STRICT_MAX_SECONDS=12|' $AppDir/.env || printf '\nFORM_DELAY_STRICT_MAX_SECONDS=12\n' >> $AppDir/.env"
     $clamp += "; grep -q '^DAILY_SUBMIT_LIMIT=' $AppDir/.env && sed -i 's|^DAILY_SUBMIT_LIMIT=.*|DAILY_SUBMIT_LIMIT=400|' $AppDir/.env || printf '\nDAILY_SUBMIT_LIMIT=400\n' >> $AppDir/.env"
     $clamp += "; grep -q '^INGEST_API_TOKEN=' $AppDir/.env || printf '\nINGEST_API_TOKEN=change-me\n' >> $AppDir/.env"
+    if ($env:INGEST_API_TOKEN) {
+        $tok = $env:INGEST_API_TOKEN -replace "'", "'\\''"
+        $clamp += "; grep -q '^INGEST_API_TOKEN=' $AppDir/.env && sed -i 's|^INGEST_API_TOKEN=.*|INGEST_API_TOKEN=$tok|' $AppDir/.env || printf '\nINGEST_API_TOKEN=$tok\n' >> $AppDir/.env"
+    }
     $feedUrl = "https://api.github.com/repos/fevzican1/lead-qualification-engine/contents/feeds/ready_queue.json?ref=master"
     $clamp += "; grep -q '^FEED_URL=' $AppDir/.env && sed -i 's|^FEED_URL=.*|FEED_URL=$feedUrl|' $AppDir/.env || printf '\nFEED_URL=$feedUrl\n' >> $AppDir/.env"
     $pip = "cd $AppDir && .venv/bin/pip install -q pillow"

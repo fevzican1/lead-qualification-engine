@@ -52,10 +52,6 @@ jobs:
             echo "Oracle secrets missing — batch stays in workflow artifact only"
             exit 0
           fi
-          if [ -z "${INGEST_API_TOKEN:-}" ]; then
-            echo "INGEST_API_TOKEN missing — add repo secret to enable Oracle ingest"
-            exit 0
-          fi
           USER="${ORACLE_USER:-ubuntu}"
           mkdir -p ~/.ssh
           printf '%s\n' "$ORACLE_SSH_KEY" > ~/.ssh/oracle.key
@@ -64,13 +60,49 @@ jobs:
           scp -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             -o ConnectTimeout=12 -o BatchMode=yes \
             optimized_batch.json "${USER}@${ORACLE_HOST}:/tmp/optimized_batch.json"
+
+          read_oracle_token() {
+            ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+              -o ConnectTimeout=12 -o BatchMode=yes \
+              "${USER}@${ORACLE_HOST}" \
+              "grep '^INGEST_API_TOKEN=' /opt/devsolve/.env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r' | tr -d '\"' | tr -d \"'\""
+          }
+
+          push_ingest() {
+            local token="$1"
+            ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+              -o ConnectTimeout=12 -o BatchMode=yes \
+              "${USER}@${ORACLE_HOST}" \
+              "curl -fsS -X POST http://127.0.0.1:8787/api/v1/ingest \
+                -H 'Authorization: Bearer ${token}' \
+                -H 'Content-Type: application/json' \
+                --data-binary @/tmp/optimized_batch.json"
+          }
+
+          ORACLE_TOKEN="$(read_oracle_token || true)"
+          if [ -n "${ORACLE_TOKEN:-}" ] && [ "${ORACLE_TOKEN}" != "change-me" ]; then
+            if push_ingest "${ORACLE_TOKEN}"; then
+              echo "Ingest OK with Oracle .env token"
+              exit 0
+            fi
+            echo "Oracle token rejected — trying GitHub secret sync"
+          fi
+
+          if [ -z "${INGEST_API_TOKEN:-}" ]; then
+            echo "INGEST_API_TOKEN secret missing and Oracle token invalid"
+            exit 1
+          fi
+
           ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             -o ConnectTimeout=12 -o BatchMode=yes \
             "${USER}@${ORACLE_HOST}" \
-            "curl -fsS -X POST http://127.0.0.1:8787/api/v1/ingest \
-              -H 'Authorization: Bearer ${INGEST_API_TOKEN}' \
-              -H 'Content-Type: application/json' \
-              --data-binary @/tmp/optimized_batch.json"
+            "grep -q '^INGEST_API_TOKEN=' /opt/devsolve/.env && \
+              sed -i 's|^INGEST_API_TOKEN=.*|INGEST_API_TOKEN=${INGEST_API_TOKEN}|' /opt/devsolve/.env || \
+              printf '\nINGEST_API_TOKEN=${INGEST_API_TOKEN}\n' >> /opt/devsolve/.env; \
+             sudo systemctl restart devsolve-ingest.service"
+
+          push_ingest "${INGEST_API_TOKEN}"
+          echo "Ingest OK after syncing GitHub secret to Oracle"
       - name: Upload optimizer artifact
         uses: actions/upload-artifact@v4
         with:
