@@ -83,6 +83,10 @@ if (Test-Path $feedSync) {
     $feedText = [IO.File]::ReadAllText($feedSync) -replace "`r`n", "`n" -replace "`r", "`n"
     [IO.File]::WriteAllText((Join-Path $scriptsStage "oracle-feed-sync.sh"), $feedText, (New-Object System.Text.UTF8Encoding $false))
 }
+foreach ($unit in @("devsolve-feed-sync.service", "devsolve-feed-sync.timer")) {
+    $src = Join-Path $Root "scripts\$unit"
+    if (Test-Path $src) { Copy-Item $src (Join-Path $scriptsStage $unit) }
+}
 if (Test-Path (Join-Path $Root "optouts.json")) {
     Copy-Item (Join-Path $Root "optouts.json") $stage
 }
@@ -114,11 +118,10 @@ if ($SkipSetup) {
     $clamp += "; grep -q '^FEED_RAW_URL=' $AppDir/.env && sed -i 's|^FEED_RAW_URL=.*|FEED_RAW_URL=$feedRaw|' $AppDir/.env || printf '\nFEED_RAW_URL=$feedRaw\n' >> $AppDir/.env"
     $feedUrl = "https://api.github.com/repos/fevzican1/lead-qualification-engine/contents/feeds/ready_queue.json?ref=master"
     $clamp += "; grep -q '^FEED_URL=' $AppDir/.env && sed -i 's|^FEED_URL=.*|FEED_URL=$feedUrl|' $AppDir/.env || printf '\nFEED_URL=$feedUrl\n' >> $AppDir/.env"
-    $cronLine = "*/5 * * * * $AppDir/scripts/oracle-feed-sync.sh >> $AppDir/logs/feed-sync.log 2>&1"
-    $clamp += "; mkdir -p $AppDir/logs; chmod +x $AppDir/scripts/oracle-feed-sync.sh 2>/dev/null || true; (crontab -l 2>/dev/null | grep -v oracle-feed-sync; echo '$cronLine') | crontab -"
+    $feedTimer = "mkdir -p $AppDir/logs; chmod +x $AppDir/scripts/oracle-feed-sync.sh 2>/dev/null || true; if [ -f $AppDir/scripts/devsolve-feed-sync.service ]; then sudo cp $AppDir/scripts/devsolve-feed-sync.service $AppDir/scripts/devsolve-feed-sync.timer /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now devsolve-feed-sync.timer; fi"
     $pip = "cd $AppDir && .venv/bin/pip install -q pillow"
     $ingest = "if [ -f $AppDir/scripts/devsolve-ingest.service ]; then sudo cp $AppDir/scripts/devsolve-ingest.service /etc/systemd/system/devsolve-ingest.service && sudo systemctl daemon-reload && sudo systemctl enable devsolve-ingest.service; fi"
-    $remote = "$extract && $clamp && $pip && $ingest && sudo systemctl restart devsolve-bot.service devsolve-runner.service devsolve-ingest.service && systemctl is-active devsolve-bot.service devsolve-runner.service devsolve-ingest.service"
+    $remote = "$extract && $clamp && $feedTimer && $pip && $ingest && sudo systemctl restart devsolve-bot.service devsolve-runner.service devsolve-ingest.service && systemctl is-active devsolve-bot.service devsolve-runner.service devsolve-ingest.service devsolve-feed-sync.timer"
     Write-Host "Uploading code and restarting services (no apt, no Ollama pull, no shape change) ..."
 } else {
     $remote = "$extract && sudo APP_DIR=$AppDir bash $AppDir/scripts/oracle-setup.sh"

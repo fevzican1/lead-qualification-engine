@@ -1,0 +1,15 @@
+[Unit]
+Description=DevSolve public feed sync (queue/fuel refill)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/devsolve
+Environment=APP_DIR=/opt/devsolve
+ExecStart=/opt/devsolve/scripts/oracle-feed-sync.sh
+StandardOutput=append:/opt/devsolve/logs/feed-sync.log
+StandardError=append:/opt/devsolve/logs/feed-sync.log
+
+[Install]
+WantedBy=multi-user.target

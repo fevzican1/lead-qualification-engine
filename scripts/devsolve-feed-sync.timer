@@ -1,0 +1,10 @@
+[Unit]
+Description=DevSolve feed sync every 5 minutes
+
+[Timer]
+OnBootSec=90
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
