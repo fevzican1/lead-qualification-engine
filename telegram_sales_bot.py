@@ -261,6 +261,35 @@ async def _greet_from_token(update: Update, bot: Any, chat_id: int, row: dict[st
     _schedule_proof(chat_id, bot, turkish=turkish)
 
 
+async def _warm_ping(chat_id: int, update: Update, row: dict[str, Any]) -> None:
+    """Notify owner when a warm-scored lead converts form → Telegram /start."""
+    if _is_owner(chat_id) or telegram_sessions.is_declined(chat_id):
+        return
+    if not telegram_sessions.should_warm_ping(chat_id):
+        return
+    lead_info = row.get("lead_info") if isinstance(row.get("lead_info"), dict) else {}
+    score = str(lead_info.get("lead_score") or "").lower()
+    if score != "warm":
+        return
+    who = str(row.get("company") or row.get("host") or row.get("target_domain") or "—")
+    user = _username(update) or "yok"
+    handle = f"@{user}" if user != "yok" else "yok"
+    platform = str((row.get("detected_stack") or {}).get("platform") or row.get("platform") or "—")
+    ping = (
+        "FORM→TELEGRAM (warm) — dönüşüm\n"
+        f"Şirket: {who}\n"
+        f"Platform: {platform}\n"
+        f"Chat id: {chat_id}\n"
+        f"Username: {handle}\n"
+        f"Sohbete gir: /reply {chat_id} merhaba, ben DevSolve tarafıyım…\n"
+        f"Botu geri ver: /release {chat_id}"
+    )
+    ok = await asyncio.to_thread(owner_notify.send, ping)
+    if ok:
+        telegram_sessions.mark_warm(chat_id)
+        logger.info("Warm conversion ping sent for chat %s (%s)", chat_id, who)
+
+
 async def _hot_ping(chat_id: int, update: Update, text: str) -> None:
     if _is_owner(chat_id) or telegram_sessions.is_declined(chat_id):
         return
@@ -312,6 +341,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id, company=company, turkish=turkish, username=_username(update)
     )
     if row:
+        await _warm_ping(chat_id, update, row)
         await _greet_from_token(update, context.bot, chat_id, row)
         return
     text = _cold_intro(turkish=turkish)

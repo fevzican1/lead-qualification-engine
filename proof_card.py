@@ -232,7 +232,8 @@ def caption(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
             else f"{lead}checkout / ödeme kopuğu bu kartta. Kırmızı kutu kilitlenmesi gereken halka."
         )
         return (
-            f"{head} İş {config.price_label()}, panel durur. "
+            f"{head} Kırmızı kutu = form notunuzdaki kopuk nokta. "
+            f"İş {config.price_label()}, panel durur. "
             "Bu akışı bugün 2 saatlik bir uygulama slotunda kalıcı olarak kapatabiliriz — "
             "randevu oluşturalım mı? Uymuyorsa zorlamam."
         )
@@ -243,7 +244,8 @@ def caption(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
         else f"{lead}this is the checkout/payment break. The red box is the link that should lock on one id."
     )
     return (
-        f"{head} Job {config.price_label()}, panel stays. "
+        f"{head} Red box = the break point from your form note. "
+        f"Job {config.price_label()}, panel stays. "
         "We can close this permanently in a 2-hour implementation slot today — "
         "shall I book it? If it does not fit, I will not push."
     )

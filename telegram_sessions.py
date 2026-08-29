@@ -82,6 +82,7 @@ def touch_start(chat_id: int, *, company: str, turkish: bool, username: str = ""
         payload["user_replies"] = 0
         payload["proof_sent"] = False
         payload["hot_pinged"] = False
+        payload["warm_pinged"] = False
         payload["payment_sent"] = False
         payload["takeover"] = False
         payload["followup_sent"] = False
@@ -134,6 +135,14 @@ def seconds_until_proof(chat_id: int) -> float:
 
 def should_hot_ping(chat_id: int) -> bool:
     return not bool(_row(chat_id).get("hot_pinged"))
+
+
+def should_warm_ping(chat_id: int) -> bool:
+    return not bool(_row(chat_id).get("warm_pinged"))
+
+
+def mark_warm(chat_id: int) -> None:
+    _put(chat_id, warm_pinged=True, last_at=_now().isoformat())
 
 
 def mark_payment(chat_id: int) -> None:

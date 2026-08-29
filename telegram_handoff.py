@@ -235,6 +235,16 @@ def build_handoff_record(
     return record
 
 
+def form_subject(domain: str, *, turkish: bool, technical: str) -> str:
+    """A/B: link-focused subject vs technical subject (50/50 by domain hash)."""
+    use_cta = int(hashlib.md5((domain or "x").encode("utf-8")).hexdigest(), 16) % 2 == 0
+    if use_cta:
+        if turkish:
+            return f"[Akış Şeması] {domain} — 60 sn Telegram önizleme"
+        return f"[Flow schematic] {domain} — 60 s Telegram preview"
+    return technical[:120]
+
+
 def form_copy(
     host: str,
     hints: list[str],
@@ -247,6 +257,7 @@ def form_copy(
     domain = host or "siteniz"
     stack = hook.get("stack_name") or ""
     err = hook["error_type"] if turkish else hook["error_type_en"]
+    probe = hook["probe"] if turkish else hook["probe_en"]
     variant = hook["variant"]
 
     if turkish:
@@ -325,6 +336,7 @@ def form_copy(
             f"If it fits, we can open a 2-hour implementation slot today. {trust_note(False)} "
             f"({err})"
         )
+    subject = form_subject(domain, turkish=turkish, technical=subject)
     # Preserve CTA line breaks; collapse only intra-paragraph spaces.
     body = "\n\n".join(" ".join(part.split()) for part in body.split("\n\n"))
     return subject[:120], body
