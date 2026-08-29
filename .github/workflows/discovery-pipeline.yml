@@ -78,8 +78,24 @@ jobs:
             discover-cc-platform
           )
           slot=$(( (10#$(date -u +%M) / 10) % ${#families[@]} ))
-          workflow="${families[$slot]}"
+          primary="${families[$slot]}"
           need_harvest=0
+          now_epoch=$(date -u +%s)
+          feed_age_sec=999999
+          if [ -f feeds/ready_queue.json ]; then
+            feed_iso="$(python -c "import json; d=json.load(open('feeds/ready_queue.json')); print(str(d.get('updated_at') or '').replace('Z','+00:00'))")"
+            if [ -n "$feed_iso" ]; then
+              feed_epoch=$(date -u -d "$feed_iso" +%s 2>/dev/null || echo 0)
+              if [ "$feed_epoch" -gt 0 ]; then
+                feed_age_sec=$(( now_epoch - feed_epoch ))
+              fi
+            fi
+          fi
+          echo "Feed age ${feed_age_sec}s (primary fleet=$primary)"
+          if [ "$feed_age_sec" -gt 1800 ]; then
+            echo "Feed stale >30m — force harvest"
+            need_harvest=1
+          fi
           if [ -z "${ORACLE_HOST:-}" ] || [ -z "${ORACLE_SSH_KEY:-}" ]; then
             echo "Oracle SSH not configured — harvest dispatch on stale check only"
             need_harvest=1
@@ -107,12 +123,11 @@ jobs:
               need_harvest=1
             fi
           fi
-          now_epoch=$(date -u +%s)
-          last_iso="$(gh run list --workflow "$workflow" --limit 1 --json createdAt --jq '.[0].createdAt // empty')"
+          last_iso="$(gh run list --workflow "$primary" --limit 1 --json createdAt --jq '.[0].createdAt // empty')"
           if [ -n "$last_iso" ]; then
             last_epoch=$(date -u -d "$last_iso" +%s)
             age=$(( now_epoch - last_epoch ))
-            echo "$workflow last run ${age}s ago"
+            echo "$primary last run ${age}s ago"
             if [ "$age" -gt 2700 ]; then
               need_harvest=1
             fi
@@ -120,13 +135,19 @@ jobs:
             need_harvest=1
           fi
           if [ "$need_harvest" -eq 1 ]; then
-            running="$(gh run list --workflow "$workflow" --json status --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length')"
-            if [ "$running" -eq 0 ]; then
+            dispatch_list=("$primary")
+            if [ "$feed_age_sec" -gt 1800 ]; then
+              dispatch_list=("${families[@]}")
+            fi
+            for workflow in "${dispatch_list[@]}"; do
+              running="$(gh run list --workflow "$workflow" --json status --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length')"
+              if [ "$running" -gt 0 ]; then
+                echo "$workflow already running — skip"
+                continue
+              fi
               echo "Dispatching $workflow"
               gh workflow run "$workflow" --ref "${GITHUB_REF_NAME}"
-            else
-              echo "$workflow already running"
-            fi
+            done
           fi
 
       - name: Sync aggregate feed to Oracle
