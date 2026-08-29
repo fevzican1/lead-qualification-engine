@@ -102,6 +102,10 @@ fi
 chown "${SERVICE_USER}:${SERVICE_USER}" "${APP}/.env"
 chmod 600 "${APP}/.env"
 
+feed_raw="https://raw.githubusercontent.com/fevzican1/lead-qualification-engine/master/feeds/ready_queue.json"
+grep -q '^FEED_RAW_URL=' "${APP}/.env" && sed -i "s|^FEED_RAW_URL=.*|FEED_RAW_URL=${feed_raw}|" "${APP}/.env" || printf '\nFEED_RAW_URL=%s\n' "${feed_raw}" >> "${APP}/.env"
+grep -q '^QUEUE_REFILL_BELOW=' "${APP}/.env" || printf '\nQUEUE_REFILL_BELOW=80\n' >> "${APP}/.env"
+
 cat >/etc/systemd/system/devsolve-bot.service <<EOF
 [Unit]
 Description=DevSolve Telegram sales bot
@@ -150,6 +154,20 @@ systemctl daemon-reload
 systemctl enable --now devsolve-bot.service devsolve-runner.service
 # enable --now does not reload already-running Python; force new code.
 systemctl restart devsolve-bot.service devsolve-runner.service
+
+mkdir -p "${APP}/logs"
+chmod +x "${APP}/scripts/oracle-feed-sync.sh" 2>/dev/null || true
+if [[ -f "${APP}/scripts/devsolve-feed-sync.service" ]]; then
+  cp "${APP}/scripts/devsolve-feed-sync.service" "${APP}/scripts/devsolve-feed-sync.timer" /etc/systemd/system/
+  systemctl daemon-reload
+  systemctl enable --now devsolve-feed-sync.timer
+fi
+if [[ -f "${APP}/scripts/devsolve-ingest.service" ]]; then
+  cp "${APP}/scripts/devsolve-ingest.service" /etc/systemd/system/devsolve-ingest.service
+  systemctl daemon-reload
+  systemctl enable --now devsolve-ingest.service
+fi
+
 systemctl --no-pager --full status devsolve-bot.service || true
 systemctl --no-pager --full status devsolve-runner.service || true
 echo "Oracle setup finished. Bot and runner are enabled on boot."
