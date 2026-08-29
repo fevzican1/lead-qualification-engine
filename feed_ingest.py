@@ -185,6 +185,7 @@ def ingest(*, limit: int | None = None) -> int:
             easy_score=int(row["easy_score"]),
             source=str(row.get("source") or "public-discovery"),
             profile=str(row.get("profile") or ""),
+            form_verified=True,
         )
         staged += 1
     approved = target_pool.auto_approve()

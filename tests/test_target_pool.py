@@ -40,3 +40,17 @@ def test_promote_queue_authorization_upgrades_existing_rows(tmp_path: Path, monk
     assert promoted == 1
     row = domain_store.pending_rows(limit=1)[0]
     assert row["authorized_contact"] is True
+
+
+def test_pending_rows_preserves_form_verified(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(domain_store, "QUEUE_PATH", tmp_path / "unprocessed_leads.json")
+    monkeypatch.setattr(domain_store, "PROCESSED_PATH", tmp_path / "processed_domains.json")
+    domain_store.enqueue(
+        "https://verified.example/contact",
+        source="authorized-discovery",
+        easy_score=88,
+        authorized_contact=True,
+        form_verified=True,
+    )
+    row = domain_store.pending_rows(limit=1)[0]
+    assert row["form_verified"] is True

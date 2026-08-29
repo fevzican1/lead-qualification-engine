@@ -256,7 +256,11 @@ def _queue_direct_jobs(
                 continue
             if domain_store.is_noise(url):
                 continue
-            if not row.get("form_verified"):
+            verified = bool(row.get("form_verified"))
+            authorized = bool(row.get("authorized_contact"))
+            premium = int(getattr(config, "FEED_MIN_SCORE", 80) or 80)
+            score = int(row.get("easy_score") or 0)
+            if not verified and not (authorized and score >= premium):
                 continue
             if str(row.get("source") or "") == "catalog":
                 continue

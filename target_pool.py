@@ -82,6 +82,7 @@ def stage_candidate(
     easy_score: int,
     source: str = "public-discovery",
     profile: str = "",
+    form_verified: bool = False,
 ) -> None:
     """Add or refresh a discovery row in the review queue."""
     canonical = domain_store.origin_url(url)
@@ -103,18 +104,21 @@ def stage_candidate(
         row["source"] = str(source or row.get("source") or "public-discovery")[:80]
         if profile:
             row["profile"] = str(profile)[:40]
+        if form_verified:
+            row["form_verified"] = True
         merged = True
         break
     if not merged:
-        rows.append(
-            {
-                "url": canonical,
-                "easy_score": int(easy_score),
-                "source": str(source or "public-discovery")[:80],
-                "profile": str(profile or "")[:40],
-                "staged_at": domain_store.utc_now(),
-            }
-        )
+        entry: dict[str, Any] = {
+            "url": canonical,
+            "easy_score": int(easy_score),
+            "source": str(source or "public-discovery")[:80],
+            "profile": str(profile or "")[:40],
+            "staged_at": domain_store.utc_now(),
+        }
+        if form_verified:
+            entry["form_verified"] = True
+        rows.append(entry)
     _save_review(payload)
 
 
@@ -143,6 +147,7 @@ def auto_approve(*, limit: int | None = None) -> int:
             source=str(row.get("source") or "authorized-discovery"),
             easy_score=score,
             authorized_contact=True,
+            form_verified=bool(row.get("form_verified")),
         )
     if approved or len(keep) != len(rows):
         payload["urls"] = keep

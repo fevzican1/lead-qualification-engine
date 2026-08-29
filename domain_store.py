@@ -449,7 +449,11 @@ def prune_dead_queue(leads: list[dict[str, Any]] | None = None) -> int:
 
 
 def purge_unverified_queue() -> int:
-    """Drop legacy feed rows that never passed harvest form preflight."""
+    """Drop legacy feed rows that never passed harvest form preflight.
+
+    Keep high-score authorized rows — Chromium will verify them in-browser.
+    """
+    min_keep = int(getattr(config, "CHROMIUM_DIRECT_MIN", 65) or 65)
     data = _queue()
     kept: list[Any] = []
     dropped = 0
@@ -461,6 +465,9 @@ def purge_unverified_queue() -> int:
             kept.append(row)
             continue
         if row.get("form_verified"):
+            kept.append(row)
+            continue
+        if row.get("authorized_contact") and int(row.get("easy_score") or 0) >= min_keep:
             kept.append(row)
             continue
         dropped += 1
@@ -695,6 +702,7 @@ def pending_rows(*, limit: int = 40, min_easy: int = 0, max_easy: int | None = N
             "fails": int(item.get("fails") or 0),
             "easy_score": int(item.get("easy_score") or 0),
             "authorized_contact": bool(item.get("authorized_contact")),
+            "form_verified": bool(item.get("form_verified")),
             "next_try": item.get("next_try"),
             "defer_reason": item.get("defer_reason"),
         }
@@ -776,10 +784,14 @@ def evict_below(score: int) -> int:
 
 
 def chromium_fuel_count(*, min_easy: int | None = None) -> int:
-    """Hosts Chromium can shoot this hour without a new HTTP probe."""
+    """Hosts Chromium can visit this hour without a new HTTP probe."""
     if min_easy is None:
         min_easy = int(getattr(config, "CHROMIUM_DIRECT_MIN", 65) or 65)
-    return len(pending_rows(limit=400, min_easy=int(min_easy)))
+    n = 0
+    for row in pending_rows(limit=400, min_easy=int(min_easy)):
+        if row.get("form_verified") or row.get("authorized_contact"):
+            n += 1
+    return n
 
 
 def chromium_fuel_target() -> int:
@@ -901,7 +913,9 @@ def http_budget_remaining(*, role: str = "pipeline") -> int:
 
 def http_budget_label() -> str:
     day_left, daily_cap, hour_left, hourly_cap = http_budget_parts()
-    return f"gün {day_left}/{daily_cap} saat {hour_left}/{hourly_cap}"
+    day_used = daily_cap - day_left
+    hour_used = hourly_cap - hour_left
+    return f"gün {day_used}/{daily_cap} saat {hour_used}/{hourly_cap}"
 
 
 def seconds_until_next_utc_hour() -> int:
