@@ -129,6 +129,16 @@ def _flow(row: dict[str, Any] | None, *, turkish: bool) -> tuple[tuple[str, str]
     return table.get(variant, table["C"])
 
 
+def break_point(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
+    """Label for proof-card step 3 (the red break box)."""
+    boxes = _flow(row, turkish=turkish)
+    if len(boxes) < 3:
+        return ""
+    label, sub = boxes[2]
+    label = label.split(maxsplit=1)[-1] if label else ""
+    return f"{label}: {sub}" if sub else label
+
+
 def render(row: dict[str, Any] | None, *, turkish: bool = True) -> Path | None:
     try:
         from PIL import Image, ImageDraw

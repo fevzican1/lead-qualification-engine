@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 import config
@@ -57,28 +56,15 @@ def build_target(
     token = telegram_handoff.token_for(url)
     pain = " ".join(analysis.get("notes") or [])[:180]
     quote = excerpt[:180]
-    hook = telegram_handoff.hook_for_lead(lead, turkish=turkish)
-    handoff = {
-        "at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "url": url,
-        "host": host,
-        "company": host,
-        "hints": hints[:6],
-        "pain": pain,
-        "quote": quote,
-        "excerpt": excerpt[:180],
-        "turkish": bool(turkish),
-        "stack": hook.get("stack_name") or "",
-        "variant": hook["variant"],
-        "error_type": hook["error_type"] if turkish else hook["error_type_en"],
-        "probe": hook["probe"] if turkish else hook["probe_en"],
-        "platform": str(fp.get("platform") or ""),
-        "platform_confirmed": hook.get("confirmed") == "yes",
-        "platform_evidence": list(fp.get("evidence") or [])[:4],
-        "payment_stack": lead["payment_stack"],
-        "technical_gaps": lead["technical_gaps"],
-        "seo_score": int(analysis.get("seo_score") or 0),
-    }
+    handoff = telegram_handoff.build_handoff_record(
+        lead,
+        token=token,
+        company=host,
+        pain=pain,
+        quote=quote,
+        turkish=turkish,
+        gap_notes=list(analysis.get("gaps") or [])[:12],
+    )
     link = config.telegram_deeplink(token)
     subject, body = telegram_handoff.form_copy(
         host=host,

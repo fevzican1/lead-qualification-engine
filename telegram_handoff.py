@@ -144,8 +144,98 @@ def trust_note(turkish: bool) -> str:
     )
 
 
-def form_copy(
+def form_cta(*, link: str, turkish: bool, domain: str) -> str:
+    """High-conversion Telegram CTA block — link on its own line for form UIs."""
+    if turkish:
+        return (
+            f"→ TEK TIK — {domain} checkout akış şeması (~60 sn, ücretsiz önizleme):\n"
+            f"{link}\n"
+            "Telegram yüklü olmasa da telefondan açılır (resmi t.me önizlemesi; dosya indirmez). "
+            "Checkout/IT sorumlunuzla paylaşabilirsiniz."
+        )
+    return (
+        f"→ ONE TAP — {domain} checkout flow schematic (~60 s, free preview):\n"
+        f"{link}\n"
+        "Opens on mobile without the app (official t.me preview; no download). "
+        "Forward to whoever owns checkout/IT."
+    )
+
+
+def build_handoff_record(
+    lead: dict[str, Any],
     *,
+    token: str,
+    company: str,
+    pain: str,
+    quote: str,
+    turkish: bool,
+    gap_notes: list[str] | None = None,
+) -> dict[str, Any]:
+    """Structured brief for DeepSeek — only evidence-backed fields, zero invented metrics."""
+    url = str(lead.get("url") or "")
+    host = _host(url) or company
+    hook = hook_for_lead(lead, turkish=turkish)
+    err = hook["error_type"] if turkish else hook["error_type_en"]
+    platform = str(lead.get("platform") or hook.get("stack_name") or "")
+    confidence = int(lead.get("platform_confidence") or 0)
+    confirmed = hook.get("confirmed") == "yes"
+
+    detected_issues: list[str] = []
+    if err:
+        detected_issues.append(err)
+    if pain and pain not in detected_issues:
+        detected_issues.append(pain)
+    for note in (gap_notes or [])[:4]:
+        text = str(note or "").strip()
+        if text and text not in detected_issues:
+            detected_issues.append(text)
+    if quote and len(detected_issues) < 5:
+        detected_issues.append(f'Sayfa kaynağı: "{quote[:140]}"' if turkish else f'Page source: "{quote[:140]}"')
+
+    easy = int(lead.get("easy_score") or lead.get("fit_score") or 0)
+    lead_score = "warm" if easy >= 75 or bool(quote) else "cool"
+
+    record: dict[str, Any] = {
+        "session_token": token,
+        "target_domain": host,
+        "detected_stack": {
+            "platform": platform if confirmed else "",
+            "confidence": round(confidence / 100.0, 2) if confidence else 0.0,
+            "proof_variant": hook["variant"],
+            "confirmed": confirmed,
+        },
+        "lead_info": {
+            "contact_name": company[:48],
+            "form_page_url": url,
+            "lead_score": lead_score,
+        },
+        "diagnostics": {
+            "detected_issues": detected_issues[:6],
+            "inspected_probe": hook["probe"] if turkish else hook["probe_en"],
+        },
+        # Legacy fields used by proof_card / opener
+        "at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "url": url,
+        "host": host,
+        "company": company[:48],
+        "hints": [str(h) for h in (lead.get("stack_hints") or []) if h][:6],
+        "pain": pain[:240],
+        "quote": quote[:180],
+        "excerpt": str(lead.get("page_excerpt") or lead.get("description") or "").strip()[:180],
+        "turkish": bool(turkish),
+        "stack": hook.get("stack_name") or "",
+        "variant": hook["variant"],
+        "error_type": err,
+        "probe": hook["probe"] if turkish else hook["probe_en"],
+        "platform": platform,
+        "platform_confirmed": confirmed,
+        "platform_evidence": [str(e) for e in (lead.get("platform_evidence") or [])][:4],
+        "payment_stack": [str(p) for p in (lead.get("payment_stack") or [])][:4],
+    }
+    return record
+
+
+def form_copy(
     host: str,
     hints: list[str],
     link: str,
@@ -157,8 +247,6 @@ def form_copy(
     domain = host or "siteniz"
     stack = hook.get("stack_name") or ""
     err = hook["error_type"] if turkish else hook["error_type_en"]
-    probe = hook["probe"] if turkish else hook["probe_en"]
-    price = config.price_label()
     variant = hook["variant"]
 
     if turkish:
@@ -195,10 +283,9 @@ def form_copy(
                 f"timeout ve idempotency key eksikliği sessiz veri/sipariş kaybı riski taşıyor."
             )
         body = (
-            f"{opening} {core} Tespit ettiğimiz akış ve {price} tek köprü çözümü için "
-            f"hazırladığımız mimari analiz kartı (şablon diyagram, canlı admin ekranı değil) "
-            f"Telegram'da hazır: {link} "
-            f"Uygunsa bugün 2 saatlik uygulama slotu açabiliriz. {trust_note(True)}"
+            f"{opening} {core}\n\n"
+            f"{form_cta(link=link, turkish=True, domain=domain)}\n\n"
+            f"Uygunsa bugün 2 saatlik uygulama slotu ayırabiliriz. {trust_note(True)}"
         )
     else:
         opening = f"Hello {domain} engineering,"
@@ -233,12 +320,14 @@ def form_copy(
                 f"submissions silently under load."
             )
         body = (
-            f"{opening} {core} The flow we mapped and the {price} single-bridge fix are on the "
-            f"architecture card (a schematic, not a live admin screen) in Telegram: {link} "
+            f"{opening} {core}\n\n"
+            f"{form_cta(link=link, turkish=False, domain=domain)}\n\n"
             f"If it fits, we can open a 2-hour implementation slot today. {trust_note(False)} "
             f"({err})"
         )
-    return subject[:120], " ".join(body.split())
+    # Preserve CTA line breaks; collapse only intra-paragraph spaces.
+    body = "\n\n".join(" ".join(part.split()) for part in body.split("\n\n"))
+    return subject[:120], body
 
 
 def token_for(url: str) -> str:
@@ -280,28 +369,17 @@ def remember(
     url = str(lead.get("url") or "")
     token = token_for(url)
     hints = [str(h) for h in (lead.get("stack_hints") or []) if h][:6]
-    hook = hook_for_lead(lead)
-    err = hook["error_type"] if turkish else hook["error_type_en"]
     data = _load()
-    data[token] = {
-        "at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "url": url,
-        "host": _host(url),
-        "company": (company or "").strip()[:48],
-        "hints": hints,
-        "pain": (pain or "").strip()[:240],
-        "quote": (quote or "").strip()[:180],
-        "excerpt": str(lead.get("page_excerpt") or lead.get("description") or "").strip()[:180],
-        "turkish": bool(turkish),
-        "stack": hook.get("stack_name") or "",
-        "variant": hook["variant"],
-        "error_type": err,
-        "probe": hook["probe"] if turkish else hook["probe_en"],
-        "platform": str(lead.get("platform") or ""),
-        "platform_confirmed": hook.get("confirmed") == "yes",
-        "platform_evidence": [str(e) for e in (lead.get("platform_evidence") or [])][:4],
-        "payment_stack": [str(p) for p in (lead.get("payment_stack") or [])][:4],
-    }
+    gap_notes = [str(g) for g in (lead.get("technical_gaps") or []) if g]
+    data[token] = build_handoff_record(
+        lead,
+        token=token,
+        company=(company or "").strip()[:48],
+        pain=(pain or "").strip()[:240],
+        quote=(quote or "").strip()[:180],
+        turkish=turkish,
+        gap_notes=gap_notes,
+    )
     _save(data)
     return token
 
@@ -337,89 +415,98 @@ def import_handoffs(rows: dict[str, dict[str, Any]]) -> int:
 def brief_block(row: dict[str, Any] | None) -> str:
     if not row:
         return ""
-    quote = str(row.get("quote") or "").strip()
-    excerpt = str(row.get("excerpt") or "").strip()
-    seen = f' Public page line: "{quote}"' if quote else ""
-    extra = f" Page excerpt: {excerpt}" if excerpt and excerpt != quote else ""
-    hints = ", ".join(str(h) for h in (row.get("hints") or []) if h)
-    evidence = ", ".join(str(e) for e in (row.get("platform_evidence") or []) if e)
-    pay = ", ".join(str(p) for p in (row.get("payment_stack") or []) if p)
-    if row.get("platform_confirmed"):
-        stack_line = (
-            f"Platform (confirmed from page source, evidence: {evidence or 'source markers'}): "
-            f"{row.get('platform') or row.get('stack')}. "
-            f"Speak about this platform only — never name a different one."
-        )
-    else:
-        stack_line = (
-            "Platform NOT confirmed from source. Never name a platform "
-            "(no Shopify/WooCommerce/Magento guess). Stay on the generic checkout POST / "
-            "idempotency flow, or ask them once which panel they run."
-        )
-    return (
-        f"Inbound from our contact-form note (this exact lead). "
-        f"Company/domain: {row.get('company') or row.get('host')}. Host: {row.get('host')}. "
-        f"URL: {row.get('url')}. {stack_line} "
-        f"Payment/ops layer seen: {pay or 'none'}. Detected hints: {hints or 'none'}. "
-        f"Hook variant: {row.get('variant') or '?'}. Error type: {row.get('error_type') or row.get('pain')}. "
-        f"What we actually inspected: {row.get('probe') or 'public checkout/contact flow'} "
-        f"(public pages only — we have no access to their admin, server logs or database; "
-        f"never claim we read their logs).{seen}{extra} "
-        f"Do not re-ask which platform they use when it is confirmed above. "
-        f"Do not invent a measured $ loss. "
-        f"The {config.price_label()} figure is the scoped job fee for the checkout/payment bridge, "
-        f"not a lab measurement of their GMV. "
-        f"Closing goal: get a booked slot — 'bu akışı bugün 2 saatlik bir uygulama slotunda "
-        f"kalıcı olarak kapatabiliriz, randevu oluşturalım mı?' — offered once the technical "
-        f"point lands, never as pressure. "
-        f"Treat this as already seen from the form they received."
+    issues = [str(i) for i in (row.get("diagnostics") or {}).get("detected_issues") or [] if i]
+    if not issues:
+        err = str(row.get("error_type") or row.get("pain") or "").strip()
+        if err:
+            issues.append(err)
+        for note in (row.get("technical_gaps") or [])[:4]:
+            text = str(note or "").strip()
+            if text and text not in issues:
+                issues.append(text)
+    stack = row.get("detected_stack") if isinstance(row.get("detected_stack"), dict) else {}
+    platform = str(stack.get("platform") or row.get("platform") or row.get("stack") or "")
+    variant = str(stack.get("proof_variant") or row.get("variant") or "C")
+    confirmed = bool(stack.get("confirmed") if "confirmed" in stack else row.get("platform_confirmed"))
+    confidence = stack.get("confidence")
+    if confidence is None:
+        confidence = round(int(row.get("platform_confidence") or 0) / 100.0, 2)
+
+    brief = {
+        "session_token": row.get("session_token") or "",
+        "target_domain": row.get("target_domain") or row.get("host") or "",
+        "detected_stack": {
+            "platform": platform if confirmed else "",
+            "confidence": confidence,
+            "proof_variant": variant,
+        },
+        "lead_info": {
+            "contact_name": row.get("company") or row.get("host") or "",
+            "form_page_url": row.get("url") or "",
+            "lead_score": (row.get("lead_info") or {}).get("lead_score") or "warm",
+        },
+        "diagnostics": {
+            "detected_issues": issues[:6],
+            "inspected_probe": row.get("probe") or "",
+        },
+    }
+    rules = (
+        "ZERO HALLUCINATION: Only use detected_issues and proof_variant above. "
+        "Never invent checkout_drop_rate, GMV loss, or admin/log access. "
+        "Payment link/price only after explicit buy intent (PAY=yes). "
+        f"Job fee when asked: {config.price_label()}."
     )
+    if confirmed and platform:
+        rules += f" Platform confirmed: speak only about {platform}."
+    else:
+        rules += " Platform NOT confirmed: never name Shopify/Woo/Magento; stay generic."
+    return f"HANDOFF BRIEF (JSON)\n{json.dumps(brief, ensure_ascii=False, indent=2)}\n\n{rules}"
 
 
 def opener(row: dict[str, Any]) -> str:
-    """First bot message: name the site, name the proven stack, promise the card."""
+    """First bot message: confirm platform, name the proof-card break, promise the card."""
+    import proof_card
+
     who = str(row.get("company") or row.get("host") or "").strip()
-    host = str(row.get("host") or "").strip()
+    host = str(row.get("host") or row.get("target_domain") or "").strip()
     label = who or host or "ekibiniz"
     confirmed = bool(row.get("platform_confirmed"))
     stack = str(row.get("platform") or row.get("stack") or "").strip()
-    err = str(row.get("error_type") or row.get("pain") or "checkout kopuğu").rstrip(".")
-    probe = str(row.get("probe") or "").strip()
-    price = config.price_label()
+    issues = (row.get("diagnostics") or {}).get("detected_issues") or []
+    err = str(issues[0] if issues else row.get("error_type") or row.get("pain") or "checkout kopuğu").rstrip(".")
+    break_pt = proof_card.break_point(row, turkish=bool(row.get("turkish", True)))
 
     if row.get("turkish", True):
         head = f"Merhaba {label} yetkilisi — hoş geldiniz."
         if confirmed and stack:
             body = (
-                f"{host or 'siteniz'} için {stack} altyapınızda tespit ettiğimiz "
-                f"{err} kaydına ait teknik analiz ve {price} iyileştirme raporu hazırlanıyor."
+                f"*{stack}* altyapınızı ({host or 'siteniz'}) form notunuzdan teyit ettik. "
+                f"Akış şemasındaki *3. adım (Kopuk)*: _{break_pt or err}_."
             )
         else:
             body = (
-                f"{host or 'siteniz'} için checkout/form POST akışında tespit ettiğimiz "
-                f"{err} kaydına ait teknik analiz ve {price} iyileştirme raporu hazırlanıyor."
+                f"Checkout/form POST akışınızı ({host or 'siteniz'}) inceledik. "
+                f"Şemadaki *3. adım (Kopuk)*: _{break_pt or err}_."
             )
         tail = (
-            f"İncelediğimiz nokta: {probe}. " if probe else ""
-        ) + (
             "Mimari kart ~1 dakika içinde bu sohbete düşecek — şablon diyagramdır, "
-            "canlı admin ekranı değil. Bu arada sorunuz varsa yazabilirsiniz."
+            "canlı admin ekranı değil. Detay isterseniz tespit maddelerini tek tek açarım."
         )
         return f"{head} {body} {tail}"
 
     head = f"Hello {label} team — welcome."
     if confirmed and stack:
         body = (
-            f"The technical analysis and {price} improvement note for the {err} we mapped "
-            f"on your {stack} stack ({host or 'your site'}) is being prepared."
+            f"We confirmed your *{stack}* stack ({host or 'your site'}) from the form note. "
+            f"Flow schematic *step 3 (Break)*: _{break_pt or err}_."
         )
     else:
         body = (
-            f"The technical analysis and {price} improvement note for the {err} we mapped "
-            f"on your checkout/form POST flow ({host or 'your site'}) is being prepared."
+            f"We reviewed your checkout/form POST flow ({host or 'your site'}). "
+            f"Schematic *step 3 (Break)*: _{break_pt or err}_."
         )
-    tail = (f"What we inspected: {probe}. " if probe else "") + (
-        "The architecture card lands in this chat in about a minute — it is a schematic, "
-        "not a live admin screen. Ask anything in the meantime."
+    tail = (
+        "The architecture card lands in this chat in about a minute — schematic only, "
+        "not a live admin screen. Ask for details and I will walk through each detected issue."
     )
     return f"{head} {body} {tail}"
