@@ -93,8 +93,8 @@ def _fuel_target() -> int:
     return domain_store.chromium_fuel_target()
 
 
-def _warn_if_starving() -> None:
-    """Tell the owner when the feed, not the cap, is what holds the hour back."""
+def _warn_if_starving(*, feed_updated_at: str = "") -> None:
+    """Tell the owner when fuel is too thin for the hourly floor — after feed sync."""
     _today_n, hour_n = knowledge.submit_counts()
     need = max(0, _hourly_floor() - hour_n)
     if need <= 0:
@@ -108,11 +108,15 @@ def _warn_if_starving() -> None:
         return
     _starve_pinged_hour.append(stamp)
     del _starve_pinged_hour[:-6]
+    feed_line = f"GitHub feed: {feed_updated_at or 'bilinmiyor'}\n" if feed_updated_at else ""
     msg = (
-        "Kuyruk inceldi — saatlik taban riski.\n"
+        "Yakıt düşük — saatlik taban riski.\n"
         f"Bu saat form: {hour_n}/{knowledge.hourly_cap()} (taban {_hourly_floor()})\n"
         f"Chromium yakıtı: {fuel} host (gereken ~{need * 3})\n"
-        "Harvest bir sonraki turda stok basacak. Kota aşılmıyor."
+        f"Kuyruk: {domain_store.queue_depth()}\n"
+        f"{feed_line}"
+        "Oracle her tur GitHub feed çeker; yeni host yoksa GitHub harvest beklenir.\n"
+        "(Harvest Oracle'da değil — GitHub Actions'ta çalışır.)"
     )
     logger.warning("Queue starving: fuel=%s need=%s", fuel, need * 3)
     owner_notify.send(msg)
@@ -197,6 +201,7 @@ def main() -> None:
             print(f"Düşük skorlu kuyruk atıldı: {dumped} (HTTP yok, yer açıldı)")
 
         print("\n[0/3] Dış feed (Common Crawl / GitHub, Oracle HTTP yok)...")
+        feed_stamp = ""
         try:
             import feed_ingest
             import target_pool
@@ -208,14 +213,20 @@ def main() -> None:
                     f"promoted={pool_stats['promoted']}"
                 )
             synced = feed_ingest.sync_github_feed()
+            feed_stamp = str((synced or {}).get("updated_at") or "")
             if synced:
-                print(f"GitHub feed senkron: {synced.get('count', 0)} host, updated={synced.get('updated_at', '?')}")
+                print(f"GitHub feed senkron: {synced.get('count', 0)} host, updated={feed_stamp or '?'}")
             fed = feed_ingest.ingest(force_low=domain_store.queue_depth() < int(getattr(config, "QUEUE_REFILL_BELOW", 80) or 80))
+            if domain_store.chromium_fuel_count() == 0:
+                synced2 = feed_ingest.sync_github_feed()
+                if synced2:
+                    feed_stamp = str(synced2.get("updated_at") or feed_stamp)
+                    fed += feed_ingest.ingest(force_low=True)
             print(f"Feed +{fed} | kuyruk={domain_store.queue_depth()}/{cap} | fuel={domain_store.chromium_fuel_count()}")
         except Exception:
             logger.exception("Feed ingest failed — catalog/heal still run")
 
-        _warn_if_starving()
+        _warn_if_starving(feed_updated_at=feed_stamp)
 
         print("\n[1/3] Katalog kuyruğa basılıyor (HTTP yok, kota yanmaz)...")
         finder_code = _run("lead_finder.py")

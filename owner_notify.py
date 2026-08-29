@@ -153,15 +153,29 @@ def notify_pipeline(
     skipped: int = 0,
 ) -> None:
     del counts
-    if scoped <= 0:
-        # Cap-full or empty slice. A "Form gönderim: 0" line here reads like a
-        # breakdown, so stay quiet and let the hourly cycle note speak.
-        logger.info("Pipeline slice empty — owner notify skipped")
-        return
     import knowledge
 
     today_n, hour_n = knowledge.submit_counts()
     hourly = knowledge.hourly_cap()
+    if scoped <= 0:
+        fuel = domain_store.chromium_fuel_count()
+        queue = domain_store.queue_depth()
+        logger.info(
+            "Pipeline slice empty — fuel=%s queue=%s (notify only if fuel thin)",
+            fuel,
+            queue,
+        )
+        floor = min(int(getattr(config, "HOURLY_SUBMIT_FLOOR", 30) or 30), hourly)
+        need = max(0, floor - hour_n)
+        if fuel < max(need * 3, 1) and need > 0:
+            send(
+                "Pipeline turu: 0 form (yakıt/kuyruk ince).\n"
+                f"Yakıt: {fuel} | Kuyruk: {queue}\n"
+                f"Saat: {hour_n}/{hourly}\n"
+                "GitHub feed yenilenince kuyruk dolar."
+            )
+        return
+
     floor = min(int(getattr(config, "HOURLY_SUBMIT_FLOOR", 30) or 30), hourly)
     send(
         "Pipeline turu bitti.\n"
