@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -250,7 +251,9 @@ def _load_json(path, default):
 
 
 def _save_json(path, data) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    # PID-suffixed tmp: two Oracle services (feed-sync timer + ingest) write
+    # the same json files concurrently; a shared tmp name made them race.
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(path)
 

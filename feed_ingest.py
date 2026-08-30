@@ -38,17 +38,18 @@ def _fuel_thin() -> bool:
     return domain_store.chromium_fuel_count() < domain_store.chromium_fuel_target()
 
 
-def _burst_scan_cap(room: int, *, force: bool, fuel_thin: bool) -> int:
+def _burst_scan_cap(room: int, *, force: bool, fuel: int, fuel_target: int) -> int:
     """Feed rows scanned per ingest pass.
 
     24/48 kept the tank on a trickle (fuel filled over 4+ cycles). When fuel is
     thin, scan enough rows to close the whole deficit in ONE pass so a single
     5-minute feed-sync cycle tops the tank up.
+
+    Pure function on purpose: it runs inside the per-row scan loop, so it must
+    never touch the queue files (concurrent Oracle services race on them).
     """
-    if fuel_thin:
-        fuel = domain_store.chromium_fuel_count()
-        target = domain_store.chromium_fuel_target()
-        deficit = max(0, target - fuel)
+    if fuel < fuel_target:
+        deficit = max(0, fuel_target - fuel)
         return max(120, min(480, deficit * 3 + 48))
     return max(room, 48 if force else 24)
 
@@ -238,8 +239,11 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
         room = min(room, max(0, int(limit)))
 
     low_queue = domain_store.queue_depth() < _refill_below()
-    fuel_thin = _fuel_thin()
+    fuel_now = domain_store.chromium_fuel_count()
+    fuel_target_now = domain_store.chromium_fuel_target()
+    fuel_thin = fuel_now < fuel_target_now
     force = bool(force_low or low_queue or fuel_thin)
+    scan_cap = _burst_scan_cap(room, force=force, fuel=fuel_now, fuel_target=fuel_target_now)
 
     file_rows, file_meta = _load_file()
     if not file_rows:
@@ -282,7 +286,7 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
         if prev and int(prev.get("easy_score") or 0) >= int(candidate["easy_score"]):
             continue
         merged[host] = candidate
-        if len(merged) >= _burst_scan_cap(room, force=force, fuel_thin=fuel_thin):
+        if len(merged) >= scan_cap:
             break
 
     ranked = sorted(merged.values(), key=lambda r: -int(r["easy_score"]))
