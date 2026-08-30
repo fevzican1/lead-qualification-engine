@@ -91,21 +91,34 @@ jobs:
           path: feeds/shards
       - name: Commit fleet shards
         run: |
+          set -euo pipefail
           git config user.name "devsolve-discover"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          SRC="${{ inputs.source }}"
+          # Clean any conflict markers first (autostash conflicts bake them
+          # into the JSON; merge_feed_shards then silently drops the shards).
+          python scripts/clean_merge_markers.py feeds/shards/"${SRC}"-*.json
           for attempt in 1 2 3 4 5; do
-            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || {
-              git rebase --skip || git rebase --abort || true
-            }
-            git add "feeds/shards/${{ inputs.source }}-"*.json
+            git add "feeds/shards/${SRC}-"*.json
+            if ! python scripts/clean_merge_markers.py --check "feeds/shards/${SRC}-"*.json; then
+              echo "Shards contain conflict markers/invalid JSON — refusing to commit"
+              git reset -q 2>/dev/null || true
+              git checkout -q -- "feeds/shards/${SRC}-"*.json 2>/dev/null || true
+              sleep $((attempt * 5))
+              continue
+            fi
             if git diff --cached --quiet; then
               echo "No fleet shard changes"
               exit 0
             fi
-            git commit -m "feed: update ${{ inputs.source }} fleet shards"
-            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+            git commit -m "feed: update ${SRC} fleet shards"
+            if git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}"; then
               exit 0
             fi
+            # Never commit a half-written rebase. Drop any conflict state and
+            # retry with a clean stage next pass.
+            git rebase --abort 2>/dev/null || git merge --abort 2>/dev/null || true
+            git reset --soft HEAD~1 2>/dev/null || true
             sleep $((attempt * 5))
           done
           echo "Fleet shard push failed after retries"
