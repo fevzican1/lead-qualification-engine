@@ -18,7 +18,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: discovery-pipeline
+  group: feed-publish
   cancel-in-progress: false
 
 jobs:
@@ -187,4 +187,4 @@ jobs:
             scripts/oracle-feed-sync.sh "${USER}@${HOST}:/opt/devsolve/scripts/oracle-feed-sync.sh"
           ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
-            "${USER}@${HOST}" "chmod +x /opt/devsolve/scripts/oracle-feed-sync.sh && mv -f /opt/devsolve/feeds/ready_queue.json.pipeline.tmp /opt/devsolve/feeds/ready_queue.json && /opt/devsolve/scripts/oracle-feed-sync.sh"
+            "${USER}@${HOST}" "chmod +x /opt/devsolve/scripts/oracle-feed-sync.sh && mv -f /opt/devsolve/feeds/ready_queue.json.pipeline.tmp /opt/devsolve/feeds/ready_queue.json"

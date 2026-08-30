@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-feed
+  group: feed-publish
   cancel-in-progress: false
 
 jobs:
@@ -88,4 +88,4 @@ jobs:
             feeds/ready_queue.json "${USER}@${HOST}:/opt/devsolve/feeds/ready_queue.json.pipeline.tmp"
           ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
-            "${USER}@${HOST}" "mv -f /opt/devsolve/feeds/ready_queue.json.pipeline.tmp /opt/devsolve/feeds/ready_queue.json && flock -w 20 /tmp/devsolve-feed.lock -c 'cd /opt/devsolve && .venv/bin/python feed_ingest.py'"
+            "${USER}@${HOST}" "mv -f /opt/devsolve/feeds/ready_queue.json.pipeline.tmp /opt/devsolve/feeds/ready_queue.json"
