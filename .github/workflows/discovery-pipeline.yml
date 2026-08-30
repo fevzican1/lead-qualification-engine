@@ -181,10 +181,10 @@ jobs:
             "${USER}@${HOST}" "mkdir -p /opt/devsolve/feeds /opt/devsolve/scripts"
           scp -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
-            feeds/ready_queue.json "${USER}@${HOST}:/opt/devsolve/feeds/ready_queue.json.tmp"
+            feeds/ready_queue.json "${USER}@${HOST}:/opt/devsolve/feeds/ready_queue.json.pipeline.tmp"
           scp -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
             scripts/oracle-feed-sync.sh "${USER}@${HOST}:/opt/devsolve/scripts/oracle-feed-sync.sh"
           ssh -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             -o ConnectTimeout=8 -o ConnectionAttempts=1 -o BatchMode=yes \
-            "${USER}@${HOST}" "chmod +x /opt/devsolve/scripts/oracle-feed-sync.sh && mv -f /opt/devsolve/feeds/ready_queue.json.tmp /opt/devsolve/feeds/ready_queue.json && /opt/devsolve/scripts/oracle-feed-sync.sh"
+            "${USER}@${HOST}" "chmod +x /opt/devsolve/scripts/oracle-feed-sync.sh && mv -f /opt/devsolve/feeds/ready_queue.json.pipeline.tmp /opt/devsolve/feeds/ready_queue.json && /opt/devsolve/scripts/oracle-feed-sync.sh"

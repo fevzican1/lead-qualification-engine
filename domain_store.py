@@ -307,12 +307,18 @@ def requeue_if_retryable(url: str) -> bool:
     return True
 
 
-def recycle_no_send(url: str, *, budget: list[int] | None = None) -> bool:
-    """Starvation recycle: stale no-form/captcha hosts get one more visit.
+def recycle_no_send(url: str, *, budget: list[int] | None = None, starve: bool = False) -> bool:
+    """Starvation recycle: no-form/captcha hosts get one more visit.
 
     Only hosts where no message was ever sent, last attempt older than
-    RECYCLE_COOLDOWN, and fewer than MAX_RECYCLES prior recycles. Keeps the
-    fuel tank alive when fresh discovery is thin, without any new probing.
+    RECYCLE_COOLDOWN (or immediately when ``starve``), and fewer than
+    MAX_RECYCLES prior recycles. Keeps the fuel tank alive when fresh
+    discovery is thin, without any new probing.
+
+    ``starve`` is set when the queue is critically empty (fuel==0): security
+    is preserved because (a) only RECYCLABLE_NO_SEND statuses re-enter and
+    (b) MAX_RECYCLES still bounds the total revisits. Banner/captcha verdicts
+    are frequently transient, so a fast retry is safe when the tank is empty.
     """
     host = host_of(url)
     if not host or is_enterprise(url) or is_noise(url) or optout.is_url_opted_out(url):
@@ -330,7 +336,7 @@ def recycle_no_send(url: str, *, budget: list[int] | None = None) -> bool:
         return False
     stamps = [str(row.get("at") or ""), str(row.get("retry_at") or ""), str(row.get("recycle_at") or "")]
     last = max((t for t in (_parse_ts(s) for s in stamps) if t is not None), default=None)
-    if last is not None and datetime.now(timezone.utc) - last < RECYCLE_COOLDOWN:
+    if last is not None and datetime.now(timezone.utc) - last < RECYCLE_COOLDOWN and not starve:
         return False
     row["status"] = "retrying"
     row["recycle_count"] = int(row.get("recycle_count") or 0) + 1

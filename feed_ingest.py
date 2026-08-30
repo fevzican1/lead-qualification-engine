@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import time
 from typing import Any
 
@@ -125,7 +126,12 @@ def _pull_raw_public() -> dict[str, Any] | None:
 def _pull_github_api() -> dict[str, Any] | None:
     url = str(getattr(config, "FEED_URL", "") or "").strip()
     if not url:
-        return None
+        # No FEED_URL in .env: derive the GitHub contents endpoint so we still
+        # beat the raw CDN lag (raw.githubusercontent can trail master by 30m).
+        repo = str(getattr(config, "FEED_GITHUB_REPO", "") or "").strip()
+        if not repo:
+            return None
+        url = f"https://api.github.com/repos/{repo}/contents/feeds/ready_queue.json"
     headers = {"Accept": "application/json", "User-Agent": "devsolve-feed-ingest"}
     token = str(getattr(config, "FEED_GITHUB_TOKEN", "") or "").strip()
     if token:
@@ -145,7 +151,10 @@ def _persist_feed(payload: dict[str, Any]) -> dict[str, Any]:
     payload.setdefault("source", "multi-public-discovery")
     payload["count"] = len(rows)
     FEED_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = FEED_PATH.with_suffix(".json.tmp")
+    # PID-suffixed tmp: the pipeline's Oracle sync scp's ready_queue.json.tmp
+    # into the same directory; a shared tmp name made them race and the sync
+    # `mv` died with "cannot stat ready_queue.json.tmp". Keep tmp names ours.
+    tmp = FEED_PATH.with_suffix(f".json.{os.getpid()}.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(FEED_PATH)
     state = _load_state()
@@ -206,6 +215,7 @@ def _accept_host(
     retry_budget: list[int],
     force_low: bool,
     recycle_budget: list[int] | None = None,
+    starve: bool = False,
 ) -> bool:
     if not domain_store.is_processed(url):
         return True
@@ -225,7 +235,9 @@ def _accept_host(
     if force_low and recycle_budget is not None:
         # Starvation recycle: stale no-form/captcha hosts re-enter the queue
         # (no message was ever sent to them) so fuel refills without new probes.
-        if domain_store.recycle_no_send(url, budget=recycle_budget):
+        # When the tank is empty (starve) skip the 48h cooldown — these verdicts
+        # (slow site, bot blip, transient captcha) are usually wrong on revisit.
+        if domain_store.recycle_no_send(url, budget=recycle_budget, starve=starve):
             return True
     return False
 
@@ -243,6 +255,9 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
     fuel_target_now = domain_store.chromium_fuel_target()
     fuel_thin = fuel_now < fuel_target_now
     force = bool(force_low or low_queue or fuel_thin)
+    # Starvation = tank empty (fuel 0) or queue near-empty: allow immediate
+    # recycle of no-send hosts so a single 5-minute feed-sync tops the tank.
+    starve = (fuel_now <= 0 or low_queue) and force
     scan_cap = _burst_scan_cap(room, force=force, fuel=fuel_now, fuel_target=fuel_target_now)
 
     file_rows, file_meta = _load_file()
@@ -255,8 +270,9 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
 
     merged: dict[str, dict[str, Any]] = {}
     retry_budget = [max(room, 96 if force else 24 if feed_refresh else 8)]
-    # Recycle only on true starvation (queue nearly empty), capped per pass.
-    recycle_budget = [96 if (force and low_queue) else 0]
+    # Recycle can refill a full tank (90) from the processed pool in one pass
+    # when starving — budget well above the target, still bounded by MAX_RECYCLES.
+    recycle_budget = [160 if starve else (96 if (force and low_queue) else 0)]
 
     scan_rows = list(file_rows)
     if force and scan_rows:
@@ -278,6 +294,7 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
                 retry_budget=retry_budget,
                 force_low=force,
                 recycle_budget=recycle_budget,
+                starve=starve,
             ):
                 continue
             if domain_store.is_processed(canonical):
