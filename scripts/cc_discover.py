@@ -281,9 +281,11 @@ def harvest(
     if shard_index < 0 or shard_index >= shard_count:
         raise ValueError(f"shard_index must be between 0 and {shard_count - 1}")
     timeout = httpx.Timeout(
-        12.0 if shard_count > 1 else 30.0,
+        30.0 if shard_count > 1 else 30.0,
         connect=5.0 if shard_count > 1 else 10.0,
-        read=12.0 if shard_count > 1 else 30.0,
+        # CDX pages routinely take 6-15s under load; a 12s read timeout made
+        # most fleet slots bail with zero rows and starved the whole feed.
+        read=25.0 if shard_count > 1 else 30.0,
         write=8.0 if shard_count > 1 else 10.0,
         pool=8.0 if shard_count > 1 else 10.0,
     )
@@ -326,10 +328,10 @@ def harvest(
             # the newest endpoint is unavailable or reports no pages.
             api = ""
             total = 0
-            # A logical slot has one bounded API attempt. Older indexes are
-            # rotated into the first position on later runs; trying every
-            # fallback here made an unavailable index consume the whole fleet.
-            candidates = apis[:1] if shard_count > 1 else apis[:3]
+            # A logical slot retries the primary index once and falls through
+            # to the next index on failure. Only the first API was tried here,
+            # so one slow CDX endpoint zeroed every shard in the fleet.
+            candidates = apis[:2] if shard_count > 1 else apis[:3]
             for candidate in candidates:
                 key = (candidate, wildcard)
                 if key not in page_counts:
@@ -337,7 +339,7 @@ def harvest(
                         client,
                         candidate,
                         wildcard,
-                        tries=1 if shard_count > 1 else 2,
+                        tries=2,
                     )
                 if page_counts[key] > 0:
                     api = candidate
@@ -350,10 +352,12 @@ def harvest(
                 epoch = int(rotation if rotation is not None else time.time() // 1800)
                 # The relatively prime stride gives each slot a different
                 # slice while successive 30-minute runs move through the
-                # available page space.
+                # available page space. Two pages per slot (opposite halves
+                # of the index) double the yield of every successful slot.
                 stride = max(1, total // 17)
-                page = (slot_number + epoch * stride + query_number) % total
-                tasks.append((api, wildcard, url_re, page, total))
+                base = (slot_number + epoch * stride + query_number) % total
+                tasks.append((api, wildcard, url_re, base, total))
+                tasks.append((api, wildcard, url_re, (base + total // 2) % total, total))
                 continue
             # Wide TLDs hold tens of thousands of pages; pull more slices there.
             picks = min(weight * (4 if total > 2000 else 2), total)
