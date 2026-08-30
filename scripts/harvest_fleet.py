@@ -97,6 +97,9 @@ def main() -> int:
         tmp.replace(out)
         completed += 1
         logger.info("Fleet shard %s/%s wrote %s row(s)", shard_index + 1, shard_count, len(rows))
+        # Gentle pacing between shards: hammering CDX back-to-back invites 429s.
+        if shard_index + 1 < shard_count and (time.monotonic() - started) < args.fleet_deadline:
+            time.sleep(2.0)
 
     print(
         f"Fleet {args.source}: completed={completed}/{shard_count}, "

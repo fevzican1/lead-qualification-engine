@@ -196,12 +196,20 @@ def _base_params(wildcard: str, url_re: str) -> list[tuple[str, str]]:
     ]
 
 
-def _get(client: httpx.Client, api: str, params: list[tuple[str, str]], tries: int = 2):
-    """CDX answers 503 a lot. Retry briefly, then move on — never hang the job."""
+def _get(
+    client: httpx.Client,
+    api: str,
+    params: list[tuple[str, str]],
+    tries: int = 2,
+    timeout_s: float | None = None,
+):
+    """CDX answers 503 a lot and queues requests under load. Retry briefly,
+    optionally with a longer per-request timeout, then move on."""
     last: httpx.Response | None = None
+    request_timeout = httpx.Timeout(timeout_s, connect=5.0) if timeout_s else None
     for attempt in range(1, tries + 1):
         try:
-            response = client.get(api, params=params)
+            response = client.get(api, params=params, timeout=request_timeout)
         except Exception as exc:  # noqa: BLE001
             logger.info("CDX transport fail %s: %s", attempt, exc)
             time.sleep(1.2 * attempt)
@@ -221,7 +229,8 @@ def _num_pages(client: httpx.Client, api: str, wildcard: str, *, tries: int = 2)
     silently starved the feed.
     """
     params = [("url", wildcard), ("output", "json"), ("showNumPages", "true")]
-    response = _get(client, api, params, tries=tries)
+    # showNumPages is tiny but queues behind CDX's request backlog; give it room.
+    response = _get(client, api, params, tries=tries, timeout_s=40.0)
     if response is None or response.status_code >= 400:
         return 0
     try:
@@ -374,7 +383,7 @@ def harvest(
                 ("limit", str(per_page)),
                 ("page", str(page)),
             ]
-            response = _get(client, api, params)
+            response = _get(client, api, params, timeout_s=45.0)
             if response is None or response.status_code >= 400:
                 return wildcard, page, total, []
             return (
