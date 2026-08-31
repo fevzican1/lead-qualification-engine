@@ -212,17 +212,23 @@ def main() -> None:
                     f"Target pool auto-approve approved={pool_stats['approved']} "
                     f"promoted={pool_stats['promoted']}"
                 )
-            synced = feed_ingest.sync_github_feed()
-            feed_stamp = str((synced or {}).get("updated_at") or "")
-            if synced:
-                print(f"GitHub feed senkron: {synced.get('count', 0)} host, updated={feed_stamp or '?'}")
             fuel_now = domain_store.chromium_fuel_count()
             fuel_target = domain_store.chromium_fuel_target()
-            fed = feed_ingest.ingest(
-                force_low=domain_store.queue_depth()
+            force_low = (
+                domain_store.queue_depth()
                 < int(getattr(config, "QUEUE_REFILL_BELOW", 80) or 80)
                 or fuel_now < fuel_target
             )
+            # The 5-minute devsolve-feed-sync timer already refreshes the feed;
+            # the runner re-syncs inline only when the tank is thin or every
+            # 3rd cycle so Chromium gets the lion's share of each cycle.
+            synced = None
+            if force_low or cycle % 3 == 1:
+                synced = feed_ingest.sync_github_feed()
+            feed_stamp = str((synced or {}).get("updated_at") or "")
+            if synced:
+                print(f"GitHub feed senkron: {synced.get('count', 0)} host, updated={feed_stamp or '?'}")
+            fed = feed_ingest.ingest(force_low=force_low)
             if domain_store.chromium_fuel_count() < fuel_target:
                 # Tank still thin after one pass — pull the freshest feed and burst again.
                 synced2 = feed_ingest.sync_github_feed()
@@ -252,9 +258,17 @@ def main() -> None:
         )
         fuel_target = _fuel_target()
         needs_fuel = fuel < fuel_target or fuel80 < fuel_target
-        if http_left >= 2 and needs_fuel:
+        # Even with a full tank, spend a little of the dedicated discovery
+        # budget (500/day, 22/h, pipeline reserve) while the hour is open so
+        # the pool keeps refreshing with verified hosts instead of going stale.
+        topup = 0
+        if not needs_fuel and http_left >= 4:
+            _t, hour_now = knowledge.submit_counts()
+            if hour_now < _hourly_floor():
+                topup = 2
+        if http_left >= 2 and (needs_fuel or topup):
             try:
-                added = lead_discovery.heal_queue()
+                added = lead_discovery.heal_queue(topup=topup)
                 print(
                     f"Self-heal +{added} | hazır={domain_store.ready_pool_size()} "
                     f"| fuel={domain_store.chromium_fuel_count()}/{fuel_target} "
@@ -263,7 +277,11 @@ def main() -> None:
             except Exception:
                 logger.exception("Heal failed — pipeline still runs")
         else:
-            why = "http saatlik/günlük tavan" if http_left < 2 else f"fuel yeterli (>={fuel_target})"
+            why = (
+                "http saatlik/günlük tavan"
+                if http_left < 2
+                else f"fuel yeterli (>={fuel_target}), saat tabanda değil — keşif ertelendi"
+            )
             print(
                 f"Discovery atlandı ({why}; hazır={ready}, fuel={fuel}/{fuel_target}, "
                 f"kuyruk={domain_store.queue_depth()}/{cap}, "

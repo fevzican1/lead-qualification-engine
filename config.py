@@ -143,8 +143,10 @@ FEED_RAW_URL: str = _get(
 FEED_URL: str = _get("FEED_URL")
 FEED_GITHUB_TOKEN: str = _get("FEED_GITHUB_TOKEN")
 SITE_TIMEOUT_SECONDS: int = _get_int("SITE_TIMEOUT_SECONDS", 45)
-# Max hosts per pipeline --submit invocation (~5–10 min wall time).
-PIPELINE_SUBMIT_SLICE: int = _get_int("PIPELINE_SUBMIT_SLICE", 10)
+# Max hosts per pipeline --submit invocation (~5–15 min wall time). 16 → the
+# ~22% confirm rate yields ~5 confirmed posts per visit batch, which keeps the
+# hourly floor (30) reachable without pushing the hourly cap.
+PIPELINE_SUBMIT_SLICE: int = _get_int("PIPELINE_SUBMIT_SLICE", 16)
 # Proof card delay after /start (seconds).
 PROOF_CARD_DELAY_SECONDS: int = _get_int("PROOF_CARD_DELAY_SECONDS", 45)
 # Second Chromium pass on a site that already failed: cut and move on.

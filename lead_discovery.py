@@ -459,12 +459,28 @@ def should_run() -> bool:
     return False
 
 
-def heal_queue() -> int:
+def heal_queue(topup: int = 0) -> int:
     """Cheap refill: listing-page GET + one contact HEAD. No Bing, no 4-path HEAD."""
     fuel = domain_store.chromium_fuel_count()
     target = domain_store.chromium_fuel_target()
     if fuel >= target:
-        return 0
+        # Tank is full: skip the burst refill, but honor a small top-up so the
+        # dedicated discovery budget (500/day, 22/h, pipeline reserve) actually
+        # refreshes the pool with verified hosts instead of sitting idle.
+        if topup <= 0:
+            return 0
+        logger.info(
+            "Self-heal top-up: chromium_fuel %s >= %s — %s fresh host(s)",
+            fuel,
+            target,
+            topup,
+        )
+        return run_discovery(
+            max_new=topup,
+            queries_this_run=0,
+            seeds_this_run=max(2, topup),
+            require_contact=True,
+        )
     need = max(12, target - fuel + 8)
     logger.info("Self-heal: chromium_fuel %s < %s — seed HTML + 1x contact HEAD", fuel, target)
     return run_discovery(
