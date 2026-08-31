@@ -82,8 +82,38 @@ _NEUTRAL_HOOK = {
     "probe": "iletişim/checkout POST akışı ve idempotency key",
     "probe_en": "the contact/checkout POST flow and the idempotency key",
 }
+# Service / brochure businesses (security, cleaning, logistics...) rarely have a
+# checkout. Their real pain is the lead flow: contact-form submissions landing
+# late or nowhere in the inbox/CRM. A checkout hook on these sites reads as
+# irrelevant boilerplate and kills the click-through.
+_SERVICE_HOOK = {
+    "variant": "S",
+    "error_type": "iletişim formundan gelen taleplerin e-posta/CRM akışına geç düşmesi veya takipsiz kalması",
+    "error_type_en": "contact-form leads landing late or getting lost in the email/CRM flow",
+    "probe": "POST zinciri ve yönlendirme/otomasyon adımı",
+    "probe_en": "the form POST chain and its routing/automation step",
+}
 NEUTRAL_ENGINEERING_HOOK = _NEUTRAL_HOOK
+SERVICE_ENGINEERING_HOOK = _SERVICE_HOOK
 PLATFORM_CONFIDENCE_THRESHOLD = 95
+
+# Hints that mean the site actually transacts: only these justify checkout copy.
+_COMMERCE_HINTS = frozenset(
+    {
+        "shopify", "woocommerce", "wordpress", "magento", "ideasoft", "t-soft",
+        "ticimax", "ikas", "akinon", "iyzico", "paytr", "craftgate", "shopier",
+        "checkout", "ödeme", "odeme", "payment", "cart", "sepet", "e-ticaret",
+        "eticaret", "ecommerce", "sipariş", "siparis", "order", "stok",
+        "inventory", "store", "mağaza", "magaza",
+    }
+)
+
+
+def _is_commerce(hints: list[str] | None) -> bool:
+    for hint in hints or []:
+        if str(hint).strip().lower() in _COMMERCE_HINTS:
+            return True
+    return False
 
 
 def classify_hook(
@@ -91,17 +121,21 @@ def classify_hook(
     *,
     platform: str = "",
     confidence: int = 0,
+    commerce: bool | None = None,
 ) -> dict[str, str]:
     """Pick the hook from the source-confirmed platform, never from page copy.
 
     `platform` comes from stack_fingerprint. When it is empty the lead gets the
-    neutral variant C: we describe the checkout POST flow without naming a
-    platform we could not prove.
+    commerce-neutral variant C (checkout POST flow) only if the hints look
+    transactional; plain brochure/service sites get variant S, whose pain is
+    the contact-form → inbox/CRM flow they actually run.
     """
     name = (platform or "").strip()
     confirmed = bool(name) and int(confidence or 0) >= PLATFORM_CONFIDENCE_THRESHOLD
     if not confirmed:
         name = ""
+    if commerce is None:
+        commerce = _is_commerce(hints)
 
     if name in _HOOKS:
         hook = dict(_HOOKS[name])
@@ -116,7 +150,10 @@ def classify_hook(
         hook["confidence"] = str(confidence or 0)
         return hook
 
-    hook = dict(_NEUTRAL_HOOK)
+    if commerce:
+        hook = dict(_NEUTRAL_HOOK)
+    else:
+        hook = dict(_SERVICE_HOOK)
     hook["stack_name"] = ""
     hook["confirmed"] = "no"
     hook["confidence"] = str(confidence or 0)
@@ -125,10 +162,12 @@ def classify_hook(
 
 def hook_for_lead(lead: dict[str, Any], *, turkish: bool = True) -> dict[str, str]:
     del turkish
+    hints = [str(h) for h in (lead.get("stack_hints") or []) if h]
     return classify_hook(
-        [str(h) for h in (lead.get("stack_hints") or []) if h],
+        hints,
         platform=str(lead.get("platform") or ""),
         confidence=int(lead.get("platform_confidence") or 0),
+        commerce=_is_commerce(hints),
     )
 
 
@@ -144,20 +183,28 @@ def trust_note(turkish: bool) -> str:
     )
 
 
-def form_cta(*, link: str, turkish: bool, domain: str) -> str:
+def form_cta(
+    *,
+    link: str,
+    turkish: bool,
+    domain: str,
+    variant: str = "C",
+) -> str:
     """High-conversion Telegram CTA block — link on its own line for form UIs."""
+    card = "iletişim akış şeması" if variant == "S" else "checkout akış şeması"
+    card_en = "contact-flow schematic" if variant == "S" else "checkout flow schematic"
     if turkish:
         return (
-            f"→ TEK TIK — {domain} checkout akış şeması (~60 sn, ücretsiz önizleme):\n"
+            f"→ TEK TIK — {domain} {card} (~60 sn, ücretsiz önizleme):\n"
             f"{link}\n"
             "Telegram yüklü olmasa da telefondan açılır (resmi t.me önizlemesi; dosya indirmez). "
-            "Checkout/IT sorumlunuzla paylaşabilirsiniz."
+            "Akıştan sorumlu arkadaşınızla paylaşabilirsiniz."
         )
     return (
-        f"→ ONE TAP — {domain} checkout flow schematic (~60 s, free preview):\n"
+        f"→ ONE TAP — {domain} {card_en} (~60 s, free preview):\n"
         f"{link}\n"
         "Opens on mobile without the app (official t.me preview; no download). "
-        "Forward to whoever owns checkout/IT."
+        "Forward to whoever owns this flow."
     )
 
 
@@ -287,6 +334,14 @@ def form_copy(
                 f"Magento kurulumunuzda {probe} üzerinde, yüksek trafikte quote-to-order "
                 f"adımında duplicate payload çakışması sessiz sipariş kaybı riski taşıyor."
             )
+        elif variant == "S":
+            subject = f"[Kısa Teknik Not] {domain} web formu → e-posta/CRM akışı"
+            core = (
+                f"{domain} iletişim formunuzun {probe} üzerinde yaptığımız okumada, "
+                f"formdan gelen taleplerin e-posta/CRM tarafına geç düşebileceği ya da "
+                f"takipsiz kalabildiği görülüyor. Özellikle teklif taleplerinde bu, "
+                f"fark edilmeyen müşteri kaybı demektir."
+            )
         else:
             subject = "[Teknik Rapor] Checkout pipeline session timeout & duplicate payload"
             core = (
@@ -295,7 +350,7 @@ def form_copy(
             )
         body = (
             f"{opening} {core}\n\n"
-            f"{form_cta(link=link, turkish=True, domain=domain)}\n\n"
+            f"{form_cta(link=link, turkish=True, domain=domain, variant=variant)}\n\n"
             f"Uygunsa bugün 2 saatlik uygulama slotu ayırabiliriz. {trust_note(True)}"
         )
     else:
@@ -324,6 +379,12 @@ def form_copy(
                 f"on {probe}, quote-to-order under load can collide on duplicate payloads "
                 f"and drop orders silently."
             )
+        elif variant == "S":
+            subject = f"[Quick technical note] {domain} web form → email/CRM flow"
+            core = (
+                f"reading {probe} on {domain}, contact-form submissions can reach your "
+                f"inbox/CRM late or not at all — silent lead loss on quote requests."
+            )
         else:
             subject = "[Technical report] Checkout pipeline session timeout & duplicate payload"
             core = (
@@ -332,7 +393,7 @@ def form_copy(
             )
         body = (
             f"{opening} {core}\n\n"
-            f"{form_cta(link=link, turkish=False, domain=domain)}\n\n"
+            f"{form_cta(link=link, turkish=False, domain=domain, variant=variant)}\n\n"
             f"If it fits, we can open a 2-hour implementation slot today. {trust_note(False)} "
             f"({err})"
         )

@@ -18,6 +18,7 @@ from typing import Any
 
 from telegram import Update
 from telegram.constants import ChatAction
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -356,12 +357,16 @@ async def cmd_notifyme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not _is_owner(update.effective_chat.id):
         await update.message.reply_text(_cold_intro(turkish=_customer_lang(update)))
         return
-    await update.message.reply_text(
+    text = (
         "Özet aşağıda. *Pipeline / sıcak lead bildirimleri* müşteri sohbetlerine "
         "gitmez — yalnızca .env'deki ops chat ID'sine gider.\n\n"
-        + owner_notify.lead_digest(),
-        parse_mode="Markdown",
+        + owner_notify.lead_digest()
     )
+    try:
+        await update.message.reply_text(text, parse_mode="Markdown")
+    except BadRequest:
+        # Unbalanced * / _ in a hostname would kill the whole status report.
+        await update.message.reply_text(text)
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

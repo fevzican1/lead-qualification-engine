@@ -88,6 +88,12 @@ _FLOWS_TR: dict[str, tuple[tuple[str, str], ...]] = {
         ("3  Kopuk", "session timeout"),
         ("4  Sipariş/CRM", "kayıt düşmüyor"),
     ),
+    "S": (
+        ("1  Form", "iletişim POST"),
+        ("2  E-posta/CRM", "talep kaydı"),
+        ("3  Kopuk", "geç / takipsiz yanıt"),
+        ("4  Teklif", "kayıp fırsat"),
+    ),
 }
 _FLOWS_EN: dict[str, tuple[tuple[str, str], ...]] = {
     "A": (
@@ -119,6 +125,12 @@ _FLOWS_EN: dict[str, tuple[tuple[str, str], ...]] = {
         ("2  App", "processing"),
         ("3  Break", "session timeout"),
         ("4  Order/CRM", "record missing"),
+    ),
+    "S": (
+        ("1  Form", "contact POST"),
+        ("2  Email/CRM", "lead record"),
+        ("3  Break", "late / no follow-up"),
+        ("4  Quote", "lost deal"),
     ),
 }
 
@@ -229,6 +241,8 @@ def caption(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
         head = (
             f"{lead}{platform} akışınızda {err} — kırmızı kutu kilitlenmesi gereken halka."
             if confirmed and platform and err
+            else f"{lead}iletişim/talep akışınızdaki kopuk bu kartta. Kırmızı kutu kilitlenmesi gereken halka."
+            if str((row or {}).get("variant") or "").upper() == "S"
             else f"{lead}checkout / ödeme kopuğu bu kartta. Kırmızı kutu kilitlenmesi gereken halka."
         )
         return (
@@ -241,6 +255,8 @@ def caption(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
     head = (
         f"{lead}{err} on your {platform} flow — the red box is the link that should lock on one id."
         if confirmed and platform and err
+        else f"{lead}the break in your contact/lead flow — the red box is the link that should lock on one id."
+        if str((row or {}).get("variant") or "").upper() == "S"
         else f"{lead}this is the checkout/payment break. The red box is the link that should lock on one id."
     )
     return (
