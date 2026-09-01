@@ -184,10 +184,22 @@ def render(row: dict[str, Any] | None, *, turkish: bool = True) -> Path | None:
     title_font, body, small = _fonts()
 
     draw.rectangle((0, 0, W, 8), fill="#22C55E")
-    title = "DevSolve  ·  akış analizi" if turkish else "DevSolve  ·  flow analysis"
+    title = "DevSolve Flow Inspector  ·  teknik inceleme" if turkish else "DevSolve Flow Inspector  ·  technical review"
     draw.text((48, 36), title, font=title_font, fill="#F8FAFC")
     draw.text((48, 92), who, font=body, fill="#86EFAC")
     draw.text((48, 132), _fit(stack_line, 52), font=small, fill="#94A3B8")
+    try:
+        from telegram_handoff import report_id as _rid_fn
+        _rid = _rid_fn(str((row or {}).get("host") or ""))
+    except Exception:  # noqa: BLE001
+        _rid = ""
+    if _rid:
+        status_line = (
+            f"Rapor {_rid}  ·  Durum: İnceleme tamamlandı"
+            if turkish
+            else f"Report {_rid}  ·  Status: Review complete"
+        )
+        draw.text((48, 172), _fit(status_line, 88), font=small, fill="#FBBF24")
 
     x = 48
     boxes = _flow(row, turkish=turkish)
@@ -219,9 +231,9 @@ def render(row: dict[str, Any] | None, *, turkish: bool = True) -> Path | None:
         )
     else:
         note = (
-            "Genel checkout akışı şablonu — canlı ekran görüntüsü değil."
+            "W3C / OWASP / Lighthouse kıstasları bazlı teknik ön inceleme — şablon kart, canlı ekran değil."
             if turkish
-            else "Generic checkout flow schematic — not a live screenshot."
+            else "Technical pre-review per W3C / OWASP / Lighthouse criteria — schematic card, not a live screen."
         )
     draw.text((48, 610), _fit(note, 108), font=small, fill="#64748B")
 

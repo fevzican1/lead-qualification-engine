@@ -80,6 +80,13 @@ TELEGRAM_OWNER_CHAT_ID: str = _get("TELEGRAM_OWNER_CHAT_ID")
 # Ops channel: pipeline / sıcak lead bildirimleri (müşteri satış botundan ayrı).
 TELEGRAM_NOTIFY_BOT_TOKEN: str = _get("TELEGRAM_NOTIFY_BOT_TOKEN")
 TELEGRAM_NOTIFY_CHAT_ID: str = _get("TELEGRAM_NOTIFY_CHAT_ID")
+
+# --- Institutional review-lab frame (zero-cost; presentation only) -------
+# Public open-standard references + a deterministic Review ID. This is an
+# engineering-analysis framing, never a claim of certification/auditor status.
+AUDIT_LAB_NAME: str = _get("AUDIT_LAB_NAME", "DevSolve Flow Inspector")
+AUDIT_REPORT_PREFIX: str = _get("AUDIT_REPORT_PREFIX", "DS")
+AUDIT_REPORT_YEAR: int = _get_int("AUDIT_REPORT_YEAR", 2026)
 OLLAMA_HOST: str = _get("OLLAMA_HOST", "http://127.0.0.1:11434")
 OLLAMA_MODEL: str = _get("OLLAMA_MODEL", "deepseek-r1:14b")
 PRICE_USD: int = _get_int("PRICE_USD", 200)

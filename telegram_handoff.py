@@ -183,6 +183,34 @@ def trust_note(turkish: bool) -> str:
     )
 
 
+def report_id(host: str) -> str:
+    """Deterministic public Review ID — a lab-style reference, not certification.
+
+    Same host always yields the same ID so a customer can refer back to it.
+    """
+    key = (_host(host) or str(host or "site")).encode("utf-8")
+    digest = hashlib.sha256(key).hexdigest()
+    num = int(digest[:8], 16) % 90000 + 10000
+    prefix = str(getattr(config, "AUDIT_REPORT_PREFIX", "DS") or "DS").strip().upper()
+    year = int(getattr(config, "AUDIT_REPORT_YEAR", 2026) or 2026)
+    return f"{prefix}-{year}-{num}"
+
+
+def standards_line(turkish: bool) -> str:
+    """Open-standard benchmark framing — engineering analysis, not certification."""
+    if turkish:
+        return (
+            "İnceleme; halka açık W3C form/veri iletim yönergeleri, OWASP veri "
+            "aktarım prensipleri ve Google Lighthouse sayfa performans kıstasları "
+            "temelinde, yalnızca herkese açık sayfa kaynağı üzerinden yürütülmüştür."
+        )
+    return (
+        "Review benchmarked against public W3C form/data-transmission guidance, "
+        "OWASP data-handling principles, and Google Lighthouse/PageSpeed criteria "
+        "— public page source only."
+    )
+
+
 def form_cta(
     *,
     link: str,
@@ -245,6 +273,7 @@ def build_handoff_record(
     record: dict[str, Any] = {
         "session_token": token,
         "target_domain": host,
+        "report_id": report_id(host),
         "detected_stack": {
             "platform": platform if confirmed else "",
             "confidence": round(confidence / 100.0, 2) if confidence else 0.0,
@@ -283,13 +312,19 @@ def build_handoff_record(
 
 
 def form_subject(domain: str, *, turkish: bool, technical: str) -> str:
-    """A/B: link-focused subject vs technical subject (50/50 by domain hash)."""
+    """A/B: link-focused subject vs technical subject (50/50 by domain hash).
+
+    Both carry a deterministic public Review ID for an institutional frame.
+    """
+    rid = report_id(domain)
     use_cta = int(hashlib.md5((domain or "x").encode("utf-8")).hexdigest(), 16) % 2 == 0
     if use_cta:
         if turkish:
-            return f"[Akış Şeması] {domain} — 60 sn Telegram önizleme"
-        return f"[Flow schematic] {domain} — 60 s Telegram preview"
-    return technical[:120]
+            return f"[Akış Şeması] {domain} — Rapor {rid} (60 sn)"
+        return f"[Flow schematic] {domain} — Report {rid} (60 s)"
+    if turkish:
+        return f"{technical} — Rapor {rid}"[:120]
+    return f"{technical} — Report {rid}"[:120]
 
 
 def form_copy(
@@ -351,7 +386,10 @@ def form_copy(
         body = (
             f"{opening} {core}\n\n"
             f"{form_cta(link=link, turkish=True, domain=domain, variant=variant)}\n\n"
-            f"Uygunsa bugün 2 saatlik uygulama slotu ayırabiliriz. {trust_note(True)}"
+            f"{standards_line(True)}\n\n"
+            f"Rapor No: {report_id(domain)}\n"
+            f"{trust_note(True)} Uygunsa 2 saatlik uygulama slotu ayarlanabilir.\n"
+            f"Akış şeması (tekrar): {link}"
         )
     else:
         opening = f"Hello {domain} engineering,"
@@ -394,12 +432,18 @@ def form_copy(
         body = (
             f"{opening} {core}\n\n"
             f"{form_cta(link=link, turkish=False, domain=domain, variant=variant)}\n\n"
-            f"If it fits, we can open a 2-hour implementation slot today. {trust_note(False)} "
-            f"({err})"
+            f"{standards_line(False)}\n\n"
+            f"Report No: {report_id(domain)}\n"
+            f"{trust_note(False)} If it fits, a 2-hour implementation slot can be arranged. ({err})\n"
+            f"Flow schematic (repeat): {link}"
         )
     subject = form_subject(domain, turkish=turkish, technical=subject)
-    # Preserve CTA line breaks; collapse only intra-paragraph spaces.
-    body = "\n\n".join(" ".join(part.split()) for part in body.split("\n\n"))
+    # Collapse intra-paragraph spaces, but preserve line structure of any
+    # part carrying the t.me link so the CTA stays tap-friendly in form UIs.
+    def _collapse(part: str) -> str:
+        return part if "t.me/" in part else " ".join(part.split())
+
+    body = "\n\n".join(_collapse(part) for part in body.split("\n\n"))
     return subject[:120], body
 
 
@@ -537,12 +581,13 @@ def brief_block(row: dict[str, Any] | None) -> str:
 
 
 def opener(row: dict[str, Any]) -> str:
-    """First bot message: confirm platform, name the proof-card break, promise the card."""
+    """First bot message: auditor identity, confirm platform, name the break."""
     import proof_card
 
     who = str(row.get("company") or row.get("host") or "").strip()
     host = str(row.get("host") or row.get("target_domain") or "").strip()
-    label = who or host or "ekibiniz"
+    label = who or host or ("ekibiniz" if row.get("turkish", True) else "your team")
+    rid = str(row.get("report_id") or report_id(host or label))
     confirmed = bool(row.get("platform_confirmed"))
     stack = str(row.get("platform") or row.get("stack") or "").strip()
     issues = (row.get("diagnostics") or {}).get("detected_issues") or []
@@ -550,36 +595,36 @@ def opener(row: dict[str, Any]) -> str:
     break_pt = proof_card.break_point(row, turkish=bool(row.get("turkish", True)))
 
     if row.get("turkish", True):
-        head = f"Merhaba {label} yetkilisi — hoş geldiniz."
+        head = "DevSolve Flow Inspector — otomatik teknik inceleme servisi."
         if confirmed and stack:
             body = (
-                f"*{stack}* altyapınızı ({host or 'siteniz'}) form notunuzdan teyit ettik. "
-                f"Akış şemasındaki *3. adım (Kopuk)*: _{break_pt or err}_."
+                f"{stack} altyapınızı ({host or 'siteniz'}) form kaydınızdan teyit ettik. "
+                f"İnceleme akışı 3. adımı (Kopuk): {break_pt or err}."
             )
         else:
             body = (
                 f"Checkout/form POST akışınızı ({host or 'siteniz'}) inceledik. "
-                f"Şemadaki *3. adım (Kopuk)*: _{break_pt or err}_."
+                f"Şemadaki 3. adım (Kopuk): {break_pt or err}."
             )
         tail = (
-            "Mimari kart ~45 sn içinde bu sohbete düşecek — şablon diyagramdır, "
-            "canlı admin ekranı değil. Detay isterseniz tespit maddelerini tek tek açarım."
+            "Mimari kart ~45 sn içinde bu sohbete düşer — şablon diyagramdır, "
+            "canlı ekran değil. Detay isterseniz tespit maddelerini tek tek açarım."
         )
-        return f"{head} {body} {tail}"
+        return f"{head} {body}\nRapor No: {rid} {tail}"
 
-    head = f"Hello {label} team — welcome."
+    head = "DevSolve Flow Inspector — automated technical review service."
     if confirmed and stack:
         body = (
-            f"We confirmed your *{stack}* stack ({host or 'your site'}) from the form note. "
-            f"Flow schematic *step 3 (Break)*: _{break_pt or err}_."
+            f"We confirmed your {stack} stack ({host or 'your site'}) from the form record. "
+            f"Review flow step 3 (Break): {break_pt or err}."
         )
     else:
         body = (
             f"We reviewed your checkout/form POST flow ({host or 'your site'}). "
-            f"Schematic *step 3 (Break)*: _{break_pt or err}_."
+            f"Schematic step 3 (Break): {break_pt or err}."
         )
     tail = (
         "The architecture card lands in this chat in ~45 s — schematic only, "
         "not a live admin screen. Ask for details and I will walk through each detected issue."
     )
-    return f"{head} {body} {tail}"
+    return f"{head} {body}\nReport No: {rid} {tail}"

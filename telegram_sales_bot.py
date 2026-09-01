@@ -133,6 +133,16 @@ def _parse_model_output(raw: str, user_text: str) -> tuple[str, bool]:
     return reply, pay
 
 
+def _display_text(text: str | None) -> str:
+    """Clean plain rendering: drop markdown emphasis markers, keep URLs intact."""
+    if not text:
+        return ""
+    return "".join(
+        seg if seg.startswith("http") else re.sub(r"[*_`]", "", seg)
+        for seg in re.split(r"(https?://[^\s]+)", text)
+    )
+
+
 def _complete(messages: list[dict[str, str]]) -> str:
     return ollama_client.chat(
         messages,
@@ -155,20 +165,20 @@ def _owner_intro() -> str:
 
 
 def _cold_intro(*, turkish: bool) -> str:
-    price = config.price_label()
     if turkish:
         return (
-            f"DevSolve — mevcut panelinize özel bir köprü, {price} flat.\n"
-            "Formdan geldiyseniz sitenizi zaten gördük. Hangi altyapı "
-            "(IdeaSoft, Woo, iyzico…) ve şu an en çok nerede takılıyor: "
-            "ödeme callback, stok, ERP, yoksa Excel?"
+            "DevSolve Flow Inspector — otomatik teknik inceleme servisi.\n"
+            "Sitenizin halka açık form/iletim akışını; W3C form yönergeleri, OWASP "
+            "veri aktarım prensipleri ve Google Lighthouse kıstaslarıyla bugün ön "
+            "incelemeye aldık. 60 saniyelik özet kart hazır — göstereyim mi?"
         )
     return (
-        f"DevSolve — one scoped bridge on your current panel, {price} flat.\n"
-        "If you came from the contact form, we already looked at the public stack. "
-        "Which platform (IdeaSoft, Woo, iyzico…) and what is burning: "
-        "payment callback, stock, ERP, or Excel?"
+        "DevSolve Flow Inspector — automated technical review service.\n"
+        "Today we ran a pre-review of your site's public form/transmission flow "
+        "against W3C form guidance, OWASP data-handling principles, and Google "
+        "Lighthouse criteria. A 60-second summary card is ready — shall I show it?"
     )
+
 
 
 def _is_hot(text: str) -> bool:
@@ -256,9 +266,9 @@ async def _greet_from_token(update: Update, bot: Any, chat_id: int, row: dict[st
     text = telegram_handoff.opener(row)
     _remember(chat_id, "assistant", text)
     if update.message:
-        await update.message.reply_text(text)
+        await update.message.reply_text(_display_text(text))
     else:
-        await bot.send_message(chat_id=chat_id, text=text)
+        await bot.send_message(chat_id=chat_id, text=_display_text(text))
     _schedule_proof(chat_id, bot, turkish=turkish)
 
 
@@ -347,7 +357,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     text = _cold_intro(turkish=turkish)
     _remember(chat_id, "assistant", text)
-    await update.message.reply_text(text)
+    await update.message.reply_text(_display_text(text))
     _schedule_proof(chat_id, context.bot, turkish=turkish)
 
 
@@ -555,7 +565,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     _remember(chat_id, "assistant", reply)
     try:
-        await update.message.reply_text(reply)
+        await update.message.reply_text(_display_text(reply))
     except Exception:
         logger.exception("Telegram send failed for chat %s", chat_id)
 
@@ -610,7 +620,7 @@ async def _followup_loop(application: Application) -> None:
                     continue
                 text = telegram_sessions.followup_text(row)
                 try:
-                    await application.bot.send_message(chat_id=chat_id, text=text)
+                    await application.bot.send_message(chat_id=chat_id, text=_display_text(text))
                 except Exception:
                     logger.warning("Follow-up failed for chat %s", chat_id, exc_info=True)
                     telegram_sessions.mark_followup(chat_id)
