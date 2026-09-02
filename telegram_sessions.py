@@ -150,6 +150,10 @@ def mark_payment(chat_id: int) -> None:
     _put(chat_id, payment_sent=True, followup_sent=True, last_at=_now().isoformat())
 
 
+def mark_payment_confirmed(chat_id: int) -> None:
+    _put(chat_id, payment_confirmed=True, followup_sent=True, last_at=_now().isoformat())
+
+
 def is_payment_sent(chat_id: int) -> bool:
     return bool(_row(chat_id).get("payment_sent"))
 

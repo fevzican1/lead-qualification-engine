@@ -72,6 +72,15 @@ _HOT_RE = re.compile(
     re.I,
 )
 
+_PAID_RE = re.compile(
+    r"ödeme(?:yi)?\s+(?:yapt[ıi]m|tamamlad[ıi]m|tamamland[ıi]|yap[ıi]ld[ıi]|gönderdim|gonderdim)|"
+    r"ödend[ıi]|odendi|odeme\s+(?:yaptim|tamamladim|tamamlandi|yapildi|gonderdim)|"
+    r"payment\s+(?:done|sent|made|completed)|"
+    r"(?:made|completed|sent)\s+(?:the\s+)?(?:payment|transfer)|"
+    r"ödeme\s*yapıld[ıi]?",
+    re.I,
+)
+
 
 def _remember(chat_id: int, role: str, content: str) -> None:
     history = _histories[chat_id]
@@ -579,6 +588,23 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if telegram_sessions.is_payment_sent(chat_id):
+        # Customer already got the Payoneer link; a payment-confirm message
+        # must reach the owner so the delivered service can start manually.
+        if _PAID_RE.search(user_text):
+            telegram_sessions.mark_payment_confirmed(chat_id)
+            row = _briefs.get(chat_id) or {}
+            who = str(row.get("company") or row.get("host") or "—")
+            await asyncio.to_thread(
+                owner_notify.send,
+                f"💳 ÖDEME ONAYI — {who} (chat {chat_id}) ödeme yaptığını bildirdi.\n"
+                f"Teslimatı başlatabilirsin: /reply {chat_id} …",
+            )
+            await update.message.reply_text(
+                "Teşekkürler — kayıt işaretlendi. Uygulama başlangıcına dair "
+                "ekibimiz bu sohbetten kısa süre içinde yazar."
+            )
+            logger.info("Payment confirmed by chat %s (%s)", chat_id, who)
+            return
         logger.info("Payment already sent; closing automated sales loop for chat %s", chat_id)
         return
 

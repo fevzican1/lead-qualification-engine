@@ -98,9 +98,11 @@ SERVICE_ENGINEERING_HOOK = _SERVICE_HOOK
 PLATFORM_CONFIDENCE_THRESHOLD = 95
 
 # Hints that mean the site actually transacts: only these justify checkout copy.
+# Generic "wordpress" is deliberately NOT listed — WordPress is neutral, so a
+# brochure service site never gets read as a store by default.
 _COMMERCE_HINTS = frozenset(
     {
-        "shopify", "woocommerce", "wordpress", "magento", "ideasoft", "t-soft",
+        "shopify", "woocommerce", "magento", "ideasoft", "t-soft",
         "ticimax", "ikas", "akinon", "iyzico", "paytr", "craftgate", "shopier",
         "checkout", "ödeme", "odeme", "payment", "cart", "sepet", "e-ticaret",
         "eticaret", "ecommerce", "sipariş", "siparis", "order", "stok",
@@ -137,6 +139,15 @@ def classify_hook(
     if commerce is None:
         commerce = _is_commerce(hints)
 
+    # WordPress is neutral: a shop OR a brochure/service site. Confirmed
+    # WordPress without any transactional signal keeps the contact-flow hook (S)
+    # so a window-cleaner WP site never receives checkout copy.
+    if name == "WordPress" and not commerce:
+        hook = dict(_SERVICE_HOOK)
+        hook["stack_name"] = "WordPress"
+        hook["confirmed"] = "yes"
+        hook["confidence"] = str(confidence or 0)
+        return hook
     if name in _HOOKS:
         hook = dict(_HOOKS[name])
         hook["stack_name"] = name
