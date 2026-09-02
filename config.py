@@ -77,6 +77,8 @@ def require(name: str) -> str:
 TELEGRAM_BOT_TOKEN: str = _get("TELEGRAM_BOT_TOKEN")
 PAYONEER_PAYMENT_URL: str = _get("PAYONEER_PAYMENT_URL")
 TELEGRAM_OWNER_CHAT_ID: str = _get("TELEGRAM_OWNER_CHAT_ID")
+# Owner self-service registration secret: /admin KOD (set out-of-band on Oracle).
+ADMIN_CODE: str = _get("ADMIN_CODE")
 # Ops channel: pipeline / sıcak lead bildirimleri (müşteri satış botundan ayrı).
 TELEGRAM_NOTIFY_BOT_TOKEN: str = _get("TELEGRAM_NOTIFY_BOT_TOKEN")
 TELEGRAM_NOTIFY_CHAT_ID: str = _get("TELEGRAM_NOTIFY_CHAT_ID")

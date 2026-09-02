@@ -164,6 +164,15 @@ def _owner_intro() -> str:
     )
 
 
+def _not_owner_hint() -> str:
+    """Clear dead-end instead of a silent sales intro when a command is admin-only."""
+    return (
+        "Bu komut yalnızca operatör içindir.\n"
+        "Operatör isen: /admin KOD ile bu sohbeti operatör sohbeti olarak kaydet. "
+        "(KOD sana ayrı kanaldan iletilen gizli dizidir; .env ADMIN_CODE.)"
+    )
+
+
 def _cold_intro(*, turkish: bool) -> str:
     if turkish:
         return (
@@ -361,11 +370,41 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _schedule_proof(chat_id, context.bot, turkish=turkish)
 
 
+async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Self-service owner registration: /admin KOD (secret set in .env on Oracle)."""
+    if not update.effective_chat or not update.message:
+        return
+    chat_id = update.effective_chat.id
+    if _is_owner(chat_id):
+        await update.message.reply_text(
+            "Bu sohbet operatör olarak zaten tanınıyor. /status ile durumu gör."
+        )
+        return
+    code = (context.args[0] if context.args else "") or ""
+    secret = str(getattr(config, "ADMIN_CODE", "") or "").strip()
+    if not secret:
+        await update.message.reply_text(
+            "ADMIN_CODE .env'de tanımlı değil — sistem yöneticisine başvur."
+        )
+        return
+    if code != secret:
+        await update.message.reply_text(
+            "Kod hatalı. /admin KOD  →  KOD, operatöre ayrı kanaldan iletilen gizli dizi."
+        )
+        return
+    owner_notify.save_chat_id(chat_id)
+    logger.info("Owner chat %s registered via /admin code", chat_id)
+    await update.message.reply_text(
+        "✅ Bu sohbet artık operatör. Özet: /notifyme   durum: /status\n"
+        "Sıcak lead ping buraya düşer; /reply CHATID metin ile müşteri sohbetine girersin."
+    )
+
+
 async def cmd_notifyme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.message:
         return
     if not _is_owner(update.effective_chat.id):
-        await update.message.reply_text(_cold_intro(turkish=_customer_lang(update)))
+        await update.message.reply_text(_not_owner_hint())
         return
     text = (
         "Özet aşağıda. *Pipeline / sıcak lead bildirimleri* müşteri sohbetlerine "
@@ -383,20 +422,27 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not update.effective_chat or not update.message:
         return
     if not _is_owner(update.effective_chat.id):
-        await update.message.reply_text(_cold_intro(turkish=_customer_lang(update)))
+        await update.message.reply_text(_not_owner_hint())
         return
-    await update.message.reply_text(owner_notify.lead_digest())
+    await update.message.reply_text(
+        f"Operatör sohbeti (chat_id={update.effective_chat.id}) tanınıyor.\n\n"
+        + owner_notify.lead_digest()
+    )
 
 
 async def cmd_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.message:
         return
     if not _is_owner(update.effective_chat.id):
-        await update.message.reply_text(_cold_intro(turkish=_customer_lang(update)))
+        await update.message.reply_text(_not_owner_hint())
         return
     args = context.args or []
     if len(args) < 2 or not str(args[0]).lstrip("-").isdigit():
-        await update.message.reply_text("Kullanım: /reply CHATID metin")
+        await update.message.reply_text(
+            "Kullanım: /reply CHATID metin\n"
+            "CHATID, sıcak lead pingindeki id'dir (örn. /reply 123456789 merhaba).\n"
+            "Hedef müşteri henüz bota /start yapmamışsa gönderilemez."
+        )
         return
     target = int(args[0])
     body = " ".join(args[1:]).strip()
@@ -406,7 +452,9 @@ async def cmd_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         await context.bot.send_message(chat_id=target, text=body)
     except Exception as exc:
-        await update.message.reply_text(f"Gönderilemedi: {exc}")
+        await update.message.reply_text(
+            f"Gönderilemedi: {exc}".strip()[:400]
+        )
         return
     telegram_sessions.set_takeover(target, True)
     _remember(target, "assistant", body)
@@ -422,7 +470,7 @@ async def cmd_release(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not update.effective_chat or not update.message:
         return
     if not _is_owner(update.effective_chat.id):
-        await update.message.reply_text(_cold_intro(turkish=_customer_lang(update)))
+        await update.message.reply_text(_not_owner_hint())
         return
     args = context.args or []
     if not args or not str(args[0]).lstrip("-").isdigit():
@@ -665,6 +713,7 @@ def main() -> None:
         .build()
     )
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("admin", cmd_admin))
     application.add_handler(CommandHandler("notifyme", cmd_notifyme))
     application.add_handler(CommandHandler("status", cmd_status))
     application.add_handler(CommandHandler("reply", cmd_reply))
