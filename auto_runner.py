@@ -307,6 +307,22 @@ def main() -> None:
             logger.warning("pipeline exited %s — will retry next cycle", pipeline_code)
             owner_notify.send(f"Pipeline turu hata ile bitti (kod {pipeline_code}). Sonraki tur denenecek.")
 
+        # Faz A — kurumsal contractor başvuru kanalı. Aynı Oracle kotasını
+        # paylaşır: sub-cap'li (gün 4 / saat 2), kota daralırsa pipeline önce.
+        try:
+            import enterprise_apply
+
+            ent = enterprise_apply.run_batch()
+            if ent.get("ran"):
+                print(
+                    f"[FAZ-A] Kurumsal başvuru: {ent.get('applied', 0)} onaylı, "
+                    f"{ent.get('skipped', 0)} atlandı"
+                )
+            else:
+                print(f"[FAZ-A] Atlandı: {ent.get('why', '?')}")
+        except Exception:
+            logger.exception("Enterprise apply failed — pipeline unaffected")
+
         wait = _sleep_after_cycle()
         print(f"\n[BILGI] Tur {cycle} tamamlandı. kuyruk={domain_store.queue_depth()}/{cap}. {wait}s sonra yeni tur...")
         today_n, hour_n = knowledge.submit_counts()

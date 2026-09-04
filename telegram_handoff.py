@@ -94,6 +94,19 @@ _SERVICE_HOOK = {
     "probe_en": "the form POST chain and its routing/automation step",
 }
 NEUTRAL_ENGINEERING_HOOK = _NEUTRAL_HOOK
+NEUTRAL_ENGINEERING_HOOK = _NEUTRAL_HOOK
+SERVICE_ENGINEERING_HOOK = _SERVICE_HOOK
+# Enterprise lane (Faz A): application is framed as an evidence-first
+# contractor offer to the technical decision maker — not a sales pitch.
+_CONTRACTOR_HOOK = {
+    "variant": "X",
+    "error_type": "kontratlı entegrasyon mühendisi ihtiyacı ve teknik ekibin geçici kapasite açığı",
+    "error_type_en": "contract integration-engineer need and a temporary capacity gap in the technical team",
+    "probe": "başvuru kanalının form/gönderim akışı ve yanıt rotası",
+    "probe_en": "the application channel's form/submission flow and its routing path",
+}
+CONTRACTOR_ENGINEERING_HOOK = _CONTRACTOR_HOOK
+PLATFORM_CONFIDENCE_THRESHOLD = 95
 SERVICE_ENGINEERING_HOOK = _SERVICE_HOOK
 PLATFORM_CONFIDENCE_THRESHOLD = 95
 
@@ -173,6 +186,8 @@ def classify_hook(
 
 def hook_for_lead(lead: dict[str, Any], *, turkish: bool = True) -> dict[str, str]:
     del turkish
+    if str(lead.get("audience") or "") == "enterprise":
+        return dict(_CONTRACTOR_HOOK)
     hints = [str(h) for h in (lead.get("stack_hints") or []) if h]
     return classify_hook(
         hints,
@@ -230,8 +245,30 @@ def form_cta(
     variant: str = "C",
 ) -> str:
     """High-conversion Telegram CTA block — link on its own line for form UIs."""
-    card = "iletişim akış şeması" if variant == "S" else "checkout akış şeması"
-    card_en = "contact-flow schematic" if variant == "S" else "checkout flow schematic"
+    card = (
+        "yetenek kanıtı paketi" if variant == "X"
+        else "iletişim akış şeması" if variant == "S"
+        else "checkout akış şeması"
+    )
+    card_en = (
+        "proof-of-work package" if variant == "X"
+        else "contact-flow schematic" if variant == "S"
+        else "checkout flow schematic"
+    )
+    if variant == "X":
+        if turkish:
+            return (
+                f"→ BAŞVURU + KANIT — {domain} için hazır (~60 sn):\n"
+                f"{link}\n"
+                "Telegram yüklü olmasa da telefondan açılır (resmi t.me önizlemesi; "
+                "dosya indirmez). Teknik ekipte ilgili kişiye iletebilirsiniz."
+            )
+        return (
+            f"→ APPLICATION + EVIDENCE — ready for {domain} (~60 s):\n"
+            f"{link}\n"
+            "Opens on mobile without the app (official t.me preview; no download). "
+            "Forward to whoever owns technical staffing."
+        )
     if turkish:
         return (
             f"→ TEK TIK — {domain} {card} (~60 sn, ücretsiz önizleme):\n"
@@ -312,6 +349,7 @@ def build_handoff_record(
         "turkish": bool(turkish),
         "stack": hook.get("stack_name") or "",
         "variant": hook["variant"],
+        "audience": str(lead.get("audience") or ""),
         "error_type": err,
         "probe": hook["probe"] if turkish else hook["probe_en"],
         "platform": platform,
@@ -322,12 +360,17 @@ def build_handoff_record(
     return record
 
 
-def form_subject(domain: str, *, turkish: bool, technical: str) -> str:
+def form_subject(
+    domain: str, *, turkish: bool, technical: str, audience: str = ""
+) -> str:
     """A/B: link-focused subject vs technical subject (50/50 by domain hash).
 
-    Both carry a deterministic public Review ID for an institutional frame.
+    Enterprise contractor applications skip the A/B: the subject must read as
+    an application with evidence, not a diagram pitch.
     """
     rid = report_id(domain)
+    if audience == "enterprise":
+        return f"{technical} — Report {rid}"[:120] if not turkish else f"{technical} — Rapor {rid}"[:120]
     use_cta = int(hashlib.md5((domain or "x").encode("utf-8")).hexdigest(), 16) % 2 == 0
     if use_cta:
         if turkish:
@@ -345,8 +388,12 @@ def form_copy(
     turkish: bool,
     platform: str = "",
     confidence: int = 0,
+    audience: str = "",
 ) -> tuple[str, str]:
-    hook = classify_hook(hints, platform=platform, confidence=confidence)
+    if audience == "enterprise":
+        hook = dict(_CONTRACTOR_HOOK)
+    else:
+        hook = classify_hook(hints, platform=platform, confidence=confidence)
     domain = host or "siteniz"
     stack = hook.get("stack_name") or ""
     err = hook["error_type"] if turkish else hook["error_type_en"]
@@ -388,6 +435,13 @@ def form_copy(
                 f"takipsiz kalabildiği görülüyor. Özellikle teklif taleplerinde bu, "
                 f"fark edilmeyen müşteri kaybı demektir."
             )
+        elif variant == "X":
+            subject = f"[Kontratlı Mühendis Başvurusu] {domain} entegrasyon ekibi — kanıtlı ön çalışma hazır"
+            core = (
+                f"Ekibinizde {probe} için geçici kapasite açığı olağan. "
+                f"Ödeme akışı veya form→CRM köprüsünü {config.price_label()} sabit "
+                f"ücretle kapatıyoruz — kanıt paketi bir tıkla altta."
+            )
         else:
             subject = "[Teknik Rapor] Checkout pipeline session timeout & duplicate payload"
             core = (
@@ -400,7 +454,7 @@ def form_copy(
             f"{standards_line(True)}\n\n"
             f"Rapor No: {report_id(domain)}\n"
             f"{trust_note(True)} Uygunsa 2 saatlik uygulama slotu ayarlanabilir.\n"
-            f"Akış şeması (tekrar): {link}"
+            f"{'Kanıt paketi (tekrar)' if variant == 'X' else 'Akış şeması (tekrar)'}: {link}"
         )
     else:
         opening = f"Hello {domain} engineering,"
@@ -434,6 +488,13 @@ def form_copy(
                 f"reading {probe} on {domain}, contact-form submissions can reach your "
                 f"inbox/CRM late or not at all — silent lead loss on quote requests."
             )
+        elif variant == "X":
+            subject = f"[Contract engineer application] {domain} integrations — evidence pack ready"
+            core = (
+                f"a temporary capacity gap around {probe} is routine. One integration "
+                f"bridge (payment-flow or form→CRM) closed for a flat "
+                f"{config.price_label()} — evidence pack one tap below."
+            )
         else:
             subject = "[Technical report] Checkout pipeline session timeout & duplicate payload"
             core = (
@@ -446,9 +507,9 @@ def form_copy(
             f"{standards_line(False)}\n\n"
             f"Report No: {report_id(domain)}\n"
             f"{trust_note(False)} If it fits, a 2-hour implementation slot can be arranged. ({err})\n"
-            f"Flow schematic (repeat): {link}"
+            f"{'Evidence pack (repeat)' if variant == 'X' else 'Flow schematic (repeat)'}: {link}"
         )
-    subject = form_subject(domain, turkish=turkish, technical=subject)
+    subject = form_subject(domain, turkish=turkish, technical=subject, audience=audience)
     # Collapse intra-paragraph spaces, but preserve line structure of any
     # part carrying the t.me link so the CTA stays tap-friendly in form UIs.
     def _collapse(part: str) -> str:
@@ -584,6 +645,15 @@ def brief_block(row: dict[str, Any] | None) -> str:
         "Payment link/price only after explicit buy intent (PAY=yes). "
         f"Job fee when asked: {config.price_label()}."
     )
+    if str(row.get("audience") or "") == "enterprise" or variant == "X":
+        rules += (
+            " ENTERPRISE CONTRACTOR MODE: you are applying as a contract "
+            f"integration engineer. Pilot fix: {config.price_label()} flat, one "
+            f"bridge. Ongoing managed monitoring retainer: "
+            f"${int(getattr(config, 'ENTERPRISE_RETAINER_USD', 500) or 500)}/month. "
+            "Present the pilot first; offer the retainer only after a successful "
+            "pilot or an explicit ask for ongoing work. Formal, peer-to-peer tone."
+        )
     if confirmed and platform:
         rules += f" Platform confirmed: speak only about {platform}."
     else:
@@ -604,6 +674,25 @@ def opener(row: dict[str, Any]) -> str:
     issues = (row.get("diagnostics") or {}).get("detected_issues") or []
     err = str(issues[0] if issues else row.get("error_type") or row.get("pain") or "checkout kopuğu").rstrip(".")
     break_pt = proof_card.break_point(row, turkish=bool(row.get("turkish", True)))
+
+    if str(row.get("audience") or "") == "enterprise" or str(row.get("variant") or "") == "X":
+        pilot = config.price_label()
+        retainer = f"${int(getattr(config, 'ENTERPRISE_RETAINER_USD', 500) or 500)}/mo"
+        if row.get("turkish", True):
+            return (
+                "DevSolve Flow Inspector — kontratlı entegrasyon başvurusu.\n"
+                f"{host or label} için hazırlanan kanıt paketi bu sohbette. "
+                f"Rapor No: {rid}. Tek köpürlük pilot {pilot}; sürekli izleme "
+                f"istek üzerine {retainer}. Mimari kart ~45 sn içinde düşer; "
+                "detay isterseniz kanıt maddelerini tek tek açarım."
+            )
+        return (
+            "DevSolve Flow Inspector — contract engineer application.\n"
+            f"The evidence pack prepared for {host or label} is in this chat. "
+            f"Report No: {rid}. Single-bridge pilot {pilot}; managed monitoring "
+            f"retainer {retainer} on request. The architecture card lands in ~45 s; "
+            "ask and I will walk through each evidence item."
+        )
 
     if row.get("turkish", True):
         head = "DevSolve Flow Inspector — otomatik teknik inceleme servisi."

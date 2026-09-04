@@ -93,6 +93,16 @@ OLLAMA_HOST: str = _get("OLLAMA_HOST", "http://127.0.0.1:11434")
 OLLAMA_MODEL: str = _get("OLLAMA_MODEL", "deepseek-r1:14b")
 PRICE_USD: int = _get_int("PRICE_USD", 200)
 
+# --- Enterprise contractor-application lane (Faz A) ------------------------
+# Global company partner/contractor channels, applied autonomously through the
+# SAME quota gates (forms count toward knowledge caps via leads.json).
+ENTERPRISE_MODE: bool = _get("ENTERPRISE_MODE", "1").strip() not in {"0", "false", "no"}
+ENTERPRISE_DAILY_CAP: int = _get_int("ENTERPRISE_DAILY_CAP", 4)
+ENTERPRISE_HOURLY_CAP: int = _get_int("ENTERPRISE_HOURLY_CAP", 2)
+ENTERPRISE_RETAINER_USD: int = _get_int("ENTERPRISE_RETAINER_USD", 500)
+ENTERPRISE_PILOT_USD: int = _get_int("ENTERPRISE_PILOT_USD", 300)
+PRICE_USD: int = _get_int("PRICE_USD", 200)
+
 # --- Product / outreach copy --------------------------------------------
 TELEGRAM_BOT_USERNAME: str = _get("TELEGRAM_BOT_USERNAME").lstrip("@")
 PRODUCT_NAME: str = _get("PRODUCT_NAME", "our platform")

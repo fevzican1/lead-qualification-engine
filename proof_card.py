@@ -94,6 +94,12 @@ _FLOWS_TR: dict[str, tuple[tuple[str, str], ...]] = {
         ("3  Kopuk", "geç / takipsiz yanıt"),
         ("4  Teklif", "kayıp fırsat"),
     ),
+    "X": (
+        ("1  Rol", "entegrasyon açığı"),
+        ("2  Kanıt", "Rapor No (DS)"),
+        ("3  Pilot", "2 saatlik slot"),
+        ("4  Retainer", "aylık opsiyon"),
+    ),
 }
 _FLOWS_EN: dict[str, tuple[tuple[str, str], ...]] = {
     "A": (
@@ -131,6 +137,12 @@ _FLOWS_EN: dict[str, tuple[tuple[str, str], ...]] = {
         ("2  Email/CRM", "lead record"),
         ("3  Break", "late / no follow-up"),
         ("4  Quote", "lost deal"),
+    ),
+    "X": (
+        ("1  Role", "integration gap"),
+        ("2  Evidence", "Report No (DS)"),
+        ("3  Pilot", "2h fix slot"),
+        ("4  Retainer", "monthly option"),
     ),
 }
 
@@ -253,6 +265,8 @@ def caption(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
         head = (
             f"{lead}{platform} akışınızda {err} — kırmızı kutu kilitlenmesi gereken halka."
             if confirmed and platform and err
+            else f"{lead}kontratlı mühendislik kanıt paketi bu kartta. 3. kutu canlı pilot slotu."
+            if str((row or {}).get("variant") or "").upper() == "X"
             else f"{lead}iletişim/talep akışınızdaki kopuk bu kartta. Kırmızı kutu kilitlenmesi gereken halka."
             if str((row or {}).get("variant") or "").upper() == "S"
             else f"{lead}checkout / ödeme kopuğu bu kartta. Kırmızı kutu kilitlenmesi gereken halka."
@@ -267,6 +281,8 @@ def caption(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
     head = (
         f"{lead}{err} on your {platform} flow — the red box is the link that should lock on one id."
         if confirmed and platform and err
+        else f"{lead}the contractor evidence pack — box 3 is the live pilot slot."
+        if str((row or {}).get("variant") or "").upper() == "X"
         else f"{lead}the break in your contact/lead flow — the red box is the link that should lock on one id."
         if str((row or {}).get("variant") or "").upper() == "S"
         else f"{lead}this is the checkout/payment break. The red box is the link that should lock on one id."
