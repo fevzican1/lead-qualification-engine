@@ -437,10 +437,11 @@ def form_copy(
             )
         elif variant == "X":
             subject = f"[Kontratlı Mühendis Başvurusu] {domain} entegrasyon ekibi — kanıtlı ön çalışma hazır"
+            price_bit = "" if getattr(config, "PRICE_HIDDEN", False) else f" sabit {config.price_label()} ücretle"
             core = (
                 f"Ekibinizde {probe} için geçici kapasite açığı olağan. "
-                f"Ödeme akışı veya form→CRM köprüsünü {config.price_label()} sabit "
-                f"ücretle kapatıyoruz — kanıt paketi bir tıkla altta."
+                f"Ödeme akışı veya form→CRM köprüsünü{price_bit} "
+                f"kapatıyoruz — kanıt paketi bir tıkla altta."
             )
         else:
             subject = "[Teknik Rapor] Checkout pipeline session timeout & duplicate payload"
@@ -448,8 +449,13 @@ def form_copy(
                 f"Sitenizde {probe} üzerinde yaptığımız okumada, yoğun trafikte session "
                 f"timeout ve idempotency key eksikliği sessiz veri/sipariş kaybı riski taşıyor."
             )
+        acc_teaser = ""
+        if audience == "enterprise" and variant == "X":
+            acc_teaser = (
+                " Sıfır riskli: bulgular 24 saatte ücretsiz; retainer yalnızca işe yararsa."
+            )
         body = (
-            f"{opening} {core}\n\n"
+            f"{opening} {core}{acc_teaser}\n\n"
             f"{form_cta(link=link, turkish=True, domain=domain, variant=variant)}\n\n"
             f"{standards_line(True)}\n\n"
             f"Rapor No: {report_id(domain)}\n"
@@ -490,10 +496,11 @@ def form_copy(
             )
         elif variant == "X":
             subject = f"[Contract engineer application] {domain} integrations — evidence pack ready"
+            price_bit = "" if getattr(config, "PRICE_HIDDEN", False) else f" for a flat {config.price_label()}"
             core = (
                 f"a temporary capacity gap around {probe} is routine. One integration "
-                f"bridge (payment-flow or form→CRM) closed for a flat "
-                f"{config.price_label()} — evidence pack one tap below."
+                f"bridge (payment-flow or form→CRM) closed{price_bit} — "
+                f"evidence pack one tap below."
             )
         else:
             subject = "[Technical report] Checkout pipeline session timeout & duplicate payload"
@@ -501,8 +508,13 @@ def form_copy(
                 f"reading {probe}, session timeout and a missing idempotency key can drop "
                 f"submissions silently under load."
             )
+        acc_teaser = ""
+        if audience == "enterprise" and variant == "X":
+            acc_teaser = (
+                " Zero-risk: findings in 24h at no cost; retainer only if it works."
+            )
         body = (
-            f"{opening} {core}\n\n"
+            f"{opening} {core}{acc_teaser}\n\n"
             f"{form_cta(link=link, turkish=False, domain=domain, variant=variant)}\n\n"
             f"{standards_line(False)}\n\n"
             f"Report No: {report_id(domain)}\n"
@@ -646,13 +658,21 @@ def brief_block(row: dict[str, Any] | None) -> str:
         f"Job fee when asked: {config.price_label()}."
     )
     if str(row.get("audience") or "") == "enterprise" or variant == "X":
+        hidden = bool(getattr(config, "PRICE_HIDDEN", False))
+        price_rules = (
+            " NEVER quote a dollar figure in the first message: the findings "
+            "list ships in 24h at no cost; the flat pilot fee is shared only "
+            "after the company asks or approves scope."
+            if hidden
+            else f" Pilot fix: {config.price_label()} flat, one bridge."
+        )
         rules += (
             " ENTERPRISE CONTRACTOR MODE: you are applying as a contract "
-            f"integration engineer. Pilot fix: {config.price_label()} flat, one "
-            f"bridge. Ongoing managed monitoring retainer: "
+            f"integration engineer.{price_rules} Ongoing managed monitoring retainer: "
             f"${int(getattr(config, 'ENTERPRISE_RETAINER_USD', 500) or 500)}/month. "
-            "Present the pilot first; offer the retainer only after a successful "
-            "pilot or an explicit ask for ongoing work. Formal, peer-to-peer tone."
+            "Present the zero-risk verification first; offer the retainer only after a "
+            "successful first fix or an explicit ask for ongoing work. "
+            "Formal, peer-to-peer tone."
         )
     if confirmed and platform:
         rules += f" Platform confirmed: speak only about {platform}."
@@ -676,16 +696,34 @@ def opener(row: dict[str, Any]) -> str:
     break_pt = proof_card.break_point(row, turkish=bool(row.get("turkish", True)))
 
     if str(row.get("audience") or "") == "enterprise" or str(row.get("variant") or "") == "X":
-        pilot = config.price_label()
+        hidden = bool(getattr(config, "PRICE_HIDDEN", False))
         retainer = f"${int(getattr(config, 'ENTERPRISE_RETAINER_USD', 500) or 500)}/mo"
         if row.get("turkish", True):
+            if hidden:
+                return (
+                    "DevSolve Flow Inspector — kontratlı entegrasyon başvurusu.\n"
+                    f"{host or label} için hazırlanan kanıt paketi bu sohbette. "
+                    f"Rapor No: {rid}. Bulgu listesi 24 saat içinde ücretsiz; "
+                    f"kalıcı izleme istek üzerine ({retainer}). Mimari kart ~45 sn içinde düşer; "
+                    "detay isterseniz kanıt maddelerini tek tek açarım."
+                )
+            pilot = config.price_label()
             return (
                 "DevSolve Flow Inspector — kontratlı entegrasyon başvurusu.\n"
                 f"{host or label} için hazırlanan kanıt paketi bu sohbette. "
-                f"Rapor No: {rid}. Tek köpürlük pilot {pilot}; sürekli izleme "
+                f"Rapor No: {rid}. Tek köprü pilot {pilot}; sürekli izleme "
                 f"istek üzerine {retainer}. Mimari kart ~45 sn içinde düşer; "
                 "detay isterseniz kanıt maddelerini tek tek açarım."
             )
+        if hidden:
+            return (
+                "DevSolve Flow Inspector — contract engineer application.\n"
+                f"The evidence pack prepared for {host or label} is in this chat. "
+                f"Report No: {rid}. Findings delivered within 24h at no cost; "
+                f"ongoing monitoring on request ({retainer}). "
+                "The architecture card lands in ~45 s; ask and I will walk through each evidence item."
+            )
+        pilot = config.price_label()
         return (
             "DevSolve Flow Inspector — contract engineer application.\n"
             f"The evidence pack prepared for {host or label} is in this chat. "

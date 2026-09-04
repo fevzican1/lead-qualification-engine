@@ -337,7 +337,12 @@ def _submit_with_page(
             pass
         goto_page(page, form_url, cap_ms)
         dismiss_cookie_banner(page)
-        if not page_has_open_form(page):
+        # Enterprise pages (heavy JS application forms) need a wider fingerprint
+        # window so a dynamic form is not misread as "no form on page".
+        ent_ms = int(lead.get("_enterprise_fingerprint_ms") or 0)
+        if not page_has_open_form(
+            page, timeout_ms=ent_ms if ent_ms else None
+        ):
             result["status"] = "skipped_no_open_form"
             result["error"] = "DOM fingerprint: no form/email in 2s"
             logger.info("Fingerprint miss on submit %s — next site", lead.get("url"))

@@ -99,6 +99,12 @@ PRICE_USD: int = _get_int("PRICE_USD", 200)
 ENTERPRISE_MODE: bool = _get("ENTERPRISE_MODE", "1").strip() not in {"0", "false", "no"}
 ENTERPRISE_DAILY_CAP: int = _get_int("ENTERPRISE_DAILY_CAP", 4)
 ENTERPRISE_HOURLY_CAP: int = _get_int("ENTERPRISE_HOURLY_CAP", 2)
+# Big-company pages load heavy JS: give the open-form fingerprint a wider
+# window so a dynamic application form is not misread as "no form".
+ENTERPRISE_FINGERPRINT_MS: int = _get_int("ENTERPRISE_FINGERPRINT_MS", 9000)
+# Acceptance-first framing: do NOT print a dollar figure in outreach; the
+# contract amount is only shared in-chat when the company asks.
+PRICE_HIDDEN: bool = _get("PRICE_HIDDEN", "0").strip() in {"1", "true", "yes", "on"}
 # Revenue model: 40 employers x $2,500/mo retainer = $100k/mo target.
 # PRICE_USD is the enterprise contract fee asked via the Payoneer link.
 PRICE_USD: int = _get_int("PRICE_USD", 2500)

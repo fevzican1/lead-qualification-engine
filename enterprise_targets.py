@@ -18,72 +18,116 @@ TARGETS: list[dict[str, str]] = [
     {
         "company": "Shopify Partners",
         "url": "https://www.shopify.com/partners",
+        "contact_urls": [
+            "https://www.shopify.com/partners/apply",
+            "https://www.shopify.com/contact",
+        ],
         "platform": "Shopify",
         "lane": "partner-expert",
     },
     {
         "company": "Webflow Experts",
         "url": "https://webflow.com/experts",
+        "contact_urls": ["https://webflow.com/contact"],
         "platform": "Webflow",
         "lane": "experts-directory",
     },
     {
         "company": "Wix Marketplace",
         "url": "https://www.wix.com/marketplace",
+        "contact_urls": [
+            "https://www.wix.com/marketplace/agencies",
+            "https://support.wix.com/en/article/contact-wix",
+        ],
         "platform": "Wix",
         "lane": "agency-listing",
     },
     {
         "company": "Cloudflare Partner Program",
         "url": "https://www.cloudflare.com/partners/",
+        "contact_urls": [
+            "https://www.cloudflare.com/partners/become-a-partner/",
+            "https://www.cloudflare.com/contact-sales/",
+        ],
         "platform": "Cloudflare",
         "lane": "consulting-partner",
     },
     {
         "company": "HubSpot Solutions Partner",
         "url": "https://www.hubspot.com/partners",
+        "contact_urls": [
+            "https://www.hubspot.com/partners/apply",
+            "https://www.hubspot.com/contact-sales",
+        ],
         "platform": "HubSpot",
         "lane": "solutions-partner",
     },
     {
         "company": "Zoho Partner Program",
         "url": "https://www.zoho.com/partners.html",
+        "contact_urls": [
+            "https://www.zoho.com/partner/partner-application.html",
+            "https://www.zoho.com/partner/",
+        ],
         "platform": "Zoho",
         "lane": "consulting-partner",
     },
     {
         "company": "Zendesk Partner",
         "url": "https://www.zendesk.com/partners/",
+        "contact_urls": [
+            "https://www.zendesk.com/partners/join-a-program/",
+            "https://www.zendesk.com/contact/",
+        ],
         "platform": "Zendesk",
         "lane": "consulting-partner",
     },
     {
         "company": "BigCommerce Partners",
         "url": "https://www.bigcommerce.com/partners/",
+        "contact_urls": [
+            "https://www.bigcommerce.com/partners/register/",
+            "https://www.bigcommerce.com/contact/",
+        ],
         "platform": "BigCommerce",
         "lane": "agency-partner",
     },
     {
         "company": "Twilio Consulting Partner",
         "url": "https://www.twilio.com/partners",
+        "contact_urls": [
+            "https://www.twilio.com/partners/consulting-partners",
+            "https://www.twilio.com/contact-sales",
+        ],
         "platform": "Twilio",
         "lane": "consulting-partner",
     },
     {
         "company": "Atlassian Solution Partner",
         "url": "https://www.atlassian.com/partners",
+        "contact_urls": [
+            "https://www.atlassian.com/partners/apply",
+            "https://www.atlassian.com/company/contact",
+        ],
         "platform": "Atlassian",
         "lane": "solution-partner",
     },
     {
         "company": "Pipedrive Partners",
         "url": "https://www.pipedrive.com/en/partners",
+        "contact_urls": [
+            "https://www.pipedrive.com/en/partners/apply",
+        ],
         "platform": "Pipedrive",
         "lane": "consulting-partner",
     },
     {
         "company": "Freshworks Partner",
         "url": "https://www.freshworks.com/partners/",
+        "contact_urls": [
+            "https://www.freshworks.com/partners/new/",
+            "https://www.freshworks.com/contact/",
+        ],
         "platform": "Freshworks",
         "lane": "consulting-partner",
     },
@@ -117,6 +161,7 @@ def load_all(limit: int = 60) -> list[dict[str, str]]:
                 "url": url,
                 "platform": str(row.get("platform") or "")[:40],
                 "lane": str(row.get("lane") or "partner-expert")[:40],
+                "contact_urls": [c for c in (row.get("contact_urls") or []) if str(c).startswith("https://")][:4],
             }
         )
 

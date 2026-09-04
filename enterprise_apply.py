@@ -156,6 +156,7 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
 
     results: list[dict[str, Any]] = []
     state = _load_state()
+    ent_ms = int(getattr(config, "ENTERPRISE_FINGERPRINT_MS", 9000) or 9000)
     for target in targets:
         lead = enterprise_targets.target_lead(target)
         if optout.is_url_opted_out(str(lead["url"])):
@@ -181,25 +182,39 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
         lead["value_proposition"] = note
         lead["form_subject"] = subject
         lead["hook_variant"] = "X"
-        if budget is not None and budget <= 0:
-            break
+        lead["_enterprise_fingerprint_ms"] = ent_ms
 
-        started = time.monotonic()
-        try:
-            import form_submitter
+        candidates = [lead["url"]] + [
+            c for c in (target.get("contact_urls") or []) if str(c).startswith("https://")
+        ]
+        status = "failed"
+        applied_url = lead["url"]
+        for cand in candidates:
+            if budget is not None and budget <= 0:
+                break
+            cl = dict(lead)
+            cl["url"] = cand
+            cl["final_url"] = cand
+            cl["contact_form"] = {"found": True, "page_url": cand}
+            started = time.monotonic()
+            try:
+                import form_submitter
 
-            result = form_submitter.submit_lead(lead, headless=True)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Enterprise submit crashed for %s", target["url"])
-            result = {**lead, "status": "failed", "error": str(exc)[:200]}
-        spent = time.monotonic() - started
-        if budget is not None:
-            budget -= spent
+                res = form_submitter.submit_lead(cl, headless=True)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Enterprise submit crashed for %s", cand)
+                res = {**cl, "status": "failed", "error": str(exc)[:200]}
+            spent = time.monotonic() - started
+            if budget is not None:
+                budget -= spent
+            status = str(res.get("status") or "unknown")
+            applied_url = cand
+            if status != "skipped_no_open_form":
+                break  # the page has a form we could reach (or it's an unrecoverable fail)
 
-        status = str(result.get("status") or "unknown")
         entry = {
             "company": target["company"],
-            "url": target["url"],
+            "url": applied_url,
             "lane": target.get("lane", ""),
             "report_id": telegram_handoff.report_id(target["company"]),
             "token": token,
@@ -212,7 +227,7 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
         if status == "submitted_confirmed":
             append_to_leads(
                 {
-                    "url": target["url"],
+                    "url": applied_url,
                     "company_name": target["company"],
                     "status": "submitted_confirmed",
                     "audience": "enterprise",
@@ -221,7 +236,7 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
                 }
             )
         logger.info(
-            "Enterprise application %s -> %s (%s)", target["company"], target["url"], status
+            "Enterprise application %s -> %s (%s)", target["company"], applied_url, status
         )
         time.sleep(random.uniform(6.0, 14.0))  # anti-spam pacing lane
 
@@ -231,11 +246,11 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
         try:
             import owner_notify
 
-            lines = ["Kurumsal baÅŸvuru turu (Faz A):"]
+            lines = ["Kurumsal başvuru turu (Faz A):"]
             for r in results:
                 mark = "OK" if r["last_status"] == "submitted_confirmed" else "--"
                 lines.append(
-                    f"{mark} {r['company']} â€” {r['last_status']} â€” Rapor No {r['report_id']}"
+                    f"{mark} {r['company']} — {r['last_status']} — Rapor No {r['report_id']}"
                 )
             owner_notify.send("\n".join(lines))
         except Exception:
