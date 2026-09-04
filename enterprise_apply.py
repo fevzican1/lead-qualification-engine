@@ -118,8 +118,8 @@ def eligible_targets(limit: int) -> list[dict[str, str]]:
 
 def _pain() -> str:
     return (
-        "KontratlÄ± entegrasyon mÃ¼hendisi kancasÄ±: Ã¶deme akÄ±ÅŸÄ± / formâ†’CRM "
-        "entegrasyonu iÃ§in kanÄ±tlÄ± Ã¶n Ã§alÄ±ÅŸma hazÄ±r."
+        "Kontratlı entegrasyon mühendisi kancası: ödeme akışı / form→CRM "
+        "entegrasyonu için kanıtlı ön çalışma hazır."
     )
 
 
