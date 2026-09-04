@@ -1,0 +1,45 @@
+name: enterprise-feed
+
+on:
+  schedule:
+    - cron: "33 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: enterprise-feed
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build enterprise target feed
+        run: python scripts/build_enterprise_feed.py
+      - name: Commit feed
+        run: |
+          git config user.name "devsolve-enterprise"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add feeds/enterprise_targets.json
+          if git diff --cached --quiet; then
+            echo "No enterprise feed changes"
+          else
+            git commit -m "enterprise feed refresh $(date -u +%FT%TZ)"
+            for i in 1 2 3; do
+              git pull --rebase origin master && break || {
+                git rebase --abort 2>/dev/null || true
+                sleep 5
+              }
+            done
+            git push origin HEAD:master
+          fi

@@ -200,93 +200,115 @@ def main() -> None:
         if dumped:
             print(f"Düşük skorlu kuyruk atıldı: {dumped} (HTTP yok, yer açıldı)")
 
+        smb_early = bool(getattr(config, "SMB_LANE_ENABLED", False))
         print("\n[0/3] Dış feed (Common Crawl / GitHub, Oracle HTTP yok)...")
         feed_stamp = ""
-        try:
-            import feed_ingest
-            import target_pool
+        if smb_early:
+            try:
+                import feed_ingest
+                import target_pool
 
-            pool_stats = target_pool.sync()
-            if pool_stats["approved"] or pool_stats["promoted"]:
-                print(
-                    f"Target pool auto-approve approved={pool_stats['approved']} "
-                    f"promoted={pool_stats['promoted']}"
+                pool_stats = target_pool.sync()
+                if pool_stats["approved"] or pool_stats["promoted"]:
+                    print(
+                        f"Target pool auto-approve approved={pool_stats['approved']} "
+                        f"promoted={pool_stats['promoted']}"
+                    )
+                fuel_now = domain_store.chromium_fuel_count()
+                fuel_target = domain_store.chromium_fuel_target()
+                force_low = (
+                    domain_store.queue_depth()
+                    < int(getattr(config, "QUEUE_REFILL_BELOW", 80) or 80)
+                    or fuel_now < fuel_target
                 )
-            fuel_now = domain_store.chromium_fuel_count()
-            fuel_target = domain_store.chromium_fuel_target()
-            force_low = (
-                domain_store.queue_depth()
-                < int(getattr(config, "QUEUE_REFILL_BELOW", 80) or 80)
-                or fuel_now < fuel_target
-            )
-            # The 5-minute devsolve-feed-sync timer already refreshes the feed;
-            # the runner re-syncs inline only when the tank is thin or every
-            # 3rd cycle so Chromium gets the lion's share of each cycle.
-            synced = None
-            if force_low or cycle % 3 == 1:
-                synced = feed_ingest.sync_github_feed()
-            feed_stamp = str((synced or {}).get("updated_at") or "")
-            if synced:
-                print(f"GitHub feed senkron: {synced.get('count', 0)} host, updated={feed_stamp or '?'}")
-            fed = feed_ingest.ingest(force_low=force_low)
-            if domain_store.chromium_fuel_count() < fuel_target:
-                # Tank still thin after one pass — pull the freshest feed and burst again.
-                synced2 = feed_ingest.sync_github_feed()
-                if synced2:
-                    feed_stamp = str(synced2.get("updated_at") or feed_stamp)
-                    fed += feed_ingest.ingest(force_low=True)
-            print(f"Feed +{fed} | kuyruk={domain_store.queue_depth()}/{cap} | fuel={domain_store.chromium_fuel_count()}")
-        except Exception:
-            logger.exception("Feed ingest failed — catalog/heal still run")
+                # The 5-minute devsolve-feed-sync timer already refreshes the feed;
+                # the runner re-syncs inline only when the tank is thin or every
+                # 3rd cycle so Chromium gets the lion's share of each cycle.
+                synced = None
+                if force_low or cycle % 3 == 1:
+                    synced = feed_ingest.sync_github_feed()
+                feed_stamp = str((synced or {}).get("updated_at") or "")
+                if synced:
+                    print(f"GitHub feed senkron: {synced.get('count', 0)} host, updated={feed_stamp or '?'}")
+                fed = feed_ingest.ingest(force_low=force_low)
+                if domain_store.chromium_fuel_count() < fuel_target:
+                    # Tank still thin after one pass — pull the freshest feed and burst again.
+                    synced2 = feed_ingest.sync_github_feed()
+                    if synced2:
+                        feed_stamp = str(synced2.get("updated_at") or feed_stamp)
+                        fed += feed_ingest.ingest(force_low=True)
+                print(f"Feed +{fed} | kuyruk={domain_store.queue_depth()}/{cap} | fuel={domain_store.chromium_fuel_count()}")
+            except Exception:
+                logger.exception("Feed ingest failed — catalog/heal still run")
+        else:
+            print("SMB feed atlandı (şerit kapalı) — kurumsal feed [FAZ-C] bloğunda çekilir.")
 
         _warn_if_starving(feed_updated_at=feed_stamp)
 
-        print("\n[1/3] Katalog kuyruğa basılıyor (HTTP yok, kota yanmaz)...")
-        finder_code = _run("lead_finder.py")
-        if finder_code != 0:
-            logger.warning("lead_finder exited %s", finder_code)
-        print(f"Kuyruk={domain_store.queue_depth()}/{cap} (hedef {target})")
+        smb = bool(getattr(config, "SMB_LANE_ENABLED", False))
+        pipeline_code = 0
+        if smb:
+            print("\n[1/3] Katalog kuyruğa basılıyor (HTTP yok, kota yanmaz)...")
+            finder_code = _run("lead_finder.py")
+            if finder_code != 0:
+                logger.warning("lead_finder exited %s", finder_code)
+            print(f"Kuyruk={domain_store.queue_depth()}/{cap} (hedef {target})")
 
-        print("\n[2/3] Keşif (hazır nitelikli kuyruk inceyse, 1x HEAD)...")
-        http_left = domain_store.http_budget_remaining(role="discovery")
-        ready = domain_store.ready_pool_size()
-        fuel80 = domain_store.chromium_fuel_count(min_easy=int(getattr(config, "FEED_MIN_SCORE", 80) or 80))
-        fuel = domain_store.chromium_fuel_count()
-        print(
-            f"Hazır nitelikli={ready} | fuel80={fuel80} | chromium_fuel={fuel} | "
-            f"kuyruk={domain_store.queue_depth()}/{cap}"
-        )
-        fuel_target = _fuel_target()
-        needs_fuel = fuel < fuel_target or fuel80 < fuel_target
-        # Even with a full tank, spend a little of the dedicated discovery
-        # budget (500/day, 22/h, pipeline reserve) while the hour is open so
-        # the pool keeps refreshing with verified hosts instead of going stale.
-        topup = 0
-        if not needs_fuel and http_left >= 4:
-            _t, hour_now = knowledge.submit_counts()
-            if hour_now < _hourly_floor():
-                topup = 2
-        if http_left >= 2 and (needs_fuel or topup):
-            try:
-                added = lead_discovery.heal_queue(topup=topup)
-                print(
-                    f"Self-heal +{added} | hazır={domain_store.ready_pool_size()} "
-                    f"| fuel={domain_store.chromium_fuel_count()}/{fuel_target} "
-                    f"| http={domain_store.http_budget_label()}"
-                )
-            except Exception:
-                logger.exception("Heal failed — pipeline still runs")
-        else:
-            why = (
-                "http saatlik/günlük tavan"
-                if http_left < 2
-                else f"fuel yeterli (>={fuel_target}), saat tabanda değil — keşif ertelendi"
-            )
+            print("\n[2/3] Keşif (hazır nitelikli kuyruk inceyse, 1x HEAD)...")
+            http_left = domain_store.http_budget_remaining(role="discovery")
+            ready = domain_store.ready_pool_size()
+            fuel80 = domain_store.chromium_fuel_count(min_easy=int(getattr(config, "FEED_MIN_SCORE", 80) or 80))
+            fuel = domain_store.chromium_fuel_count()
             print(
-                f"Discovery atlandı ({why}; hazır={ready}, fuel={fuel}/{fuel_target}, "
-                f"kuyruk={domain_store.queue_depth()}/{cap}, "
-                f"http={domain_store.http_budget_label()})"
+                f"Hazır nitelikli={ready} | fuel80={fuel80} | chromium_fuel={fuel} | "
+                f"kuyruk={domain_store.queue_depth()}/{cap}"
             )
+            fuel_target = _fuel_target()
+            needs_fuel = fuel < fuel_target or fuel80 < fuel_target
+            topup = 0
+            if not needs_fuel and http_left >= 4:
+                _t, hour_now = knowledge.submit_counts()
+                if hour_now < _hourly_floor():
+                    topup = 2
+            if http_left >= 2 and (needs_fuel or topup):
+                try:
+                    added = lead_discovery.heal_queue(topup=topup)
+                    print(
+                        f"Self-heal +{added} | hazır={domain_store.ready_pool_size()} "
+                        f"| fuel={domain_store.chromium_fuel_count()}/{fuel_target} "
+                        f"| http={domain_store.http_budget_label()}"
+                    )
+                except Exception:
+                    logger.exception("Heal failed — pipeline still runs")
+            else:
+                why = (
+                    "http saatlik/günlük tavan"
+                    if http_left < 2
+                    else f"fuel yeterli (>={fuel_target}), saat tabanda değil — keşif ertelendi"
+                )
+                print(
+                    f"Discovery atlandı ({why}; hazır={ready}, fuel={fuel}/{fuel_target}, "
+                    f"kuyruk={domain_store.queue_depth()}/{cap}, "
+                    f"http={domain_store.http_budget_label()})"
+                )
+        else:
+            # Faz C: SMB müşteri-bulma şeridi kapalı. Keşif GitHub'da (Actions
+            # enterprise harvest) yapılır; Oracle yalnızca feed dosyasını çeker.
+            print(
+                "\n[FAZ-C] SMB şeridi kapalı — kurumsal contractor kanalı birincil "
+                f"(kuyruk={domain_store.queue_depth()}/{cap}, http={domain_store.http_budget_label()})"
+            )
+            try:
+                ent_sync = feed_ingest.sync_enterprise_feed()
+                if ent_sync:
+                    print(
+                        f"Kurumsal feed: {ent_sync['count']} hedef, "
+                        f"updated={ent_sync['updated_at'] or '?'}"
+                    )
+                else:
+                    print("Kurumsal feed: değişiklik yok / yapılandırılmadı")
+            except Exception:
+                logger.exception("Enterprise feed sync failed — curated targets still used")
 
         if not knowledge.oracle_safe():
             logger.warning("Oracle RAM tight — skip Chromium this hour")
@@ -294,18 +316,19 @@ def main() -> None:
             time.sleep(3600)
             continue
 
-        print("\n[3/3] Formlar dolduruluyor...")
-        # Each page operation has its own bounded Playwright timeout. Do not
-        # kill the whole visit batch using a fixed wall-clock limit: the
-        # hourly-floor visit budget can legitimately be 72–96 hosts.
-        pipeline_code = _run(
-            "pipeline.py",
-            ["--targets", str(config.TARGETS_PATH), "--submit"],
-            timeout=None,
-        )
-        if pipeline_code != 0:
-            logger.warning("pipeline exited %s — will retry next cycle", pipeline_code)
-            owner_notify.send(f"Pipeline turu hata ile bitti (kod {pipeline_code}). Sonraki tur denenecek.")
+        if smb:
+            print("\n[3/3] Formlar dolduruluyor...")
+            # Each page operation has its own bounded Playwright timeout. Do not
+            # kill the whole visit batch using a fixed wall-clock limit: the
+            # hourly-floor visit budget can legitimately be 72–96 hosts.
+            pipeline_code = _run(
+                "pipeline.py",
+                ["--targets", str(config.TARGETS_PATH), "--submit"],
+                timeout=None,
+            )
+            if pipeline_code != 0:
+                logger.warning("pipeline exited %s — will retry next cycle", pipeline_code)
+                owner_notify.send(f"Pipeline turu hata ile bitti (kod {pipeline_code}). Sonraki tur denenecek.")
 
         # Faz A — kurumsal contractor başvuru kanalı. Aynı Oracle kotasını
         # paylaşır: sub-cap'li (gün 4 / saat 2), kota daralırsa pipeline önce.

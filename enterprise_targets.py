@@ -8,7 +8,10 @@ fingerprint first, no CAPTCHA solving, single attempt per target per window.
 
 from __future__ import annotations
 
+import json
 from typing import Any
+
+import config
 
 # (company, application URL, platform hint, notes)
 TARGETS: list[dict[str, str]] = [
@@ -85,6 +88,54 @@ TARGETS: list[dict[str, str]] = [
         "lane": "consulting-partner",
     },
 ]
+
+
+def load_all(limit: int = 60) -> list[dict[str, str]]:
+    """Curated targets + GitHub-harvested feed targets, deduped by URL.
+
+    The feed (feeds/enterprise_targets.json) is produced by the
+    enterprise-discovery GitHub Actions workflow and only contains pages that
+    responded with a form-bearing HTML body during the Actions run — so Oracle
+    spends zero discovery HTTP on targets that cannot accept an application.
+    """
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def _push(row: Any) -> None:
+        if not isinstance(row, dict):
+            return
+        url = str(row.get("url") or "").strip()
+        company = str(row.get("company") or "").strip()
+        if not url or not company or url in seen:
+            return
+        if not url.lower().startswith("https://"):
+            return
+        seen.add(url)
+        out.append(
+            {
+                "company": company[:64],
+                "url": url,
+                "platform": str(row.get("platform") or "")[:40],
+                "lane": str(row.get("lane") or "partner-expert")[:40],
+            }
+        )
+
+    for row in TARGETS:
+        _push(row)
+        if len(out) >= limit:
+            return out
+
+    feed_path = config.ROOT / "feeds" / "enterprise_targets.json"
+    if feed_path.exists():
+        try:
+            payload = json.loads(feed_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            payload = {}
+        for row in (payload.get("targets") or []) if isinstance(payload, dict) else []:
+            _push(row)
+            if len(out) >= limit:
+                break
+    return out
 
 
 def target_lead(row: dict[str, str]) -> dict[str, Any]:

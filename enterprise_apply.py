@@ -98,7 +98,7 @@ def eligible_targets(limit: int) -> list[dict[str, str]]:
     state = _load_state()
     now = time.time()
     out: list[dict[str, str]] = []
-    for row in enterprise_targets.TARGETS:
+    for row in enterprise_targets.load_all():
         prior = state.get(row["url"])
         if isinstance(prior, dict):
             if str(prior.get("last_status") or "") == "submitted_confirmed":

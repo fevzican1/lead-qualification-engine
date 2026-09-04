@@ -26,6 +26,40 @@ FEED_PATH = config.ROOT / "feeds" / "ready_queue.json"
 FEED_STATE_PATH = config.ROOT / "feeds" / "feed_state.json"
 
 
+def sync_enterprise_feed() -> dict[str, Any] | None:
+    """Pull feeds/enterprise_targets.json produced by GitHub Actions.
+
+    Harvest + validation run on GitHub (free, unlimited on public repos);
+    Oracle only downloads the result — no probe budget is spent here.
+    """
+    url = str(getattr(config, "FEED_ENTERPRISE_RAW_URL", "") or "").strip()
+    if not url:
+        return None
+    sep = "&" if "?" in url else "?"
+    try:
+        response = httpx.get(
+            f"{url}{sep}ts={int(time.time())}",
+            headers={"User-Agent": "devsolve-feed-ingest"},
+            timeout=45.0,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Enterprise feed pull failed: %s", exc)
+        return None
+    targets = payload.get("targets") if isinstance(payload, dict) else None
+    if not isinstance(targets, list) or not targets:
+        return None
+    dest = config.ROOT / "feeds" / "enterprise_targets.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    tmp.replace(dest)
+    logger.info("Enterprise feed synced: %s target(s)", len(targets))
+    return {"count": len(targets), "updated_at": str(payload.get("updated_at") or "")}
+
+
 def _min_score() -> int:
     return int(getattr(config, "FEED_MIN_SCORE", 80) or 80)
 

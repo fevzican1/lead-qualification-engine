@@ -99,9 +99,17 @@ PRICE_USD: int = _get_int("PRICE_USD", 200)
 ENTERPRISE_MODE: bool = _get("ENTERPRISE_MODE", "1").strip() not in {"0", "false", "no"}
 ENTERPRISE_DAILY_CAP: int = _get_int("ENTERPRISE_DAILY_CAP", 4)
 ENTERPRISE_HOURLY_CAP: int = _get_int("ENTERPRISE_HOURLY_CAP", 2)
-ENTERPRISE_RETAINER_USD: int = _get_int("ENTERPRISE_RETAINER_USD", 500)
-ENTERPRISE_PILOT_USD: int = _get_int("ENTERPRISE_PILOT_USD", 300)
-PRICE_USD: int = _get_int("PRICE_USD", 200)
+# Revenue model: 40 employers x $2,500/mo retainer = $100k/mo target.
+# PRICE_USD is the enterprise contract fee asked via the Payoneer link.
+PRICE_USD: int = _get_int("PRICE_USD", 2500)
+ENTERPRISE_RETAINER_USD: int = _get_int("ENTERPRISE_RETAINER_USD", 2500)
+ENTERPRISE_PILOT_USD: int = _get_int("ENTERPRISE_PILOT_USD", 500)
+# Faz B: GitHub Actions-produced enterprise application-channel feed
+# (harvested/validated on GitHub, ingested on Oracle — zero Oracle HTTP).
+FEED_ENTERPRISE_RAW_URL: str = _get("FEED_ENTERPRISE_RAW_URL", "")
+# Faz C: legacy SMB lane (form filling to random small sites) is OFF by
+# default; the enterprise contractor lane replaces it as the primary channel.
+SMB_LANE_ENABLED: bool = _get("SMB_LANE_ENABLED", "0").strip() not in {"0", "false", "no"}
 
 # --- Product / outreach copy --------------------------------------------
 TELEGRAM_BOT_USERNAME: str = _get("TELEGRAM_BOT_USERNAME").lstrip("@")
