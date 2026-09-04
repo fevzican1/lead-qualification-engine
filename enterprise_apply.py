@@ -1,4 +1,4 @@
-"""Autonomous enterprise contractor-application engine (Faz A).
+﻿"""Autonomous enterprise contractor-application engine (Faz A).
 
 Applies to curated global partner/contractor channels with the same
 evidence-first form flow used for SMB leads (variant X). Hard rules:
@@ -79,7 +79,7 @@ def enterprise_counts(state: dict[str, Any] | None = None) -> tuple[int, int]:
 
 def append_to_leads(row: dict[str, Any]) -> None:
     """Mirror the enterprise submit into leads.json so the global quota ledger
-    (knowledge.submit_counts) counts it — one shared ceiling, no double spend."""
+    (knowledge.submit_counts) counts it â€” one shared ceiling, no double spend."""
     path = config.LEADS_PATH
     try:
         data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
@@ -118,8 +118,8 @@ def eligible_targets(limit: int) -> list[dict[str, str]]:
 
 def _pain() -> str:
     return (
-        "Kontratlı entegrasyon mühendisi kancası: ödeme akışı / form→CRM "
-        "entegrasyonu için kanıtlı ön çalışma hazır."
+        "KontratlÄ± entegrasyon mÃ¼hendisi kancasÄ±: Ã¶deme akÄ±ÅŸÄ± / formâ†’CRM "
+        "entegrasyonu iÃ§in kanÄ±tlÄ± Ã¶n Ã§alÄ±ÅŸma hazÄ±r."
     )
 
 
@@ -140,7 +140,7 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
     if ent_hour >= hourly_cap:
         return {"ran": False, "why": f"hourly sub-cap {ent_hour}/{hourly_cap}"}
 
-    # Global Oracle quota check — enterprise shares the same ceiling.
+    # Global Oracle quota check â€” enterprise shares the same ceiling.
     today_n, hour_n = knowledge.submit_counts()
     daily_cap_all = knowledge.daily_cap()
     hourly_cap_all = knowledge.hourly_cap()
@@ -210,18 +210,20 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
         _save_state(state)
         results.append(entry)
         if status == "submitted_confirmed":
-            append_to_leads({
-                "url": target["url"],
-                "company_name": target["company"],
-                "status": "submitted_confirmed",
-                "audience": "enterprise",
-                "form_subject": subject,
-                "updated_at": entry["last_at"],
-            })
+            append_to_leads(
+                {
+                    "url": target["url"],
+                    "company_name": target["company"],
+                    "status": "submitted_confirmed",
+                    "audience": "enterprise",
+                    "form_subject": subject,
+                    "updated_at": entry["last_at"],
+                }
+            )
         logger.info(
             "Enterprise application %s -> %s (%s)", target["company"], target["url"], status
         )
-        time.sleep(random.uniform(6.0, 14.0))  # same anti-spam pacing lane
+        time.sleep(random.uniform(6.0, 14.0))  # anti-spam pacing lane
 
     applied = sum(1 for r in results if r["last_status"] == "submitted_confirmed")
     skipped = sum(1 for r in results if r["last_status"] != "submitted_confirmed")
@@ -229,11 +231,11 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
         try:
             import owner_notify
 
-            lines = ["Kurumsal başvuru turu (Faz A):"]
+            lines = ["Kurumsal baÅŸvuru turu (Faz A):"]
             for r in results:
-                mark = "✅" if r["last_status"] == "submitted_confirmed" else "⏭"
+                mark = "OK" if r["last_status"] == "submitted_confirmed" else "--"
                 lines.append(
-                    f"{mark} {r['company']} — {r['last_status']} — Rapor No {r['report_id']}"
+                    f"{mark} {r['company']} â€” {r['last_status']} â€” Rapor No {r['report_id']}"
                 )
             owner_notify.send("\n".join(lines))
         except Exception:
