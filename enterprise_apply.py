@@ -101,6 +101,10 @@ def eligible_targets(limit: int) -> list[dict[str, str]]:
     for row in enterprise_targets.load_all():
         prior = state.get(row["url"])
         if isinstance(prior, dict):
+            # A confirmed application is a real acceptance attempt that reached
+            # their form. Non-confirmed statuses (skipped_no_open_form, captcha,
+            # failed) mean we never landed — retry after a short cooldown so a
+            # sub-page with an open form still gets a chance.
             if str(prior.get("last_status") or "") == "submitted_confirmed":
                 continue  # applied already; retainer conversation happens in Telegram
             last_ts = 0.0
@@ -108,12 +112,19 @@ def eligible_targets(limit: int) -> list[dict[str, str]]:
                 last_ts = datetime.fromisoformat(str(prior.get("last_at") or "")).timestamp()
             except ValueError:
                 pass
-            if last_ts and (now - last_ts) < COOLDOWN_DAYS * 86400:
+            if last_ts and (now - last_ts) < retry_days_for(prior) * 86400:
                 continue
         out.append(row)
         if len(out) >= limit:
             break
     return out
+
+
+def retry_days_for(prior: dict[str, Any]) -> float:
+    """Confirmed applications never retry; failed reach attempts retry fast."""
+    if str(prior.get("last_status") or "") == "submitted_confirmed":
+        return 36500.0
+    return float(getattr(config, "ENTERPRISE_RETRY_SKIP_DAYS", 3) or 3)
 
 
 def _pain() -> str:

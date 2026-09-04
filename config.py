@@ -102,6 +102,9 @@ ENTERPRISE_HOURLY_CAP: int = _get_int("ENTERPRISE_HOURLY_CAP", 2)
 # Big-company pages load heavy JS: give the open-form fingerprint a wider
 # window so a dynamic application form is not misread as "no form".
 ENTERPRISE_FINGERPRINT_MS: int = _get_int("ENTERPRISE_FINGERPRINT_MS", 9000)
+# Non-confirmed attempts (skipped_no_open_form/captcha/failed) retry after
+# this many days; only submitted_confirmed is treated as permanently applied.
+ENTERPRISE_RETRY_SKIP_DAYS: int = _get_int("ENTERPRISE_RETRY_SKIP_DAYS", 3)
 # Acceptance-first framing: do NOT print a dollar figure in outreach; the
 # contract amount is only shared in-chat when the company asks.
 PRICE_HIDDEN: bool = _get("PRICE_HIDDEN", "0").strip() in {"1", "true", "yes", "on"}
