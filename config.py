@@ -16,7 +16,11 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # Actions/feed jobs run without dotenv
+    def load_dotenv(*_args, **_kwargs):  # type: ignore[misc]
+        return False
 
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
