@@ -179,7 +179,7 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
                 lead, company=target["company"], pain=_pain(), quote="", turkish=turkish
             )
             subject, note = telegram_handoff.form_copy(
-                host=target["company"].lower().replace(" ", "") + ".example",
+                host=target["company"],
                 hints=[],
                 link=config.telegram_deeplink(token),
                 turkish=turkish,

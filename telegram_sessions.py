@@ -200,13 +200,26 @@ def mark_followup(chat_id: int) -> None:
 
 def followup_text(row: dict[str, Any]) -> str:
     who = str(row.get("company") or "").strip() or "ekibiniz"
-    price = f"${config.PRICE_USD}"
+    enterprise = str(row.get("audience") or "") == "enterprise" or str(row.get("variant") or "") == "X"
+    hidden = bool(getattr(config, "PRICE_HIDDEN", False)) or enterprise
     if row.get("turkish", True):
+        if enterprise:
+            return (
+                f"Merhaba {who} — dün ilettiğim entegrasyon bulgusu geçerli. "
+                "Pilot slot için bir satır yazmanız yeterli; değilse STOP."
+            )
+        price = "" if hidden else f" ${config.PRICE_USD}"
         return (
-            f"Merhaba {who} — dün bıraktığım {price} köprü taslağı duruyor. "
+            f"Merhaba {who} — dün bıraktığım{price} köprü taslağı duruyor. "
             "Uygunsa bir satır yazmanız yeterli; değilse STOP."
         )
+    if enterprise:
+        return (
+            f"Hi {who} — the integration finding from yesterday still stands. "
+            "One line if you want the pilot slot; STOP if not."
+        )
+    price = "" if hidden else f" ${config.PRICE_USD}"
     return (
-        f"Hi {who} — the {price} bridge sketch from yesterday is still here. "
+        f"Hi {who} — the{price} bridge sketch from yesterday is still here. "
         "One line if useful; STOP if not."
     )

@@ -460,7 +460,9 @@ def form_copy(
             f"{standards_line(True)}\n\n"
             f"Rapor No: {report_id(domain)}\n"
             f"{trust_note(True)} Uygunsa 2 saatlik uygulama slotu ayarlanabilir.\n"
-            f"{'Kanıt paketi (tekrar)' if variant == 'X' else 'Akış şeması (tekrar)'}: {link}"
+            f"{'Kanıt paketi (tekrar)' if variant == 'X' else 'Akış şeması (tekrar)'}: {link}\n"
+            f"Çıkmak isterseniz STOP yazın veya {getattr(config, 'SENDER_EMAIL', '')} "
+            "adresine konu: Unsubscribe ile e-posta gönderin."
         )
     else:
         opening = f"Hello {domain} engineering,"
@@ -519,7 +521,8 @@ def form_copy(
             f"{standards_line(False)}\n\n"
             f"Report No: {report_id(domain)}\n"
             f"{trust_note(False)} If it fits, a 2-hour implementation slot can be arranged. ({err})\n"
-            f"{'Evidence pack (repeat)' if variant == 'X' else 'Flow schematic (repeat)'}: {link}"
+            f"{'Evidence pack (repeat)' if variant == 'X' else 'Flow schematic (repeat)'}: {link}\n"
+            f"Opt-out: reply STOP or email {getattr(config, 'SENDER_EMAIL', '')} with subject Unsubscribe."
         )
     subject = form_subject(domain, turkish=turkish, technical=subject, audience=audience)
     # Collapse intra-paragraph spaces, but preserve line structure of any

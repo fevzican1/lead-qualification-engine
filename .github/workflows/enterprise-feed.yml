@@ -15,7 +15,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,8 +24,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Build enterprise target feed
-        run: python scripts/build_enterprise_feed.py
+      - name: Install form-scan dependencies
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+      - name: Build + form-scan enterprise target feed
+        run: python scripts/build_enterprise_feed.py --scan
       - name: Commit feed
         run: |
           git config user.name "devsolve-enterprise"
@@ -34,7 +38,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "No enterprise feed changes"
           else
-            git commit -m "enterprise feed refresh $(date -u +%FT%TZ)"
+            git commit -m "enterprise feed refresh (form-scanned) $(date -u +%FT%TZ)"
             for i in 1 2 3; do
               git pull --rebase origin master && break || {
                 git rebase --abort 2>/dev/null || true

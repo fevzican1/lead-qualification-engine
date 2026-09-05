@@ -91,7 +91,6 @@ AUDIT_REPORT_PREFIX: str = _get("AUDIT_REPORT_PREFIX", "DS")
 AUDIT_REPORT_YEAR: int = _get_int("AUDIT_REPORT_YEAR", 2026)
 OLLAMA_HOST: str = _get("OLLAMA_HOST", "http://127.0.0.1:11434")
 OLLAMA_MODEL: str = _get("OLLAMA_MODEL", "deepseek-r1:14b")
-PRICE_USD: int = _get_int("PRICE_USD", 200)
 
 # --- Enterprise contractor-application lane (Faz A) ------------------------
 # Global company partner/contractor channels, applied autonomously through the
@@ -200,6 +199,8 @@ OPTOUTS_PATH: Path = ROOT / "optouts.json"
 
 
 def price_label() -> str:
+    if PRICE_HIDDEN:
+        return ""
     return f"${PRICE_USD} USD"
 
 
