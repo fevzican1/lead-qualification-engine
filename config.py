@@ -118,7 +118,10 @@ ENTERPRISE_RETAINER_USD: int = _get_int("ENTERPRISE_RETAINER_USD", 2500)
 ENTERPRISE_PILOT_USD: int = _get_int("ENTERPRISE_PILOT_USD", 500)
 # Faz B: GitHub Actions-produced enterprise application-channel feed
 # (harvested/validated on GitHub, ingested on Oracle — zero Oracle HTTP).
-FEED_ENTERPRISE_RAW_URL: str = _get("FEED_ENTERPRISE_RAW_URL", "")
+FEED_ENTERPRISE_RAW_URL: str = _get(
+    "FEED_ENTERPRISE_RAW_URL",
+    f"https://raw.githubusercontent.com/{_get('FEED_GITHUB_REPO', 'fevzican1/lead-qualification-engine')}/master/feeds/enterprise_targets.json",
+)
 # Faz C: legacy SMB lane (form filling to random small sites) is OFF by
 # default; the enterprise contractor lane replaces it as the primary channel.
 SMB_LANE_ENABLED: bool = _get("SMB_LANE_ENABLED", "0").strip() not in {"0", "false", "no"}
