@@ -774,6 +774,14 @@ def _offline_reply(user_text: str, row: dict[str, Any] | None) -> tuple[str, boo
     turkish = bool(re.search(r"[çğıöşüÇĞİÖŞÜ]", user_text or "")) or bool(
         re.search(r"\b(merhaba|selam|ödeme|fiyat|entegrasyon)\b", user_text or "", re.I)
     )
+    # Nirvana lane E: deterministic objection handling before any model fallback.
+    try:
+        from nirvana.objection_handler_agent import handle as _objection
+        auto = _objection(user_text, turkish=turkish)
+        if auto:
+            return auto, False
+    except Exception:
+        logger.exception("nirvana objection handler failed")
     buy = _wants_to_buy(user_text)
     if turkish and buy:
         return (

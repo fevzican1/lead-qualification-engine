@@ -1,0 +1,15 @@
+[Unit]
+Description=Nirvana Lane G — weekly client delivery sweep (Oracle VM, light)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=devsolve
+WorkingDirectory=/opt/devsolve
+EnvironmentFile=/opt/devsolve/.env
+ExecStart=/opt/devsolve/.venv/bin/python -m nirvana.runner delivery_runner
+# Never let a sweep pile up on an Always-Free shape
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=900

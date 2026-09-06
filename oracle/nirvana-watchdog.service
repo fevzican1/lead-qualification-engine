@@ -1,0 +1,14 @@
+[Unit]
+Description=Nirvana Lane I — watchdog/quota guard (Oracle VM, every 5 min)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=devsolve
+WorkingDirectory=/opt/devsolve
+EnvironmentFile=/opt/devsolve/.env
+ExecStart=/opt/devsolve/.venv/bin/python -m nirvana.runner watchdog_quota_agent
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=120

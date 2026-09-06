@@ -1,3 +1,25 @@
+# Nirvana — 9'lu otonom modül mimarisi (maliyetsiz / kotasız)
+
+| Lane | Modül | Host | Zamanlama |
+|------|-------|------|-----------|
+| A | `discovery_agent` | GitHub Actions | `11 */6 * * *` |
+| B | `enrichment_agent` | GitHub Actions | `23 */6 * * *` |
+| C | `audit_verifier_agent` | GitHub Actions | `41 */6 * * *` |
+| D | `strategy_pivot_agent` | GitHub Actions | günlük `17 3 * * *` |
+| E | `objection_handler_agent` | GitHub Actions / Telegram | olay bazlı |
+| F | `onboarding_agent` | Oracle VM | ödeme doğrulaması sonrası |
+| G | `delivery_runner` | Oracle VM | haftalık Pazartesi 06:00 UTC |
+| H | `retention_agent` | GitHub Actions | aylık `17 9 1 * *` |
+| I | `watchdog_quota_agent` | Oracle VM | `*/5` dakika |
+
+- Kayıt defteri: `nirvana/nirvana.yaml` — tek doğruluk kaynağı (host, schedule, entrypoint).
+- CLI: `python -m nirvana.runner <modul>` (tüm lane'ler), `--list` ile envanter.
+- Ödeme: 2.500 EUR Payoneer retainer; link `PAYONEER_PAYMENT_URL` (Oracle `.env`), tutar/para birimi `PAYMENT_AMOUNT`/`PAYMENT_CURRENCY`. Link yer tutucuyken ödeme akışları çalışmaz (`nirvana/payment.py`).
+- Oracle canlıya alma: `sudo bash oracle/nirvana_oracle_install.sh` (unit+timer kurar, watchdog dry-run ile doğrular).
+- Heavy işler GitHub'da; Oracle yalnız doğrulanmış kuyruğu (`nirvana/state/verified_queue.json`) ve hafif timer'ları çalıştırır — Always-Free kotası korunur.
+
+---
+
 # B2B Lead Qualification & Telegram Sales Engine
 
 Modular Python toolkit that:

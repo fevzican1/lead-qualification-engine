@@ -1,0 +1,74 @@
+# Nirvana module registry — single source of truth for the 9-lane architecture.
+# host: github = GitHub Actions (heavy, quota-free runners)
+# host: oracle = Oracle VM (light listeners, cron/timer driven, quota-guarded)
+nirvana:
+  version: 1
+  payment:
+    amount: 2500
+    currency: EUR
+    link_env: PAYONEER_PAYMENT_URL
+    link_placeholder: "[BURAYA_YENI_PAYONEER_LINKINI_EKLEYIN]"
+  modules:
+    discovery_agent:
+      host: github
+      letter: A
+      schedule: "11 */6 * * *"
+      entrypoint: "python -m nirvana.runner discovery_agent"
+      description: "Find enterprise contractor/partner open-application targets; drop sales/support/newsletter pages."
+      heavy: true
+    enrichment_agent:
+      host: github
+      letter: B
+      schedule: "23 */6 * * *"
+      entrypoint: "python -m nirvana.runner enrichment_agent"
+      description: "Free public technical recon (DNS, security.txt, tech-stack) + company-specific hook text."
+      heavy: true
+    audit_verifier_agent:
+      host: github
+      letter: C
+      schedule: "41 */6 * * *"
+      entrypoint: "python -m nirvana.runner audit_verifier_agent"
+      description: "Fail-closed form ownership audit; unverified targets never reach the Oracle queue."
+      heavy: true
+    strategy_pivot_agent:
+      host: github
+      letter: D
+      schedule: "17 3 * * *"
+      entrypoint: "python -m nirvana.runner strategy_pivot_agent"
+      description: "Autonomous A/B on hook text, free-pilot offer and timing from real outcomes."
+      heavy: true
+    objection_handler_agent:
+      host: github
+      letter: E
+      schedule: "manual"
+      entrypoint: "python -m nirvana.runner objection_handler_agent"
+      description: "Price/security/time objections -> deterministic soft-landing pilot replies (Telegram + offline fallback)."
+      heavy: false
+    onboarding_agent:
+      host: oracle
+      letter: F
+      schedule: "event"
+      entrypoint: "python -m nirvana.runner onboarding_agent"
+      description: "Payment-verified welcome protocol, terms and access guide."
+      heavy: false
+    delivery_runner:
+      host: oracle
+      letter: G
+      schedule: "weekly"
+      entrypoint: "python -m nirvana.runner delivery_runner"
+      description: "Weekly client-infrastructure health sweeps + Telegram/email-channel reports."
+      heavy: false
+    retention_agent:
+      host: github
+      letter: H
+      schedule: "17 9 1 * *"
+      entrypoint: "python -m nirvana.runner retention_agent"
+      description: "Monthly value report + 2.500 EUR renewal Payoneer link."
+      heavy: false
+    watchdog_quota_agent:
+      host: oracle
+      letter: I
+      schedule: "*/5 * * * *"
+      entrypoint: "python -m nirvana.runner watchdog_quota_agent"
+      description: "Oracle CPU/RAM/HTTP-quota guard; autonomous cooling mode + Telegram status."
+      heavy: false

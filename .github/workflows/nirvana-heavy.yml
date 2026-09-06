@@ -1,0 +1,64 @@
+name: nirvana-heavy
+
+# Nirvana heavy lanes (A→B→C): discovery, enrichment, fail-closed audit.
+# Heavy-load work stays on GitHub's free runners; Oracle VM only consumes the
+# verified_queue.json feed — protecting the Always-Free HTTP/CPU quota.
+
+on:
+  schedule:
+    - cron: "11 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nirvana-heavy
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps (httpx + yaml only — zero paid services)
+        run: pip install httpx PyYAML
+      - name: A — discovery_agent
+        run: python -m nirvana.runner discovery_agent
+      - name: B — enrichment_agent
+        run: python -m nirvana.runner enrichment_agent
+      - name: C — audit_verifier_agent (fail-closed)
+        run: python -m nirvana.runner audit_verifier_agent
+      - name: Verification summary
+        run: |
+          python - <<'PY'
+          import json
+          from nirvana.audit_verifier_agent import oracle_queue_rows
+          rows = oracle_queue_rows()
+          print(f"NIRVANA-HEALTH: {len(rows)} verified targets eligible for Oracle queue")
+          assert all((r.get('audit') or {}).get('verdict') == 'pass' for r in rows)
+          PY
+      - name: Commit verified queue
+        run: |
+          git config user.name "nirvana-heavy"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nirvana/state/discovery.json nirvana/state/enrichment.json nirvana/state/verified_queue.json
+          if git diff --cached --quiet; then
+            echo "No nirvana queue changes"
+          else
+            git commit -m "nirvana heavy lanes (discovery+enrichment+audit) $(date -u +%FT%TZ)"
+            for i in 1 2 3; do
+              git pull --rebase origin master && break || {
+                git rebase --abort 2>/dev/null || true
+                sleep 5
+              }
+            done
+            git push origin HEAD:master
+          fi

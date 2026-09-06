@@ -1,0 +1,82 @@
+name: nirvana-strategy
+
+# Nirvana light-but-analysis lanes: D (strategy A/B) daily, H (retention)
+# monthly. Both are free cron jobs on GitHub; notifications reuse the notify
+# bot tokens from repo secrets (optional — jobs succeed without them).
+
+on:
+  schedule:
+    - cron: "17 3 * * *"    # daily strategy pivot
+    - cron: "17 9 1 * *"    # monthly retention report
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: "strategy | retention"
+        default: "strategy"
+        type: choice
+        options: [strategy, retention]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nirvana-strategy
+  cancel-in-progress: false
+
+jobs:
+  strategy:
+    if: ${{ github.event_name == 'schedule' || inputs.lane == 'strategy' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx PyYAML
+      - name: D — strategy_pivot_agent
+        run: python -m nirvana.runner strategy_pivot_agent
+      - name: Commit strategy state
+        run: |
+          git config user.name "nirvana-strategy"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nirvana/state/strategy_state.json
+          if git diff --cached --quiet; then
+            echo "No strategy changes"
+          else
+            git commit -m "nirvana strategy pivot $(date -u +%FT%TZ)"
+            git push origin HEAD:master
+          fi
+
+  retention:
+    if: ${{ (github.event_name == 'schedule' && github.event.schedule == '17 9 1 * *') || inputs.lane == 'retention' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TELEGRAM_NOTIFY_BOT_TOKEN: ${{ secrets.TELEGRAM_NOTIFY_BOT_TOKEN }}
+      TELEGRAM_NOTIFY_CHAT_ID: ${{ secrets.TELEGRAM_NOTIFY_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx PyYAML
+      - name: H — retention_agent (monthly value report + 2.500 EUR renewal link)
+        run: python -m nirvana.runner retention_agent
+      - name: Commit retention report
+        run: |
+          git config user.name "nirvana-retention"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nirvana/state/retention_*.json
+          if git diff --cached --quiet; then
+            echo "No retention changes"
+          else
+            git commit -m "nirvana monthly retention report $(date -u +%FT%TZ)"
+            git push origin HEAD:master
+          fi

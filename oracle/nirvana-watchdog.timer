@@ -1,0 +1,11 @@
+[Unit]
+Description=Nirvana Lane I schedule — every 5 minutes
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+AccuracySec=15s
+Unit=nirvana-watchdog.service
+
+[Install]
+WantedBy=timers.target

@@ -116,6 +116,12 @@ PRICE_HIDDEN: bool = _get("PRICE_HIDDEN", "0").strip() in {"1", "true", "yes", "
 PRICE_USD: int = _get_int("PRICE_USD", 2500)
 ENTERPRISE_RETAINER_USD: int = _get_int("ENTERPRISE_RETAINER_USD", 2500)
 ENTERPRISE_PILOT_USD: int = _get_int("ENTERPRISE_PILOT_USD", 500)
+# --- Nirvana retainer payment (Payoneer) -----------------------------------
+# Retainer request language for the Nirvana modules. The Payoneer request is
+# created by the owner in the provider panel; these values only describe the
+# offer text and gate the amount/currency of verified requests.
+PAYMENT_CURRENCY: str = _get("PAYMENT_CURRENCY", "EUR").upper()
+PAYMENT_AMOUNT: int = _get_int("PAYMENT_AMOUNT", 2500)
 # Faz B: GitHub Actions-produced enterprise application-channel feed
 # (harvested/validated on GitHub; feed downloads still use Oracle network).
 FEED_ENTERPRISE_RAW_URL: str = _get(
@@ -209,6 +215,12 @@ def price_label(*, explicit: bool = False) -> str:
     if PRICE_HIDDEN and not explicit:
         return ""
     return f"${PRICE_USD} USD"
+
+
+def payment_label() -> str:
+    """Retainer label for the configured Nirvana payment currency (e.g. 2.500 EUR)."""
+    amount = f"{PAYMENT_AMOUNT:,}".replace(",", ".") if PAYMENT_CURRENCY == "EUR" else str(PAYMENT_AMOUNT)
+    return f"{amount} {PAYMENT_CURRENCY}"
 
 
 def telegram_deeplink(start: str = "") -> str:
