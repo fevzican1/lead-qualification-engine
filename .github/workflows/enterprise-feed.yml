@@ -2,7 +2,7 @@ name: enterprise-feed
 
 on:
   schedule:
-    - cron: "33 * * * *"
+    - cron: "33 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,10 +26,10 @@ jobs:
           python-version: "3.12"
       - name: Install form-scan dependencies
         run: |
-          pip install playwright
+          pip install playwright httpx
           python -m playwright install --with-deps chromium
       - name: Build + form-scan enterprise target feed
-        run: python scripts/build_enterprise_feed.py --scan
+        run: python scripts/enterprise_demand_feed.py --scan
       - name: Commit feed
         run: |
           git config user.name "devsolve-enterprise"

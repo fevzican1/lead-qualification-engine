@@ -23,7 +23,9 @@ def test_payload_builder_creates_handoff_and_deeplink() -> None:
     html = (
         "<html><head><title>Acme Shop</title>"
         '<meta name="description" content="WooCommerce store with checkout and iyzico payments"/>'
-        "</head><body>WooCommerce checkout iyzico webhook</body></html>"
+        '</head><body>WooCommerce checkout iyzico webhook<form><input type="email" '
+        'name="email"><textarea name="message"></textarea><button type="submit">Send</button>'
+        '</form></body></html>'
     )
     built = payload_builder.build_target(
         url="https://acme-example.com/contact",

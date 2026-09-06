@@ -151,7 +151,45 @@ def mark_payment(chat_id: int) -> None:
 
 
 def mark_payment_confirmed(chat_id: int) -> None:
-    _put(chat_id, payment_confirmed=True, followup_sent=True, last_at=_now().isoformat())
+    """Compatibility: legacy customer confirmation is only a report, never verification."""
+    mark_payment_reported(chat_id)
+
+
+def mark_payment_reported(chat_id: int) -> None:
+    _put(chat_id, payment_reported=True, payment_reported_at=_now().isoformat(),
+         followup_sent=True, last_at=_now().isoformat())
+
+
+def verify_payment(chat_id: int, *, amount: int, currency: str, reference: str, owner_id: int) -> None:
+    reference = reference.strip()
+    row = _row(chat_id)
+    request = row.get("payment_request") or {}
+    if (not owner_id or not reference or len(reference) > 160 or not row.get("payment_sent")
+            or request.get("amount") != amount or request.get("currency") != currency):
+        raise ValueError("Payment must match this chat's recorded request")
+    if any(r.get("provider_payment_reference") == reference for r in _load().values() if isinstance(r, dict)):
+        raise ValueError("Provider payment reference has already been used")
+    _put(chat_id, payment_verified=True, payment_verified_at=_now().isoformat(),
+         payment_verification_method="owner_provider_dashboard", verified_by_owner=int(owner_id),
+         provider_payment_reference=reference[:160], payment_amount=amount, payment_currency=currency,
+         followup_sent=True)
+
+
+def approve_contract(chat_id: int, *, contract_ref: str, scope_ref: str, access_ref: str, owner_id: int) -> None:
+    if not _row(chat_id).get("started_at") or not all((contract_ref, scope_ref, access_ref, owner_id)):
+        raise ValueError("Existing chat, signed contract, scope and access references required")
+    _put(chat_id, contract_signed=True, contract_reference=contract_ref[:160], scope_reference=scope_ref[:160],
+         access_reference=access_ref[:160], contract_verified_by_owner=int(owner_id),
+         contract_amount=config.PRICE_USD, contract_currency="USD", followup_sent=True)
+
+
+def fulfillment_ready(chat_id: int) -> bool:
+    row = _row(chat_id)
+    return bool(row.get("payment_verified") and row.get("provider_payment_reference")
+                and row.get("verified_by_owner") and row.get("contract_signed")
+                and row.get("contract_reference") and row.get("scope_reference")
+                and row.get("access_reference") and row.get("payment_amount") == row.get("contract_amount")
+                and row.get("payment_currency") == row.get("contract_currency") and not row.get("declined"))
 
 
 def is_payment_sent(chat_id: int) -> bool:
@@ -180,7 +218,7 @@ def due_followups() -> list[dict[str, Any]]:
             continue
         if row.get("followup_sent") or row.get("hot_pinged") or row.get("payment_sent"):
             continue
-        if row.get("takeover") or row.get("declined"):
+        if row.get("takeover") or row.get("declined") or row.get("audience") == "enterprise":
             continue
         if int(row.get("user_replies") or 0) > 2:
             continue

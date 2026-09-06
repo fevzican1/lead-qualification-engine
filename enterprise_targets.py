@@ -1,9 +1,7 @@
-"""Curated enterprise contractor channels (Faz A).
+"""Enterprise discovery seeds and validated feed loader.
 
-Every entry is a PUBLIC partner/contractor/expert application channel of a
-large platform — the exact lanes a freelance contractor uses without going
-through HR screening. The submitter treats each like any other form: DOM
-fingerprint first, no CAPTCHA solving, single attempt per target per window.
+Historical partner URLs are unverified discovery seeds, NOT automatic
+application channels. Only schema-v2 demand/form evidence enables submissions.
 """
 
 from __future__ import annotations
@@ -12,6 +10,7 @@ import json
 from typing import Any
 
 import config
+import enterprise_quality
 
 # (company, application URL, platform hint, notes)
 TARGETS: list[dict[str, str]] = [
@@ -302,14 +301,8 @@ TARGETS: list[dict[str, str]] = [
 ]
 
 
-def load_all(limit: int = 60) -> list[dict[str, str]]:
-    """Curated targets + GitHub-harvested feed targets, deduped by URL.
-
-    The feed (feeds/enterprise_targets.json) is produced by the
-    enterprise-discovery GitHub Actions workflow and only contains pages that
-    responded with a form-bearing HTML body during the Actions run — so Oracle
-    spends zero discovery HTTP on targets that cannot accept an application.
-    """
+def load_candidates(limit: int = 60) -> list[dict[str, str]]:
+    """Historical seeds for inspection only. Never use this list to submit."""
     out: list[dict[str, str]] = []
     seen: set[str] = set()
 
@@ -351,6 +344,30 @@ def load_all(limit: int = 60) -> list[dict[str, str]]:
     return out
 
 
+def load_all(limit: int = 60) -> list[dict[str, Any]]:
+    """Only fresh, purpose-verified GitHub rows; curated rows are discovery seeds."""
+    if limit <= 0:
+        return []
+    path = config.ROOT / "feeds" / "enterprise_targets.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not enterprise_quality.valid_payload(payload):
+        return []
+    seen: set[str] = set()
+    out = []
+    for row in sorted(payload["targets"], key=lambda r: -int(r.get("priority_score", 0))):
+        key = enterprise_quality.company_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({**row, "contact_urls": []})
+        if len(out) >= limit:
+            break
+    return out
+
+
 def target_lead(row: dict[str, str]) -> dict[str, Any]:
     """Lead dict shaped for form_submitter + telegram_handoff (enterprise lane)."""
     return {
@@ -358,10 +375,12 @@ def target_lead(row: dict[str, str]) -> dict[str, Any]:
         "final_url": row["url"],
         "company_name": row["company"],
         "platform": row.get("platform", ""),
-        "platform_confidence": 95,
+        "platform_confidence": 0,
         "stack_hints": [row.get("platform", "").lower()] if row.get("platform") else [],
         "contact_form": {"found": True, "page_url": row["url"]},
         "audience": "enterprise",
         "enterprise": True,
+        "identity_url": enterprise_quality.identity_url(row),
+        "evidence": row.get("evidence", {}),
         "description": f"Public {row.get('lane', 'partner')} application channel",
     }

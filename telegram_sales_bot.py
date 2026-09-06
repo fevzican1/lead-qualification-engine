@@ -13,6 +13,7 @@ import asyncio
 import logging
 import os
 import re
+import secrets
 from collections import defaultdict
 from typing import Any
 
@@ -36,6 +37,7 @@ import owner_notify
 import proof_card
 import telegram_handoff
 import telegram_sessions
+import payment_safety
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +51,32 @@ _proof_tasks: dict[int, asyncio.Task[Any]] = {}
 _BUY_RE = re.compile(
     r"nasıl\s+satın\s*al|nasil\s+satin\s*al|satın\s*al[ıi]r[ıi]m|satın\s*almak\s+ist|"
     r"baslayabilir|başlayabilir|haydi\s+başla|hadi\s+başla|anlaştık|anlastik|"
-    r"nasıl\s+başla|ödeme\s*link|odeme\s*link|payoneer|"
+    r"nasıl\s+başla|ödeme\s*link|odeme\s*link|"
     r"how\s+(do\s+i|can\s+i|to)\s+(buy|pay|start|purchase)|"
     r"ready\s+to\s+(buy|start|pay)|i\s+want\s+to\s+(buy|start|proceed)|"
-    r"proceed\s+to\s+pay|send\s+(the\s+)?(invoice|payment|link)|fatura\s*kes",
+    r"proceed\s+to\s+pay|send\s+(the\s+)?(invoice|payment|link)|fatura\s*kes|"
+    r"we\s+accept(ed)?\s+(the\s+offer|your\s+terms)|approve\s+(the\s+)?(pilot|retainer|scope|proposal)|"
+    r"let[’']?s\s+proceed|proceed\s+with\s+(the\s+)?(pilot|retainer|work|offer)|"
+    r"hire\s+you\b|start\s+the\s+(pilot|retainer)|go\s+ahead\s+with\s+(the\s+)?(pilot|retainer)|"
+    r"sounds\s+good,\s*let|let[’']?s\s+start\s+(the\s+)?(pilot|work|retainer)|"
+    r"kabul\s+ediyoruz|onayl[ıi]yoruz|onayl[ıi]yorum|kiralamak\s+istiyoruz|"
+    r"çalışmaya\s+başlayalım|başlayalım\s*o\s*halde|pilot\s*(a|'a)?\s*başlayalım",
     re.I,
 )
+
+_NEGATIVE_BUY_RE = re.compile(
+    r"\b(not|no|never|don't|do not|can't|cannot|won't|if|whether|haven't)\b|"
+    r"hayır|hayir|istemiyorum|değil|degil|onaylam|kabul\s+etm|henüz|henuz|\?", re.I)
+_PRICE_RE = re.compile(r"fiyat|ne kadar|ücret|ucret|kaç\s*dolar|price|how much|cost|salary|retainer.*(?:amount|fee)", re.I)
+
+
+def _wants_to_buy(text: str) -> bool:
+    # Questions about a provider, negatives and conditional interest are not authorization.
+    clean = (text or "").strip()
+    question = clean.endswith("?")
+    if question and re.match(r"(?:how (?:do i|can i|to) (?:buy|pay|purchase)|nasıl satın al)", clean, re.I):
+        clean = clean[:-1]
+    return bool(_BUY_RE.search(clean) and not _NEGATIVE_BUY_RE.search(clean))
 
 _DECLINE_RE = re.compile(
     r"ilgilenmiyorum|istemiyorum|gerek\s*yok|hayır\s*teşekkür|hayir\s*tesekkur|"
@@ -108,15 +130,22 @@ def _username(update: Update) -> str:
 
 
 def _bind_token(chat_id: int, token: str) -> dict[str, Any] | None:
+    prior = str(telegram_sessions._row(chat_id).get("session_token") or "")
+    if prior and prior != token:
+        return None  # never attach another company's brief to an existing payment/contract
     row = telegram_handoff.lookup(token)
     if row:
         _briefs[chat_id] = row
+        telegram_sessions._put(chat_id, session_token=token, audience=row.get("audience", ""),
+                               variant=row.get("variant", ""), report_id=row.get("report_id", ""))
     return row
 
 
 def _closer_brief(row: dict[str, Any] | None) -> str:
     """Give the model the same evidence gate used by form qualification."""
     if not row:
+        if config.ENTERPRISE_MODE:
+            return telegram_handoff.brief_block({"audience": "enterprise", "variant": "X"})
         return ""
     context = bounded_agents.closer_context(row)
     safe_row = dict(row)
@@ -138,7 +167,9 @@ def _parse_model_output(raw: str, user_text: str) -> tuple[str, bool]:
         reply = raw.strip()
     if len(reply) > 1400:
         reply = reply[:1390].rsplit(" ", 1)[0] + "…"
-    pay = bool(_BUY_RE.search(user_text or ""))
+    # The model may not introduce payment URLs or invent readiness.
+    reply = re.sub(r"https?://\S+", "", reply, flags=re.I).strip()
+    pay = _wants_to_buy(user_text)
     return reply, pay
 
 
@@ -164,7 +195,7 @@ def _complete(messages: list[dict[str, str]]) -> str:
 def _owner_intro() -> str:
     return (
         "Operatör paneli — müşteri bunu görmez.\n"
-        f"Custom API / otomasyon, {config.price_label()} (Payoneer).\n"
+        f"Custom API / otomasyon, {config.price_label(explicit=True)} teklif (tahsilat değil).\n"
         "Motor özeti: /notifyme   durum: /status\n"
         "Sıcak aday: bu sohbete ping düşer.\n"
         "Sohbete gir: /reply CHATID metin\n"
@@ -183,6 +214,11 @@ def _not_owner_hint() -> str:
 
 
 def _cold_intro(*, turkish: bool) -> str:
+    if config.ENTERPRISE_MODE:
+        return ("DevSolve AI destekli kontratlı hizmet asistanı. Henüz sisteminizi incelemedik. "
+                "Hangi entegrasyon veya otomasyon işi için destek arıyorsunuz?" if turkish else
+                "DevSolve AI-assisted contractor intake assistant. We have not inspected your system. "
+                "Which integration or automation deliverable are you looking for?")
     if turkish:
         return (
             "DevSolve Flow Inspector — otomatik teknik inceleme servisi.\n"
@@ -200,7 +236,7 @@ def _cold_intro(*, turkish: bool) -> str:
 
 
 def _is_hot(text: str) -> bool:
-    return bool(_HOT_RE.search(text or "")) or bool(_BUY_RE.search(text or ""))
+    return bool(_HOT_RE.search(text or "")) or _wants_to_buy(text)
 
 
 async def _confirm_stop(update: Update) -> None:
@@ -215,12 +251,14 @@ async def _confirm_stop(update: Update) -> None:
         if turn.get("role") == "user":
             optout.harvest_from_text(turn.get("content") or "", reason="telegram_stop")
     _histories.pop(chat.id, None)
-    _briefs.pop(chat.id, None)
+    stopped_brief = _briefs.pop(chat.id, None)
+    if stopped_brief and stopped_brief.get("url"):
+        optout.harvest_from_text(str(stopped_brief["url"]), reason="telegram_stop")
     _payment_sent.discard(chat.id)
     task = _proof_tasks.pop(chat.id, None)
     if task:
         task.cancel()
-    telegram_sessions.clear(chat.id)
+    telegram_sessions.mark_declined(chat.id)  # retain audit/payment history
     await message.reply_text(
         "You are unsubscribed. We will not message you again from this assistant.\n"
         "Listeden çıktınız. Tekrar yazmamız için /resume yazın.\n"
@@ -234,6 +272,8 @@ async def _send_proof(chat_id: int, bot: Any, *, turkish: bool) -> None:
     if not telegram_sessions.should_send_proof(chat_id):
         return
     row = _briefs.get(chat_id)
+    if not row:
+        return  # no source-bound brief, no fabricated proof card
     path = await asyncio.to_thread(proof_card.render, row, turkish=turkish)
     if path is None or not path.exists():
         logger.warning("Proof card skipped for chat %s (Pillow missing or render failed)", chat_id)
@@ -366,6 +406,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     row = _bind_token(chat_id, token) if token else _briefs.get(chat_id)
     turkish = bool(row.get("turkish")) if row else _customer_lang(update)
     company = str((row or {}).get("company") or (row or {}).get("host") or "")
+    if not row and config.ENTERPRISE_MODE:
+        telegram_sessions._put(chat_id, audience="enterprise", variant="X")
     telegram_sessions.touch_start(
         chat_id, company=company, turkish=turkish, username=_username(update)
     )
@@ -396,7 +438,10 @@ async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "ADMIN_CODE .env'de tanımlı değil — sistem yöneticisine başvur."
         )
         return
-    if code != secret:
+    if owner_notify.load_admin_chat_id() is not None:
+        await update.message.reply_text("Operatör zaten kayıtlı; yeniden kayıt kapalı.")
+        return
+    if not secrets.compare_digest(code, secret):
         await update.message.reply_text(
             "Kod hatalı. /admin KOD  →  KOD, operatöre ayrı kanaldan iletilen gizli dizi."
         )
@@ -425,6 +470,58 @@ async def cmd_notifyme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except BadRequest:
         # Unbalanced * / _ in a hostname would kill the whole status report.
         await update.message.reply_text(text)
+
+
+def _financial_owner(update: Update) -> bool:
+    return bool(update.effective_chat and update.effective_user and update.message
+                and update.effective_chat.type == "private"
+                and update.effective_user.id == update.effective_chat.id
+                and _is_owner(update.effective_chat.id))
+
+
+async def cmd_payready(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _financial_owner(update):
+        return
+    try:
+        chat, amount, currency, recipient, reference = context.args
+        if not telegram_sessions._row(int(chat)).get("started_at"):
+            raise ValueError("Existing customer chat required")
+        payment_safety.approve_link(chat_id=int(chat), amount=int(amount), currency=currency.upper(), recipient=recipient,
+                                    reference=reference, owner_id=update.effective_user.id)
+    except (ValueError, TypeError):
+        await update.message.reply_text(
+            "Payoneer panelinde gerçek tutar, alıcı ve hesap uygunluğunu kontrol ettikten sonra: "
+            "/payready CHATID 2500 USD ALICI_ETIKETI TALEP_REFERANSI. Bu komut ödeme oluşturmaz.")
+        return
+    await update.message.reply_text("Talep sahibi tarafından kontrol edildi olarak kaydedildi. Tahsilat değildir.")
+
+
+async def cmd_verifypayment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _financial_owner(update):
+        return
+    try:
+        chat, amount, currency, reference = context.args
+        telegram_sessions.verify_payment(int(chat), amount=int(amount), currency=currency.upper(),
+                                         reference=reference, owner_id=update.effective_user.id)
+    except (ValueError, TypeError):
+        await update.message.reply_text(
+            "Payoneer panelinde yerleşmiş ödemeyi kontrol ettikten sonra: "
+            "/verifypayment CHATID 2500 USD ISLEM_REFERANSI. Talep tutarı eşleşmeli; referans tek kullanımlık.")
+        return
+    await update.message.reply_text("Sahip doğrulaması kaydedildi. Sözleşme/erişim onayı olmadan iş başlamaz.")
+
+
+async def cmd_approvecontract(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _financial_owner(update):
+        return
+    try:
+        chat, contract, scope, access = context.args
+        telegram_sessions.approve_contract(int(chat), contract_ref=contract, scope_ref=scope,
+                                           access_ref=access, owner_id=update.effective_user.id)
+    except (ValueError, TypeError):
+        await update.message.reply_text("/approvecontract CHATID IMZALI_SOZLESME_REF KAPSAM_REF ERISIM_IZNI_REF")
+        return
+    await update.message.reply_text("Sözleşme ve izin referansları kaydedildi. Otomatik üretim erişimi açılmadı.")
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -555,8 +652,14 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     telegram_sessions.touch_user(chat_id, user_text, username=_username(update))
+    if chat_id not in _briefs:
+        token = str(telegram_sessions._row(chat_id).get("session_token") or "")
+        if token:
+            row = telegram_handoff.lookup(token)
+            if row:
+                _briefs[chat_id] = row
 
-    if _DECLINE_RE.search(user_text) and not _BUY_RE.search(user_text):
+    if _DECLINE_RE.search(user_text):
         telegram_sessions.mark_declined(chat_id)
         task = _proof_tasks.pop(chat_id, None)
         if task:
@@ -591,21 +694,52 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Customer already got the Payoneer link; a payment-confirm message
         # must reach the owner so the delivered service can start manually.
         if _PAID_RE.search(user_text):
-            telegram_sessions.mark_payment_confirmed(chat_id)
+            telegram_sessions.mark_payment_reported(chat_id)
             row = _briefs.get(chat_id) or {}
             who = str(row.get("company") or row.get("host") or "—")
             await asyncio.to_thread(
                 owner_notify.send,
-                f"💳 ÖDEME ONAYI — {who} (chat {chat_id}) ödeme yaptığını bildirdi.\n"
-                f"Teslimatı başlatabilirsin: /reply {chat_id} …",
+                f"ÖDEME BİLDİRİMİ (DOĞRULANMADI) — {who} (chat {chat_id}).\n"
+                "Payoneer panelinde alıcı, tutar, para birimi ve yerleşmiş işlem referansını kontrol et. "
+                "Müşteri mesajı tahsilat kanıtı değildir; teslimatı başlatma.",
             )
             await update.message.reply_text(
-                "Teşekkürler — kayıt işaretlendi. Uygulama başlangıcına dair "
-                "ekibimiz bu sohbetten kısa süre içinde yazar."
+                "Payment reported, not yet verified. We must confirm settlement, scope and access before starting.\n"
+                "Ödeme bildiriminiz alındı; tahsilat henüz doğrulanmadı."
             )
-            logger.info("Payment confirmed by chat %s (%s)", chat_id, who)
+            logger.info("Payment reported, unverified, chat %s", chat_id)
             return
         logger.info("Payment already sent; closing automated sales loop for chat %s", chat_id)
+        return
+
+    if _PRICE_RE.search(user_text) and not _wants_to_buy(user_text):
+        amount = config.price_label(explicit=True)
+        await update.message.reply_text(
+            f"Önerilen aylık hizmet bedeli {amount}; nihai kapsam ve sözleşme onayına bağlıdır. "
+            "$5000 ancak ayrı kapsam ve tutarı doğrulanmış ödeme talebiyle değerlendirilir."
+            if _customer_lang(update) else
+            f"The proposed monthly service retainer is {amount}, subject to agreed scope and contract. "
+            "$5000 requires separately agreed scope and a matching verified payment request.")
+        return
+
+    if _wants_to_buy(user_text):
+        telegram_sessions._put(chat_id, interest_reported=True, followup_sent=True)
+        request = payment_safety.ready_request(chat_id)
+        contract = telegram_sessions._row(chat_id)
+        if (request is None or not contract.get("contract_signed")
+                or contract.get("contract_amount") != request["amount"]):
+            await update.message.reply_text(
+                "Interest noted, not yet a signed engagement. Before payment we must agree scope, "
+                "contract and access, and verify the Payoneer request's recipient and amount. "
+                f"Proposed retainer: {config.price_label(explicit=True)}/month.")
+            await asyncio.to_thread(owner_notify.send, f"Satın alma ilgisi (kabul/ödeme değil), chat {chat_id}. "
+                                    "Kapsam/sözleşme ve Payoneer talep doğrulaması gerekiyor.")
+            return
+        await update.message.reply_text(
+            f"Agreed request: ${request['amount']} {request['currency']}. "
+            "Check the recipient and amount on Payoneer before paying.\n" + config.PAYONEER_PAYMENT_URL)
+        telegram_sessions._put(chat_id, payment_request=request)
+        telegram_sessions.mark_payment(chat_id)
         return
 
     _remember(chat_id, "user", user_text)
@@ -627,15 +761,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         stop.set()
         pulse.cancel()
 
-    if send_link and chat_id in _payment_sent and not _BUY_RE.search(user_text):
-        send_link = False
-    if send_link:
-        url = config.PAYONEER_PAYMENT_URL
-        if url and url not in reply:
-            reply = f"{reply}\n\nPayoneer:\n{url}"
-        _payment_sent.add(chat_id)
-        telegram_sessions.mark_payment(chat_id)
-        logger.info("Dispatched payment URL to chat %s", chat_id)
+    # Payment is exclusively handled by the deterministic owner-verified path above.
 
     _remember(chat_id, "assistant", reply)
     try:
@@ -648,19 +774,21 @@ def _offline_reply(user_text: str, row: dict[str, Any] | None) -> tuple[str, boo
     turkish = bool(re.search(r"[çğıöşüÇĞİÖŞÜ]", user_text or "")) or bool(
         re.search(r"\b(merhaba|selam|ödeme|fiyat|entegrasyon)\b", user_text or "", re.I)
     )
-    buy = bool(_BUY_RE.search(user_text or ""))
+    buy = _wants_to_buy(user_text)
     if turkish and buy:
         return (
-            f"Kapsam sabit {config.price_label()}. Payoneer linkini paylaşıyorum.",
-            True,
+            f"Önerilen bedel {config.price_label(explicit=True)}. Kapsam ve ödeme talebi doğrulanmalı.",
+            False,
         )
     if buy:
         return (
-            f"The scope is a flat {config.price_label()}. I will share the Payoneer link.",
-            True,
+            f"Proposed fee {config.price_label(explicit=True)}. Scope and payment request need verification.",
+            False,
         )
     if row:
         return telegram_handoff.opener(row), False
+    if config.ENTERPRISE_MODE:
+        return _cold_intro(turkish=turkish), False
     if turkish:
         return (
             "Hangi altyapıyı kullanıyorsunuz ve şu an en çok nerede takılıyor: "
@@ -740,6 +868,9 @@ def main() -> None:
     )
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", cmd_admin))
+    application.add_handler(CommandHandler("payready", cmd_payready))
+    application.add_handler(CommandHandler("verifypayment", cmd_verifypayment))
+    application.add_handler(CommandHandler("approvecontract", cmd_approvecontract))
     application.add_handler(CommandHandler("notifyme", cmd_notifyme))
     application.add_handler(CommandHandler("status", cmd_status))
     application.add_handler(CommandHandler("reply", cmd_reply))

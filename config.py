@@ -112,12 +112,12 @@ ENTERPRISE_RETRY_SKIP_DAYS: int = _get_int("ENTERPRISE_RETRY_SKIP_DAYS", 3)
 # contract amount is only shared in-chat when the company asks.
 PRICE_HIDDEN: bool = _get("PRICE_HIDDEN", "0").strip() in {"1", "true", "yes", "on"}
 # Revenue model: 40 employers x $2,500/mo retainer = $100k/mo target.
-# PRICE_USD is the enterprise contract fee asked via the Payoneer link.
+# PRICE_USD is a proposed offer, NOT the amount encoded by a Payoneer request.
 PRICE_USD: int = _get_int("PRICE_USD", 2500)
 ENTERPRISE_RETAINER_USD: int = _get_int("ENTERPRISE_RETAINER_USD", 2500)
 ENTERPRISE_PILOT_USD: int = _get_int("ENTERPRISE_PILOT_USD", 500)
 # Faz B: GitHub Actions-produced enterprise application-channel feed
-# (harvested/validated on GitHub, ingested on Oracle — zero Oracle HTTP).
+# (harvested/validated on GitHub; feed downloads still use Oracle network).
 FEED_ENTERPRISE_RAW_URL: str = _get(
     "FEED_ENTERPRISE_RAW_URL",
     f"https://raw.githubusercontent.com/{_get('FEED_GITHUB_REPO', 'fevzican1/lead-qualification-engine')}/master/feeds/enterprise_targets.json",
@@ -205,8 +205,8 @@ PAYLOAD_OPTIMIZER_MIN_SCORE: int = _get_int("PAYLOAD_OPTIMIZER_MIN_SCORE", 85)
 OPTOUTS_PATH: Path = ROOT / "optouts.json"
 
 
-def price_label() -> str:
-    if PRICE_HIDDEN:
+def price_label(*, explicit: bool = False) -> str:
+    if PRICE_HIDDEN and not explicit:
         return ""
     return f"${PRICE_USD} USD"
 

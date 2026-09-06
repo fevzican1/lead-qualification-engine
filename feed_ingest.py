@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 import config
+import enterprise_quality
 import domain_store
 import easy_score
 import target_pool
@@ -29,8 +30,8 @@ FEED_STATE_PATH = config.ROOT / "feeds" / "feed_state.json"
 def sync_enterprise_feed() -> dict[str, Any] | None:
     """Pull feeds/enterprise_targets.json produced by GitHub Actions.
 
-    Harvest + validation run on GitHub (free, unlimited on public repos);
-    Oracle only downloads the result — no probe budget is spent here.
+    Harvest + validation run on GitHub. Oracle downloads a bounded result;
+    these downloads are network traffic, not counted by the site-probe counter.
     """
     url = str(getattr(config, "FEED_ENTERPRISE_RAW_URL", "") or "").strip()
     if not url:
@@ -48,9 +49,10 @@ def sync_enterprise_feed() -> dict[str, Any] | None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Enterprise feed pull failed: %s", exc)
         return None
-    targets = payload.get("targets") if isinstance(payload, dict) else None
-    if not isinstance(targets, list) or not targets:
+    if not enterprise_quality.valid_payload(payload):
+        logger.warning("Enterprise feed rejected: stale, unscanned or missing channel evidence")
         return None
+    targets = payload["targets"]
     dest = config.ROOT / "feeds" / "enterprise_targets.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".json.tmp")

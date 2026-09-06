@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import random
 import time
 from datetime import datetime, timezone
@@ -20,6 +21,7 @@ from typing import Any
 
 import config
 import enterprise_targets
+import enterprise_quality
 import knowledge
 import optout
 import telegram_handoff
@@ -27,7 +29,6 @@ import telegram_handoff
 logger = logging.getLogger(__name__)
 
 STATE_PATH = config.ROOT / "enterprise_applications.json"
-COOLDOWN_DAYS = 21
 _RESULT_STATUSES = {"submitted_confirmed", "skipped_submit_failed", "skipped_no_open_form", "skipped_captcha"}
 
 
@@ -36,9 +37,11 @@ def _load_state() -> dict[str, Any]:
         return {}
     try:
         data = json.loads(STATE_PATH.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
-    return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Application ledger invalid; refusing to submit") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("Application ledger invalid; refusing to submit")
+    return data
 
 
 def _save_state(data: dict[str, Any]) -> None:
@@ -52,8 +55,8 @@ def _today() -> str:
 
 
 def enterprise_counts(state: dict[str, Any] | None = None) -> tuple[int, int]:
-    """(applications_today, applications_last_hour) from the local ledger."""
-    state = state or _load_state()
+    """(attempts_today, attempts_last_hour), including no-send and ambiguous writes."""
+    state = _load_state() if state is None else state
     now = datetime.now(timezone.utc)
     hour_ago = now.timestamp() - 3600
     today = _today()
@@ -62,18 +65,18 @@ def enterprise_counts(state: dict[str, Any] | None = None) -> tuple[int, int]:
     for row in state.values():
         if not isinstance(row, dict):
             continue
-        if str(row.get("last_status") or "") != "submitted_confirmed":
-            continue
-        stamp = str(row.get("last_at") or "")
-        if not stamp.startswith(today):
-            continue
-        day_n += 1
-        try:
-            ts = datetime.fromisoformat(stamp).timestamp()
-        except ValueError:
-            continue
-        if ts >= hour_ago:
-            hour_n += 1
+        for stamp in row.get("attempts_at") or [str(row.get("last_at") or "")]:
+            try:
+                parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                ts = parsed.timestamp()
+            except ValueError:
+                continue
+            if parsed.astimezone(timezone.utc).date().isoformat() == today:
+                day_n += 1
+            if hour_ago <= ts <= now.timestamp():
+                hour_n += 1
     return day_n, hour_n
 
 
@@ -95,16 +98,24 @@ def append_to_leads(row: dict[str, Any]) -> None:
 
 
 def eligible_targets(limit: int) -> list[dict[str, str]]:
+    if limit <= 0:
+        return []
     state = _load_state()
     now = time.time()
     out: list[dict[str, str]] = []
     for row in enterprise_targets.load_all():
-        prior = state.get(row["url"])
+        key = enterprise_quality.company_key(row)
+        priors = [p for p in state.values() if isinstance(p, dict) and (
+            enterprise_quality.company_key(p) == key or p.get("url") == row["url"])]
+        # Legacy URL keys must not re-enter through a new form/ATS endpoint.
+        if any(str(p.get("last_status")) in {
+            "submitted_confirmed", "submitting", "skipped_submit_failed", "failed"
+        } for p in priors):
+            continue  # ambiguous writes need owner review, not an automatic retry
+        prior = max(priors, key=lambda p: str(p.get("last_at", "")), default=None)
         if isinstance(prior, dict):
-            # A confirmed application is a real acceptance attempt that reached
-            # their form. Non-confirmed statuses (skipped_no_open_form, captcha,
-            # failed) mean we never landed — retry after a short cooldown so a
-            # sub-page with an open form still gets a chance.
+            # Only no-send outcomes reach the cooldown path. Ambiguous writes
+            # are excluded above; a submission is not acceptance by the employer.
             if str(prior.get("last_status") or "") == "submitted_confirmed":
                 continue  # applied already; retainer conversation happens in Telegram
             last_ts = 0.0
@@ -124,17 +135,46 @@ def retry_days_for(prior: dict[str, Any]) -> float:
     """Confirmed applications never retry; failed reach attempts retry fast."""
     if str(prior.get("last_status") or "") == "submitted_confirmed":
         return 36500.0
-    return float(getattr(config, "ENTERPRISE_RETRY_SKIP_DAYS", 3) or 3)
+    return max(0.0, float(getattr(config, "ENTERPRISE_RETRY_SKIP_DAYS", 3)))
 
 
-def _pain() -> str:
+def _pain(target: dict[str, str]) -> str:
+    lane = str(target.get("lane") or "contractor")
+    lane_txt = lane.replace("-", " ").replace("_", " ").strip().title()
     return (
-        "Kontratlı entegrasyon mühendisi kancası: ödeme akışı / form→CRM "
-        "entegrasyonu için kanıtlı ön çalışma hazır."
+        f"Application for {target.get('company', '')}: {lane_txt}. "
+        "Proposed AI-assisted integration service; scope and acceptance criteria pending."
     )
 
 
 def run_batch(*, budget: int | None = None) -> dict[str, Any]:
+    """Serialize enterprise attempts across processes; OS releases lock on crash."""
+    lock = STATE_PATH.with_suffix(".lock")
+    with lock.open("a+b") as handle:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                if handle.tell() == 0:
+                    handle.write(b"0")
+                    handle.flush()
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return {"ran": False, "why": "enterprise lane already running"}
+        try:
+            return _run_batch(budget=budget)
+        finally:
+            if os.name == "nt":
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _run_batch(*, budget: int | None = None) -> dict[str, Any]:
     """Apply to up to the allowed number of enterprise channels this hour.
 
     `budget` (seconds) bounds the whole batch when the caller shares one
@@ -142,9 +182,12 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
     """
     if not getattr(config, "ENTERPRISE_MODE", True):
         return {"ran": False, "why": "enterprise mode off"}
+    # Separate legacy processes do not share this lock; do not run both lanes.
+    if getattr(config, "SMB_LANE_ENABLED", False):
+        return {"ran": False, "why": "legacy lane enabled; concurrent enterprise writes disabled"}
 
-    daily_cap = int(getattr(config, "ENTERPRISE_DAILY_CAP", 4) or 4)
-    hourly_cap = int(getattr(config, "ENTERPRISE_HOURLY_CAP", 2) or 2)
+    daily_cap = max(0, min(4, int(getattr(config, "ENTERPRISE_DAILY_CAP", 4))))
+    hourly_cap = max(0, min(2, int(getattr(config, "ENTERPRISE_HOURLY_CAP", 2))))
     ent_today, ent_hour = enterprise_counts()
     if ent_today >= daily_cap:
         return {"ran": False, "why": f"daily sub-cap {ent_today}/{daily_cap}"}
@@ -155,8 +198,8 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
     today_n, hour_n = knowledge.submit_counts()
     daily_cap_all = knowledge.daily_cap()
     hourly_cap_all = knowledge.hourly_cap()
-    room_today = daily_cap_all - today_n - max(0, daily_cap - ent_today)
-    room_hour = hourly_cap_all - hour_n - max(0, hourly_cap - ent_hour)
+    room_today = daily_cap_all - today_n
+    room_hour = hourly_cap_all - hour_n
     allowed = max(0, min(daily_cap - ent_today, hourly_cap - ent_hour, room_today, room_hour, 2))
     if allowed <= 0:
         return {"ran": False, "why": "global quota room reserved for pipeline"}
@@ -169,6 +212,11 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
     state = _load_state()
     ent_ms = int(getattr(config, "ENTERPRISE_FINGERPRINT_MS", 9000) or 9000)
     for target in targets:
+        today_n, hour_n = knowledge.submit_counts()
+        if today_n >= knowledge.daily_cap() or hour_n >= knowledge.hourly_cap():
+            break
+        if budget is not None and budget < 30:
+            break
         lead = enterprise_targets.target_lead(target)
         if optout.is_url_opted_out(str(lead["url"])):
             continue
@@ -176,16 +224,18 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
         token = ""
         try:
             token = telegram_handoff.remember(
-                lead, company=target["company"], pain=_pain(), quote="", turkish=turkish
+                lead, company=target["company"], pain=_pain(target),
+                quote=str(target["evidence"]["demand_quote"]), turkish=turkish
             )
             subject, note = telegram_handoff.form_copy(
-                host=target["company"],
+                host=lead["identity_url"],
                 hints=[],
                 link=config.telegram_deeplink(token),
                 turkish=turkish,
                 platform=target.get("platform", ""),
-                confidence=95,
+                confidence=0,
                 audience="enterprise",
+                opportunity=target,
             )
         except Exception:
             logger.exception("Enterprise handoff build failed for %s", target["url"])
@@ -195,9 +245,14 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
         lead["hook_variant"] = "X"
         lead["_enterprise_fingerprint_ms"] = ent_ms
 
-        candidates = [lead["url"]] + [
-            c for c in (target.get("contact_urls") or []) if str(c).startswith("https://")
-        ]
+        candidates = [lead["url"]]  # exact scanned form only; no sales/contact fallback
+        key = enterprise_quality.company_key(target)
+        previous = state.get(key) or {}
+        attempts = list(previous.get("attempts_at") or ([previous["last_at"]] if previous.get("last_at") else []))
+        attempts.append(datetime.now(timezone.utc).isoformat())
+        state[key] = {"company": target["company"], "url": lead["url"],
+                      "last_status": "submitting", "last_at": attempts[-1], "attempts_at": attempts}
+        _save_state(state)  # reserve before a possible write; crash => manual review
         status = "failed"
         applied_url = lead["url"]
         for cand in candidates:
@@ -227,12 +282,13 @@ def run_batch(*, budget: int | None = None) -> dict[str, Any]:
             "company": target["company"],
             "url": applied_url,
             "lane": target.get("lane", ""),
-            "report_id": telegram_handoff.report_id(target["company"]),
+            "report_id": telegram_handoff.report_id(lead["identity_url"]),
             "token": token,
+            "attempts_at": attempts,
             "last_status": status if status in _RESULT_STATUSES else "failed",
             "last_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         }
-        state[target["url"]] = entry
+        state[key] = entry
         _save_state(state)
         results.append(entry)
         if status == "submitted_confirmed":

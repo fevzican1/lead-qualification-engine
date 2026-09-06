@@ -275,7 +275,7 @@ def _fast_fail(lead: dict[str, Any]) -> bool:
 def _site_budget(lead: dict[str, Any] | None = None) -> float:
     if lead is not None and _fast_fail(lead):
         return min(30.0, float(getattr(config, "SUBMIT_FAST_FAIL_SECONDS", 15) or 15))
-    return float(getattr(config, "SITE_TIMEOUT_SECONDS", 45) or 45)
+    return max(1.0, min(30.0, float(getattr(config, "SITE_TIMEOUT_SECONDS", 30) or 30)))
 
 
 def _submit_with_page(
@@ -298,6 +298,10 @@ def _submit_with_page(
         logger.info("Skipping submit for %s (%s)", lead.get("url"), reason)
         result["status"] = "skipped_captcha" if lead.get("captcha_detected") else "skipped_no_contact_form"
         return result
+
+    if lead.get("audience") == "enterprise":
+        import enterprise_forms
+        return enterprise_forms.submit(page, lead)
 
     message = (lead.get("value_proposition") or "").strip()
     if not message:

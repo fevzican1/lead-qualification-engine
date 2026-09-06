@@ -95,10 +95,10 @@ _FLOWS_TR: dict[str, tuple[tuple[str, str], ...]] = {
         ("4  Teklif", "kayıp fırsat"),
     ),
     "X": (
-        ("1  Rol", "entegrasyon açığı"),
-        ("2  Kanıt", "Rapor No (DS)"),
-        ("3  Pilot", "2 saatlik slot"),
-        ("4  Retainer", "aylık opsiyon"),
+        ("1  Kapsam", "birlikte belirlenecek"),
+        ("2  İzin", "sandbox erişimi"),
+        ("3  Test", "kabul ölçütleri"),
+        ("4  Teslim", "onay sonrası"),
     ),
 }
 _FLOWS_EN: dict[str, tuple[tuple[str, str], ...]] = {
@@ -139,10 +139,10 @@ _FLOWS_EN: dict[str, tuple[tuple[str, str], ...]] = {
         ("4  Quote", "lost deal"),
     ),
     "X": (
-        ("1  Role", "integration gap"),
-        ("2  Evidence", "Report No (DS)"),
-        ("3  Pilot", "2h fix slot"),
-        ("4  Retainer", "monthly option"),
+        ("1  Scope", "agree deliverable"),
+        ("2  Access", "sandbox permission"),
+        ("3  Test", "acceptance criteria"),
+        ("4  Deliver", "after approval"),
     ),
 }
 
@@ -170,6 +170,7 @@ def render(row: dict[str, Any] | None, *, turkish: bool = True) -> Path | None:
         return None
 
     who = _fit(str((row or {}).get("company") or (row or {}).get("host") or "Sizin panel"), 36)
+    enterprise = (row or {}).get("variant") == "X"
     confirmed = bool((row or {}).get("platform_confirmed"))
     platform = str((row or {}).get("platform") or (row or {}).get("stack") or "").strip()
     pay = ", ".join(str(p) for p in ((row or {}).get("payment_stack") or []) if p)
@@ -187,9 +188,13 @@ def render(row: dict[str, Any] | None, *, turkish: bool = True) -> Path | None:
         62,
     )
     price = config.price_label()
+    if enterprise:
+        stack_line = "Önerilen çalışma planı — tamamlanmış iş değil" if turkish else "Proposed workflow — not completed work"
+        pain = "Kapsam ve izin bekleniyor" if turkish else "Scope and authorization pending"
     CACHE.mkdir(exist_ok=True)
     host = _fit(str((row or {}).get("host") or "lead"), 40).replace("/", "_")
-    out = CACHE / f"proof-{host}.png"
+    identity = str((row or {}).get("session_token") or host)
+    out = CACHE / f"proof-{identity}.png"
 
     img = Image.new("RGB", (W, H), "#0B1220")
     draw = ImageDraw.Draw(img)
@@ -197,12 +202,14 @@ def render(row: dict[str, Any] | None, *, turkish: bool = True) -> Path | None:
 
     draw.rectangle((0, 0, W, 8), fill="#22C55E")
     title = "DevSolve Flow Inspector  ·  teknik inceleme" if turkish else "DevSolve Flow Inspector  ·  technical review"
+    if enterprise:
+        title = "DevSolve  |  Proposed contractor workflow"
     draw.text((48, 36), title, font=title_font, fill="#F8FAFC")
     draw.text((48, 92), who, font=body, fill="#86EFAC")
     draw.text((48, 132), _fit(stack_line, 52), font=small, fill="#94A3B8")
     try:
         from telegram_handoff import report_id as _rid_fn
-        _rid = _rid_fn(str((row or {}).get("host") or ""))
+        _rid = str((row or {}).get("report_id") or _rid_fn(str((row or {}).get("host") or "")))
     except Exception:  # noqa: BLE001
         _rid = ""
     if _rid:
@@ -211,6 +218,8 @@ def render(row: dict[str, Any] | None, *, turkish: bool = True) -> Path | None:
             if turkish
             else f"Report {_rid}  ·  Status: Review complete"
         )
+        if enterprise:
+            status_line = f"Reference {_rid} | Proposed plan; no delivery or payment verified"
         draw.text((48, 172), _fit(status_line, 88), font=small, fill="#FBBF24")
 
     x = 48
@@ -226,13 +235,15 @@ def render(row: dict[str, Any] | None, *, turkish: bool = True) -> Path | None:
         x += 286
 
     draw.rounded_rectangle((48, 400, W - 48, 520), radius=16, fill="#111827", outline="#334155", width=2)
-    draw.text((72, 424), "Tespit" if turkish else "Finding", font=small, fill="#94A3B8")
+    draw.text((72, 424), "Plan" if enterprise else "Tespit" if turkish else "Finding", font=small, fill="#94A3B8")
     draw.text((72, 456), pain, font=body, fill="#F8FAFC")
 
     if turkish:
         foot = f"Kapsam: tek köprü, panel durur. İş {price} flat — Payoneer yalnız net evet sonrası."
     else:
         foot = f"Scope: one bridge, panel stays. Job {price} flat — Payoneer only after a clear yes."
+    if enterprise:
+        foot = "Start: signed scope + authorized access + independently verified payment."
     draw.text((48, 560), foot, font=small, fill="#A7F3D0")
 
     if confirmed and evidence:
@@ -247,6 +258,8 @@ def render(row: dict[str, Any] | None, *, turkish: bool = True) -> Path | None:
             if turkish
             else "Technical pre-review per W3C / OWASP / Lighthouse criteria — schematic card, not a live screen."
         )
+    if enterprise:
+        note = "Illustrative plan only. No client system access, findings or work samples implied."
     draw.text((48, 610), _fit(note, 108), font=small, fill="#64748B")
 
     tmp = out.with_suffix(".tmp.png")
@@ -256,6 +269,12 @@ def render(row: dict[str, Any] | None, *, turkish: bool = True) -> Path | None:
 
 
 def caption(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
+    if (row or {}).get("variant") == "X":
+        rid = str((row or {}).get("report_id") or "")
+        return (f"{rid} — Önerilen çalışma planı; tamamlanmış iş veya hata kanıtı değildir. "
+                "Kapsam, erişim ve ödeme doğrulaması beklenir." if turkish else
+                f"{rid} — Proposed workflow, not proof of completed work or a diagnosed defect. "
+                "Scope, access and payment verification are required before starting.")
     who = str((row or {}).get("company") or (row or {}).get("host") or "").strip()
     confirmed = bool((row or {}).get("platform_confirmed"))
     platform = str((row or {}).get("platform") or (row or {}).get("stack") or "").strip()

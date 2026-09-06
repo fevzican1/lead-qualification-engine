@@ -308,7 +308,7 @@ def main() -> None:
                 else:
                     print("Kurumsal feed: değişiklik yok / yapılandırılmadı")
             except Exception:
-                logger.exception("Enterprise feed sync failed — curated targets still used")
+                logger.exception("Enterprise feed sync failed — only a still-fresh verified feed may be used")
 
         if not knowledge.oracle_safe():
             logger.warning("Oracle RAM tight — skip Chromium this hour")
