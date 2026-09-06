@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.module == "meta_orchestrator":
         kwargs = {"notify": not args.no_notify}
     elif args.module == "micro_audit_proof_agent":
-        kwargs = {"self_test": getattr(args, "self_test", False)}
+        kwargs = {"run_self_test": getattr(args, "self_test", False)}
     else:
         kwargs = {}
     result = runner.run_batch(**kwargs)

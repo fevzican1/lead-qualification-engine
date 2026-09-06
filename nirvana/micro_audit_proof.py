@@ -220,8 +220,8 @@ def self_test(*, out_name: str = HOOKS_OUT) -> dict[str, Any]:
 
 
 def run_batch(*, in_name: str = "verified_queue.json", out_name: str = HOOKS_OUT,
-              limit: int = PER_RUN_LIMIT, self_test: bool = False) -> dict[str, Any]:
-    if self_test:
+              limit: int = PER_RUN_LIMIT, run_self_test: bool = False) -> dict[str, Any]:
+    if run_self_test:
         return self_test(out_name=out_name)
     items = load_targets(in_name, limit=limit)
     if not items:
