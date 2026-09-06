@@ -1,0 +1,60 @@
+name: nirvana-oracle-deploy
+
+# Oracle VM canlıya alma: SSH üzerinden git pull + Payoneer linki (.env) +
+# nirvana_oracle_install.sh (watchdog/delivery systemd timer'ları).
+# Link asla repoya yazılmaz; PAYONEER_LINK repo secret'ından gelir.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nirvana-oracle-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HOST: ${{ secrets.ORACLE_HOST }}
+      USER: ${{ secrets.ORACLE_USER }}
+      SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+      PAYONEER_LINK: ${{ secrets.PAYONEER_LINK }}
+    steps:
+      - name: Deploy + canlı doğrulama
+        run: |
+          set -euo pipefail
+          if [ -z "${HOST:-}" ] || [ -z "${USER:-}" ] || [ -z "${SSH_KEY:-}" ]; then
+            echo "::error::ORACLE_HOST / ORACLE_USER / ORACLE_SSH_KEY secret'ları tanımlı değil."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle.key
+          chmod 600 ~/.ssh/oracle.key
+          ssh-keyscan -T 8 -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh -i ~/.ssh/oracle.key \
+              -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+              -o ConnectTimeout=10 -o ConnectionAttempts=1 -o BatchMode=yes \
+              "${USER}@${HOST}" "PAYONEER_LINK='${PAYONEER_LINK}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd /opt/devsolve
+          echo "=== [1] Repo güncelleme ==="
+          git pull --ff-only origin master
+          echo "=== [2] Nirvana kurulum (link + systemd timer'lar) ==="
+          sudo -n PAYONEER_LINK="${PAYONEER_LINK:-}" bash oracle/nirvana_oracle_install.sh
+          echo "=== [3] Canlı doğrulama ==="
+          .venv/bin/python - <<'PY'
+          import config
+          import nirvana.payment as p
+          print("retainer:", p.retainer_label())
+          print("link aktif:", p.payment_link()[:52] + "...")
+          from nirvana import watchdog_quota_agent as w
+          print("watchdog kota:", w.quota_snapshot())
+          print("cooldown:", w.in_cooldown())
+          PY
+          systemctl list-timers 'nirvana-*' --no-pager || sudo -n systemctl list-timers 'nirvana-*' --no-pager
+          echo "NIRVANA ORACLE LIVE"
+          REMOTE

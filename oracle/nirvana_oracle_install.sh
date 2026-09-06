@@ -13,6 +13,23 @@ git pull --ff-only origin master
 echo "[2/6] Python bağımlılıkları (yalnız ücretsiz paketler)"
 "$APP_DIR/.venv/bin/pip" install -q -r requirements.txt
 
+echo "[2.5/6] Payoneer linkini /opt/devsolve/.env içine yazma (PAYONEER_LINK verilmişse)"
+if [ -n "${PAYONEER_LINK:-}" ]; then
+  # sed replacement'taki & işaretini escape et (link ?t=..&src=pl içerir)
+  safe="${PAYONEER_LINK//&/\\&}"
+  touch "$APP_DIR/.env"
+  if grep -q '^PAYONEER_PAYMENT_URL=' "$APP_DIR/.env"; then
+    sed -i "s|^PAYONEER_PAYMENT_URL=.*|PAYONEER_PAYMENT_URL=${safe}|" "$APP_DIR/.env"
+  else
+    printf 'PAYONEER_PAYMENT_URL=%s\n' "${PAYONEER_LINK}" >> "$APP_DIR/.env"
+  fi
+  grep -q '^PAYMENT_CURRENCY=' "$APP_DIR/.env" || printf 'PAYMENT_CURRENCY=EUR\n' >> "$APP_DIR/.env"
+  grep -q '^PAYMENT_AMOUNT=' "$APP_DIR/.env" || printf 'PAYMENT_AMOUNT=2500\n' >> "$APP_DIR/.env"
+  echo "PAYONEER_PAYMENT_URL güncellendi."
+else
+  echo "PAYONEER_LINK verilmedi — .env'deki mevcut link korunuyor."
+fi
+
 echo "[3/6] Payoneer linki doğrulaması (2.500 EUR)"
 "$APP_DIR/.venv/bin/python" - <<'PY'
 from nirvana.payment import retainer_amount, retainer_currency, retainer_label

@@ -11,6 +11,7 @@ This repo is safe to publish **if** the rules below are followed.
 ## Stored only in GitHub Secrets (Actions)
 
 - `ORACLE_HOST`, `ORACLE_USER`, `ORACLE_SSH_KEY`
+- `PAYONEER_LINK` (canlı 2.500 EUR Payoneer talep linki; `nirvana-oracle-deploy` bunu Oracle `.env`'ine yazar. Repoya commit EDİLMEZ.)
 - `INGEST_API_TOKEN`
 - Optional: `FEED_GITHUB_TOKEN` (not needed for public raw feed URL)
 
