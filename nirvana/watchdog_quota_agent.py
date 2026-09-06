@@ -111,7 +111,10 @@ def in_cooldown() -> bool:
     return float(row.get("cooling_until") or 0) > time.time()
 
 
-def run_batch(*, notify: bool = True, dry_run: bool = False) -> dict[str, Any]:
+def run_batch(*, notify: bool = False, dry_run: bool = False) -> dict[str, Any]:
+    """notify parametresi bilinçli olarak yok sayılır: watchdog Telegram'a
+    BİLDİRİM GÖNDERMEZ (5 dakikalık spam olur). Durum dosyasına yazar; Telegram
+    bildirimleri yalnızca iş olaylarındadır (form gönderimi, sıcak lead, ödeme)."""
     snap = system_snapshot()
     quotas = quota_snapshot()
     verdict = evaluate(snap, quotas)
@@ -130,16 +133,4 @@ def run_batch(*, notify: bool = True, dry_run: bool = False) -> dict[str, Any]:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(status, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
-
-    if notify:
-        msg = (f"[NIRVANA WATCHDOG] mod: {verdict['mode']}\n"
-               f"load: {snap.get('load_pct', 'n/a')} mem: {snap.get('mem_used_pct', 'n/a')}\n"
-               f"HTTP kota gün/gün-cap: {quotas['daily']['used']}/{quotas['daily']['cap']} "
-               f"saat: {quotas['hourly']['used']}/{quotas['hourly']['cap']}\n"
-               f"sebep: {', '.join(verdict['reasons']) or '-'}")
-        try:
-            import owner_notify
-            owner_notify.send(msg)
-        except Exception:
-            pass
     return status

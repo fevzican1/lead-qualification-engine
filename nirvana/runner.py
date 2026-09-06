@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.module in {"delivery_runner", "retention_agent"}:
         kwargs = {"notify": not args.no_notify}
     elif args.module == "watchdog_quota_agent":
-        kwargs = {"notify": not args.no_notify, "dry_run": args.no_notify}
+        kwargs = {"dry_run": args.no_notify}  # watchdog hiçbir koşulda Telegram'a bildirim atmaz
     else:
         kwargs = {}
     result = runner.run_batch(**kwargs)

@@ -69,6 +69,8 @@ jobs:
           import nirvana.payment as p
           print("retainer:", p.retainer_label())
           print("link aktif:", p.payment_link()[:52] + "...")
+          print("telegram bildirim kanali:", bool(config.TELEGRAM_NOTIFY_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN))
+          print("telegram bildirim hedefi:", bool(config.TELEGRAM_NOTIFY_CHAT_ID or config.TELEGRAM_OWNER_CHAT_ID))
           from nirvana import watchdog_quota_agent as w
           print("watchdog kota:", w.quota_snapshot())
           print("cooldown:", w.in_cooldown())
