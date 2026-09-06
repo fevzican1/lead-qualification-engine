@@ -34,7 +34,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Bağımlılıklar (ücretsiz: playwright + pillow)
+      - name: "Bağımlılıklar (ücretsiz: playwright + pillow)"
         run: |
           pip install playwright pillow httpx PyYAML
           python -m playwright install --with-deps chromium
