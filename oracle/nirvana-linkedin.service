@@ -1,0 +1,14 @@
+[Unit]
+Description=Nirvana Lane J — daily LinkedIn review cards for captcha-locked targets (human-in-loop)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=devsolve
+WorkingDirectory=/opt/devsolve
+EnvironmentFile=/opt/devsolve/.env
+ExecStart=/opt/devsolve/.venv/bin/python -m nirvana.runner linkedin_router
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=300

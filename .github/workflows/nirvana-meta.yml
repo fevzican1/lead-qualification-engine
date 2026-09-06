@@ -1,0 +1,47 @@
+name: nirvana-meta
+
+# Lane K — kendini geliştiren strateji orkestratörü (günlük, GitHub'da ücretsiz).
+# Tüm modül çıktılarını harmanlar, şerit ağırlıklarını gerçek dönüşümle EMA
+# günceller. Kota/limit YÜKSELTEMEZ; güvenceler (pacing/optout/audit) sabit.
+
+on:
+  schedule:
+    - cron: "31 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nirvana-meta
+  cancel-in-progress: false
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TELEGRAM_NOTIFY_BOT_TOKEN: ${{ secrets.TELEGRAM_NOTIFY_BOT_TOKEN }}
+      TELEGRAM_NOTIFY_CHAT_ID: ${{ secrets.TELEGRAM_NOTIFY_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install httpx PyYAML
+      - name: K — meta_orchestrator
+        run: python -m nirvana.runner meta_orchestrator
+      - name: Commit meta state
+        run: |
+          git config user.name "nirvana-meta"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nirvana/state/meta_state.json
+          if git diff --cached --quiet; then
+            echo "No meta changes"
+          else
+            git commit -m "nirvana meta strategy update $(date -u +%FT%TZ)"
+            git push origin HEAD:master
+          fi

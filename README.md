@@ -11,6 +11,9 @@
 | G | `delivery_runner` | Oracle VM | haftalık Pazartesi 06:00 UTC |
 | H | `retention_agent` | GitHub Actions | aylık `17 9 1 * *` |
 | I | `watchdog_quota_agent` | Oracle VM | `*/5` dakika |
+| J | `linkedin_router` | Oracle VM | günlük `0 8 * * *` |
+| K | `meta_orchestrator` | GitHub Actions | günlük `31 4 * * *` |
+| L | `micro_audit_proof_agent` | GitHub Actions | günlük `23 5 * * *` |
 
 - Kayıt defteri: `nirvana/nirvana.yaml` — tek doğruluk kaynağı (host, schedule, entrypoint).
 - CLI: `python -m nirvana.runner <modul>` (tüm lane'ler), `--list` ile envanter.

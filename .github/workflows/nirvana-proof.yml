@@ -1,0 +1,80 @@
+name: nirvana-proof
+
+# Lane L — micro_audit_proof_agent (heavy): Playwright ile checkout/sepet
+# darboğazı tespiti + Proof Card PNG + dinamik kanca. TÜM ağır hesaplama
+# burada, GitHub Actions'ta; Oracle'da Playwright/ekran görüntüsü YOK.
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "self-test (yerel fixture) | production (verified_queue)"
+        default: "self-test"
+        type: choice
+        options: [self-test, production]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nirvana-proof
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bağımlılıklar (ücretsiz: playwright + pillow)
+        run: |
+          pip install playwright pillow httpx PyYAML
+          python -m playwright install --with-deps chromium
+      - name: L — micro_audit_proof_agent
+        env:
+          MODE: ${{ inputs.mode || 'self-test' }}
+        run: |
+          if [ "$MODE" = "production" ]; then
+            ARGS=""
+          else
+            ARGS="--self-test"
+          fi
+          python -m nirvana.runner micro_audit_proof_agent $ARGS
+      - name: Doğrulama
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          hooks = json.loads(pathlib.Path("nirvana/state/proof_hooks.json").read_text(encoding="utf-8"))
+          proofs = [p for p in hooks.get("proofs", []) if p.get("mode") == "proof"]
+          for p in proofs:
+              png = pathlib.Path("nirvana/proof-cards") / f"{p['domain']}.png"
+              assert png.exists(), f"proof card missing: {png}"
+              assert p["image_url"].startswith("https://raw.githubusercontent.com/"), p
+              assert "kanıt kartı" in (p.get("hook") or ""), "hook must carry image url"
+          print(f"proof cards verified: {len(proofs)}")
+          PY
+      - name: Commit proof cards + hooks
+        run: |
+          git config user.name "nirvana-proof"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nirvana/proof-cards nirvana/state/proof_hooks.json
+          if git diff --cached --quiet; then
+            echo "No proof changes"
+          else
+            git commit -m "nirvana proof cards (micro_audit) $(date -u +%FT%TZ)"
+            for i in 1 2 3; do
+              git pull --rebase origin master && break || {
+                git rebase --abort 2>/dev/null || true
+                sleep 5
+              }
+            done
+            git push origin HEAD:master
+          fi

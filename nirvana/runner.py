@@ -23,6 +23,9 @@ RUNNERS = {
     "delivery_runner": "nirvana.delivery_runner",
     "retention_agent": "nirvana.retention_agent",
     "watchdog_quota_agent": "nirvana.watchdog_quota_agent",
+    "linkedin_router": "nirvana.linkedin_router",
+    "meta_orchestrator": "nirvana.meta_orchestrator",
+    "micro_audit_proof_agent": "nirvana.micro_audit_proof",
 }
 
 
@@ -32,6 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list", action="store_true", help="list registered modules")
     parser.add_argument("--no-notify", action="store_true")
     parser.add_argument("--chat-id", type=int, default=None)
+    parser.add_argument("--self-test", action="store_true", help="micro_audit_proof: local-fixture dogrulama")
     args = parser.parse_args(argv)
 
     if args.list or not args.module:
@@ -52,6 +56,12 @@ def main(argv: list[str] | None = None) -> int:
         kwargs = {"notify": not args.no_notify}
     elif args.module == "watchdog_quota_agent":
         kwargs = {"dry_run": args.no_notify}  # watchdog hiçbir koşulda Telegram'a bildirim atmaz
+    elif args.module == "linkedin_router":
+        kwargs = {"notify": not args.no_notify}
+    elif args.module == "meta_orchestrator":
+        kwargs = {"notify": not args.no_notify}
+    elif args.module == "micro_audit_proof_agent":
+        kwargs = {"self_test": getattr(args, "self_test", False)}
     else:
         kwargs = {}
     result = runner.run_batch(**kwargs)

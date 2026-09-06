@@ -70,5 +70,26 @@ nirvana:
       letter: I
       schedule: "*/5 * * * *"
       entrypoint: "python -m nirvana.runner watchdog_quota_agent"
-      description: "Oracle CPU/RAM/HTTP-quota guard; autonomous cooling mode + Telegram status."
+      description: "Oracle CPU/RAM/HTTP-quota guard; autonomous cooling mode. Telegram'a bildirim ATMaz."
       heavy: false
+    linkedin_router:
+      host: oracle
+      letter: J
+      schedule: "0 8 * * *"
+      entrypoint: "python -m nirvana.runner linkedin_router"
+      description: "Captcha/no-form hedefleri -> insan-onayli LinkedIn inceleme karti (Telegram). Otomasyon/scrape YOK."
+      heavy: false
+    meta_orchestrator:
+      host: github
+      letter: K
+      schedule: "31 4 * * *"
+      entrypoint: "python -m nirvana.runner meta_orchestrator"
+      description: "Kendini gelistiren strateji: tum modul ciktilarini harmanlar, EMA serit agirliklari. Kotayi asla yukseltemez."
+      heavy: false
+    micro_audit_proof_agent:
+      host: github
+      letter: L
+      schedule: "23 5 * * *"
+      entrypoint: "python -m nirvana.runner micro_audit_proof_agent"
+      description: "Playwright ile checkout/sepet darboğazi tespiti + isaretli Proof Card PNG + gozleme dayali dinamik kanca. Oracle'da Playwright HICBIR ZAMAN calismaz."
+      heavy: true

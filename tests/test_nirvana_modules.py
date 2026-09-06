@@ -289,3 +289,135 @@ def test_watchdog_run_batch_dry_run_writes_status():
     saved = json.loads(state_path("watchdog_state.json").read_text(encoding="utf-8"))
     assert saved["mode"] == status["mode"]
 
+
+# --- J. linkedin_router (insan-onaylı, otomasyonsuz) ------------------------
+
+def test_linkedin_guess_and_token():
+    from nirvana import linkedin_router as lr
+    assert lr.domain_token("www.acme.co.uk") == "acme"
+    assert lr.linkedin_guess("acme.com") == "https://www.linkedin.com/company/acme/"
+    assert "site%3Alinkedin.com" in lr.search_link("acme.com")
+
+
+def test_linkedin_candidates_pick_captcha_only(tmp_path):
+    from nirvana import linkedin_router as lr
+    leads = tmp_path / "leads.json"
+    leads.write_text(json.dumps([
+        {"host": "cap.com", "status": "skipped_captcha", "company": "Cap"},
+        {"host": "ok.com", "status": "submitted_confirmed", "company": "Ok"},
+        {"host": "cap2.com", "status": "skipped_no_open_form", "company": "Cap2"},
+    ]), encoding="utf-8")
+    items = lr.candidates(leads, limit=10)
+    assert [i["domain"] for i in items] == ["cap2.com", "cap.com"]  # en yeni önce
+
+
+def test_linkedin_run_batch_card_and_never_spam(tmp_path, monkeypatch):
+    from nirvana import linkedin_router as lr
+    leads = tmp_path / "leads.json"
+    leads.write_text(json.dumps([
+        {"host": f"cap{i}.com", "status": "skipped_captcha", "company": f"Cap{i}"}
+        for i in range(15)
+    ]), encoding="utf-8")
+    monkeypatch.setattr(lr, "check_linkedin", lambda url: "found")
+    sent_boxes: list[str] = []
+    monkeypatch.setattr(lr.owner_notify, "send", lambda text, **kw: sent_boxes.append(text) or True)
+    result = lr.run_batch(leads_path=leads, notify=True)
+    assert result["routed"] == 10  # günlük cap
+    assert len(sent_boxes) == 1    # tek kart — spam yok
+    assert "LinkedIn inceleme kartı" in sent_boxes[0]
+    again = lr.run_batch(leads_path=leads, notify=False)
+    assert again["routed"] == 5    # ilk turda gönderilmeyen kalan hedefler
+    third = lr.run_batch(leads_path=leads, notify=False)
+    assert third["routed"] == 0    # hepsi yönlendirildi — tekrar yok
+
+
+# --- K. meta_orchestrator (kendini geliştiren, kota asla yükseltemez) -------
+
+def test_meta_weights_move_toward_winner_and_stay_bounded():
+    from nirvana import meta_orchestrator as mo
+    outcomes = ([{"lane": "enterprise", "converted": True}] * 12 +
+                [{"lane": "enterprise", "converted": False}] * 8 +
+                [{"lane": "smb", "converted": True}] * 2 +
+                [{"lane": "smb", "converted": False}] * 18)
+    yields = mo.channel_yields(outcomes)
+    weights = mo.update_weights({"smb": 0.5, "enterprise": 0.5}, yields)
+    assert weights["enterprise"] > weights["smb"]
+    lo, hi = mo.BOUNDS
+    assert all(lo - 1e-9 <= w <= hi + 1e-9 for w in weights.values())
+    # boş veri: ağırlıklar korunur
+    assert mo.update_weights({"smb": 0.5, "enterprise": 0.5}, {}) == {"smb": 0.5, "enterprise": 0.5}
+
+
+def test_meta_run_batch_never_raises_limits(tmp_path):
+    from nirvana import meta_orchestrator as mo
+    src = tmp_path / "outcomes.json"
+    src.write_text(json.dumps([{"lane": "smb", "converted": True}]), encoding="utf-8")
+    result = mo.run_batch(outcomes_path=src, notify=False)
+    saved = json.loads(state_path("meta_state.json").read_text(encoding="utf-8"))
+    assert saved["hard_limits"] == {"daily": 400, "hourly": 32, "per_esp_hour": 3}
+    assert any("kota yükseltilmez" in r for r in result["recommendations"])
+
+
+# --- L. micro_audit_proof_agent (offline: Playwright mock'lu) ----------------
+
+def test_proof_hook_is_observed_only_and_empty_without_image():
+    from nirvana import micro_audit_proof as mp
+    metrics = {"dom_ms": 4100,
+               "slow_res": [{"url": "https://shop.example/cart/api", "ms": 2100}],
+               "bad_reqs": []}
+    hook = mp.build_hook("shop.example", metrics, "https://raw.githubusercontent.com/x/master/nirvana/proof-cards/shop.example.png")
+    assert "shop.example" in hook and "2100 ms" in hook and "kanıt kartı" in hook
+    assert mp.build_hook("shop.example", metrics, None) == ""  # fail-safe
+    assert hook.count("12-18") == 0  # uydurma yüzde YOK
+
+
+def test_proof_load_targets_https_only(tmp_path):
+    from nirvana import micro_audit_proof as mp
+    src = tmp_path / "queue.json"
+    src.write_text(json.dumps([
+        {"domain": "a.com", "url": "https://a.com/checkout", "hook": "h1"},
+        {"domain": "b.com", "url": "http://b.com/", "hook": "h2"},
+        {"domain": "", "url": "https://c.com/", "hook": "h3"},
+    ]), encoding="utf-8")
+    items = mp.load_targets(str(src), limit=10)
+    assert [i["domain"] for i in items] == ["a.com"]
+
+
+def test_proof_run_proofs_emits_card_and_cleans_tmp(isolated_state, monkeypatch):
+    from nirvana import micro_audit_proof as mp
+    from PIL import Image
+    monkeypatch.setattr(mp, "PROOF_DIR", isolated_state / "cards")
+    made_png = []
+    def fake_probe(url, tmp_dir):
+        png = tmp_dir / "shot.png"
+        Image.new("RGB", (400, 200), (200, 200, 200)).save(png)
+        made_png.append(png)
+        return {"failed": False, "dom_ms": 3000,
+                "slow_res": [{"url": "https://x.example/api", "ms": 1800}],
+                "bad_reqs": [], "screenshot": png, "probed_url": url}
+    monkeypatch.setattr(mp, "_probe", fake_probe)
+    result = mp.run_proofs([{"domain": "x.example", "url": "https://x.example/checkout", "fallback_hook": "fb"}])
+    assert result["proofs"] == 1 and result["fallbacks"] == 0
+    assert (mp.PROOF_DIR / "x.example.png").exists()
+    # temp hiç kalmadı (cleanup)
+    assert all(not p.exists() for p in made_png)
+    hooks = json.loads(state_path("proof_hooks.json").read_text(encoding="utf-8"))
+    assert hooks["proofs"][0]["mode"] == "proof"
+    assert "kanıt kartı" in hooks["proofs"][0]["hook"]
+
+
+def test_proof_falls_back_on_probe_failure(isolated_state, monkeypatch):
+    from nirvana import micro_audit_proof as mp
+    monkeypatch.setattr(mp, "PROOF_DIR", isolated_state / "cards")
+    monkeypatch.setattr(mp, "_probe", lambda url, td: {"failed": True, "reason": "timeout"})
+    result = mp.run_proofs([{"domain": "y.example", "url": "https://y.example/", "fallback_hook": "fb-hook"}])
+    assert result["proofs"] == 0 and result["fallbacks"] == 1
+    hooks = json.loads(state_path("proof_hooks.json").read_text(encoding="utf-8"))
+    assert hooks["proofs"][0]["mode"] == "fallback" and hooks["proofs"][0]["hook"] == "fb-hook"
+
+
+def test_proof_run_batch_empty_queue(isolated_state):
+    from nirvana import micro_audit_proof as mp
+    result = mp.run_batch(in_name="verified_queue.json")
+    assert result["probed"] == 0
+
