@@ -23,6 +23,7 @@ from pathlib import Path
 
 import config
 import domain_store
+import feed_ingest
 import knowledge
 import lead_discovery
 import owner_notify
@@ -123,6 +124,9 @@ def _warn_if_starving(*, feed_updated_at: str = "") -> None:
 
 
 def _sleep_after_cycle() -> int:
+    if not getattr(config, "SMB_LANE_ENABLED", False):
+        # Discovery runs every six hours; do not download its feed every 20s.
+        return 900
     today_n, hour_n = knowledge.submit_counts()
     daily = knowledge.daily_cap()
     hourly = knowledge.hourly_cap()
@@ -205,7 +209,6 @@ def main() -> None:
         feed_stamp = ""
         if smb_early:
             try:
-                import feed_ingest
                 import target_pool
 
                 pool_stats = target_pool.sync()
@@ -243,7 +246,8 @@ def main() -> None:
         else:
             print("SMB feed atlandı (şerit kapalı) — kurumsal feed [FAZ-C] bloğunda çekilir.")
 
-        _warn_if_starving(feed_updated_at=feed_stamp)
+        if smb_early:
+            _warn_if_starving(feed_updated_at=feed_stamp)
 
         smb = bool(getattr(config, "SMB_LANE_ENABLED", False))
         pipeline_code = 0

@@ -11,8 +11,9 @@ employer accepts autonomous workers; the application explicitly discloses the
 AI-assisted service model and asks whether it is suitable.
 
 One browser, heavy assets blocked, a 10-minute scan budget and 15-minute job
-timeout replace the former hourly scan. Only a fresh schema-v2 feed can be
-used by Oracle. Sales/support/newsletter forms, closed roles, required CVs,
+timeout replace the former hourly scan. Oracle only uses a fresh schema-v2 feed
+and polls it once per 15-minute runner cycle instead of the legacy 20-second
+SMB loop. Sales/support/newsletter forms, closed roles, required CVs,
 eligibility questions and required consents are review-only, not auto-filled.
 No fallback to unscanned partner URLs. Empty results are valid and stop sending.
 
