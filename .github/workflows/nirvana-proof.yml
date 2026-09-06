@@ -58,7 +58,10 @@ jobs:
               png = pathlib.Path("nirvana/proof-cards") / f"{p['domain']}.png"
               assert png.exists(), f"proof card missing: {png}"
               assert p["image_url"].startswith("https://raw.githubusercontent.com/"), p
-              assert "kanıt kartı" in (p.get("hook") or ""), "hook must carry image url"
+              # encoding-bağımsız kontrol: kanıt kartı URL'sindeki PNG adı hook içinde
+              assert (p.get("hook") or ""), "hook must be non-empty in proof mode"
+              png_name = p["image_url"].rsplit("/", 1)[-1]
+              assert png_name in (p.get("hook") or ""), f"hook must contain image name {png_name}"
           print(f"proof cards verified: {len(proofs)}")
           PY
       - name: Commit proof cards + hooks
