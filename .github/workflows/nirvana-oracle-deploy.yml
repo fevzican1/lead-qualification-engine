@@ -39,7 +39,7 @@ jobs:
       - name: Paketle (commit'lenmiş kod only — git archive)
         run: |
           set -euo pipefail
-          git archive -o /tmp/nirvana-deploy.tgz HEAD nirvana oracle requirements.txt
+          git archive -o /tmp/nirvana-deploy.tgz HEAD nirvana oracle requirements.txt config.py payment_safety.py telegram_sales_bot.py
           echo "paket: $(tar -tzf /tmp/nirvana-deploy.tgz | wc -l) dosya"
       - name: Oracle'a yükle (scp)
         run: |
