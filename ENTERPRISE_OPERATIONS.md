@@ -17,6 +17,15 @@ SMB loop. Sales/support/newsletter forms, closed roles, required CVs,
 eligibility questions and required consents are review-only, not auto-filled.
 No fallback to unscanned partner URLs. Empty results are valid and stop sending.
 
+Legacy Common Crawl/Tranco harvest, publish, optimizer and watchdog workflows
+are retained for rollback but gated by the repository variable
+`ENABLE_LEGACY_SMB_WORKFLOWS == 'true'` (disabled by default). Disable these
+workflows in GitHub as well and cancel queued/running legacy jobs during the
+enterprise cutover; keep `enterprise-feed` enabled. No customer data is deleted.
+The old Oracle feed-sync timer exits without network or queue writes when
+`SMB_LANE_ENABLED=0`; only the enterprise runner downloads the new feed.
+Do not re-enable legacy producers independently of a reviewed lane migration.
+
 Oracle limits are **attempts**: at most 4/day, 2/rolling hour, never increased by
 environment overrides. Attempts include failures, are reserved before submission,
 and use a cross-process lane lock. Ambiguous writes and previous submissions

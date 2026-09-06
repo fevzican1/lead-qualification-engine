@@ -405,6 +405,11 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if not config.SMB_LANE_ENABLED:
+        # The enterprise runner owns its bounded 15-minute feed polling.
+        # Legacy timers must neither refill SMB queues nor duplicate that poll.
+        logger.info("Legacy feed ingest disabled; enterprise runner owns discovery sync")
+        return 0
     sync_github_feed()
     n = ingest(
         force_low=domain_store.queue_depth() < _refill_below() or _fuel_thin()

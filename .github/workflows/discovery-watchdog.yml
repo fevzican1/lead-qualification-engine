@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   watchdog:
+    if: ${{ vars.ENABLE_LEGACY_SMB_WORKFLOWS == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:

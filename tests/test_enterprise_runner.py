@@ -42,3 +42,28 @@ def test_enterprise_only_runner_syncs_feed_without_smb_import(tmp_path, monkeypa
 def test_enterprise_idle_polling_does_not_use_smb_twenty_second_loop(monkeypatch):
     monkeypatch.setattr(config, "SMB_LANE_ENABLED", False)
     assert auto_runner._sleep_after_cycle() >= 900
+
+
+def test_legacy_timer_does_not_refill_or_duplicate_enterprise_poll(monkeypatch):
+    monkeypatch.setattr(config, "SMB_LANE_ENABLED", False)
+    calls = []
+    for name in ["sync_github_feed", "sync_enterprise_feed", "ingest"]:
+        mock = Mock(side_effect=AssertionError("Legacy timer must not fetch or ingest"))
+        monkeypatch.setattr(feed_ingest, name, mock)
+        calls.append(mock)
+    assert feed_ingest.main() == 0
+    for mock in calls:
+        mock.assert_not_called()
+
+
+def test_legacy_timer_can_still_run_when_explicitly_enabled(monkeypatch):
+    monkeypatch.setattr(config, "SMB_LANE_ENABLED", True)
+    sync = Mock()
+    ingest = Mock(return_value=0)
+    monkeypatch.setattr(feed_ingest, "sync_github_feed", sync)
+    monkeypatch.setattr(feed_ingest, "ingest", ingest)
+    monkeypatch.setattr(domain_store, "queue_depth", lambda: 0)
+    monkeypatch.setattr(domain_store, "chromium_fuel_count", lambda: 0)
+    assert feed_ingest.main() == 0
+    sync.assert_called_once()
+    ingest.assert_called_once()

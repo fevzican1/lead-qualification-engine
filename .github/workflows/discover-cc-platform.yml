@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   shard:
+    if: ${{ vars.ENABLE_LEGACY_SMB_WORKFLOWS == 'true' }}
     uses: ./.github/workflows/harvest-shard.yml
     with:
       profile: platform
