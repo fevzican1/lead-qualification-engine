@@ -1,0 +1,76 @@
+name: oracle-diagnose
+
+# Form gönderimi 0 teşhisi: kuyruk, yakıt, sayaçlar, log kuyruğu, kilitler.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oracle-diagnose
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HOST: ${{ secrets.ORACLE_HOST }}
+      USER: ${{ secrets.ORACLE_USER }}
+      SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+    steps:
+      - name: SSH anahtarı hazırla
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle.key
+          chmod 600 ~/.ssh/oracle.key
+          ssh-keyscan -T 8 -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+      - name: Teşhis
+        run: |
+          ssh -i ~/.ssh/oracle.key \
+              -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+              -o ConnectTimeout=10 -o BatchMode=yes \
+              "${USER}@${HOST}" bash -s <<'REMOTE'
+          set -uo pipefail
+          cd /opt/devsolve
+          echo "=== SERVISLER ==="
+          systemctl is-active devsolve-bot.service devsolve-runner.service devsolve-ingest.service 2>&1 || true
+          echo "=== KUYRUK / YAKIT ==="
+          .venv/bin/python - <<'PY'
+          import domain_store, knowledge, config, json, os
+          print("queue_depth:", domain_store.queue_depth())
+          print("chromium_fuel:", domain_store.chromium_fuel_count(), "target:", domain_store.chromium_fuel_target())
+          print("easy80_fuel:", domain_store.chromium_fuel_count(min_easy=80))
+          today, hour = knowledge.submit_counts()
+          print("submits today:", today, "/", knowledge.daily_cap(), " hour:", hour, "/", knowledge.hourly_cap())
+          print("oracle_lock:", knowledge.oracle_lock())
+          print("SMB_LANE:", config.SMB_LANE_ENABLED, "ENTERPRISE:", config.ENTERPRISE_MODE)
+          print("enterprise caps:", config.ENTERPRISE_DAILY_CAP, config.ENTERPRISE_HOURLY_CAP)
+          PY
+          echo "=== ENTERPRISE LEDGER ==="
+          .venv/bin/python - <<'PY'
+          import json
+          try:
+              data = json.load(open("enterprise_applications.json"))
+              rows = data if isinstance(data, list) else data.get("applications") or data.get("rows") or []
+              from collections import Counter
+              c = Counter(str(r.get("last_status")) for r in rows if isinstance(r, dict))
+              print("enterprise rows:", len(rows), dict(c))
+          except Exception as e:
+              print("enterprise ledger:", e)
+          try:
+              leads = json.load(open("leads.json"))
+              print("leads.json rows:", len(leads))
+              from collections import Counter
+              c = Counter(str(r.get("status")) for r in leads[-200:] if isinstance(r, dict))
+              print("last200 statuses:", dict(c))
+          except Exception as e:
+              print("leads.json:", e)
+          PY
+          echo "=== RUNNER LOG (son 40) ==="
+          tail -n 40 logs/runner.log 2>/dev/null || journalctl -u devsolve-runner.service -n 40 --no-pager -o cat 2>/dev/null || echo "log yok"
+          echo "=== PIPELINE SON CIKIS ==="
+          tail -n 25 logs/pipeline.log 2>/dev/null || echo "pipeline.log yok"
+          REMOTE
