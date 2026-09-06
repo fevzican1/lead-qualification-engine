@@ -74,5 +74,12 @@ jobs:
           print("cooldown:", w.in_cooldown())
           PY
           systemctl list-timers 'nirvana-*' --no-pager || sudo -n systemctl list-timers 'nirvana-*' --no-pager
+          echo "=== [4] Satış botunu yeni Payoneer linki ile yeniden başlat ==="
+          if sudo -n systemctl restart devsolve-bot.service 2>/dev/null; then
+            sleep 3
+            systemctl is-active devsolve-bot.service
+          else
+            echo "devsolve-bot.service bulunamadı — atlandı"
+          fi
           echo "NIRVANA ORACLE LIVE"
           REMOTE
