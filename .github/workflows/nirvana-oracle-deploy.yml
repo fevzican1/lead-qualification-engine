@@ -62,6 +62,11 @@ jobs:
           sed -i 's/\r$//' oracle/nirvana_oracle_install.sh
           chmod +x oracle/nirvana_oracle_install.sh
           echo "=== [2] Nirvana kurulum (link + systemd timer'lar) ==="
+          # Form akisi garanti: SMB seridi acik + enterprise cap ayarli (eski .env
+          # degerleri varsa guncellenir; kotalar 400/gun 32/saat aynen kalir).
+          grep -q '^SMB_LANE_ENABLED=' .env && sed -i 's|^SMB_LANE_ENABLED=.*|SMB_LANE_ENABLED=1|' .env || printf 'SMB_LANE_ENABLED=1\n' >> .env
+          grep -q '^ENTERPRISE_DAILY_CAP=' .env && sed -i 's|^ENTERPRISE_DAILY_CAP=.*|ENTERPRISE_DAILY_CAP=40|' .env || printf 'ENTERPRISE_DAILY_CAP=40\n' >> .env
+          grep -q '^ENTERPRISE_HOURLY_CAP=' .env && sed -i 's|^ENTERPRISE_HOURLY_CAP=.*|ENTERPRISE_HOURLY_CAP=4|' .env || printf 'ENTERPRISE_HOURLY_CAP=4\n' >> .env
           sudo -n PAYONEER_LINK="${PAYONEER_LINK:-}" bash oracle/nirvana_oracle_install.sh
           echo "=== [3] Canlı doğrulama ==="
           .venv/bin/python - <<'PY'
@@ -71,6 +76,8 @@ jobs:
           print("link aktif:", p.payment_link()[:52] + "...")
           print("telegram bildirim kanali:", bool(config.TELEGRAM_NOTIFY_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN))
           print("telegram bildirim hedefi:", bool(config.TELEGRAM_NOTIFY_CHAT_ID or config.TELEGRAM_OWNER_CHAT_ID))
+          print("form seritleri: SMB=", config.SMB_LANE_ENABLED, " ENTERPRISE=", config.ENTERPRISE_MODE,
+                " caps=", config.ENTERPRISE_DAILY_CAP, "/", config.ENTERPRISE_HOURLY_CAP)
           from nirvana import watchdog_quota_agent as w
           print("watchdog kota:", w.quota_snapshot())
           print("cooldown:", w.in_cooldown())

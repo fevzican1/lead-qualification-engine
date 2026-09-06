@@ -100,8 +100,11 @@ OLLAMA_MODEL: str = _get("OLLAMA_MODEL", "deepseek-r1:14b")
 # Global company partner/contractor channels, applied autonomously through the
 # SAME quota gates (forms count toward knowledge caps via leads.json).
 ENTERPRISE_MODE: bool = _get("ENTERPRISE_MODE", "1").strip() not in {"0", "false", "no"}
-ENTERPRISE_DAILY_CAP: int = _get_int("ENTERPRISE_DAILY_CAP", 4)
-ENTERPRISE_HOURLY_CAP: int = _get_int("ENTERPRISE_HOURLY_CAP", 2)
+# 4/day was starvation — the lane sat at "daily sub-cap 15/4" and submitted
+# nothing. 40/day x 4/hour still fits inside the global 400/day, 32/hour caps
+# and the per-ESP pacing guard (max 3/hour per provider) stays in control.
+ENTERPRISE_DAILY_CAP: int = _get_int("ENTERPRISE_DAILY_CAP", 40)
+ENTERPRISE_HOURLY_CAP: int = _get_int("ENTERPRISE_HOURLY_CAP", 4)
 # Big-company pages load heavy JS: give the open-form fingerprint a wider
 # window so a dynamic application form is not misread as "no form".
 ENTERPRISE_FINGERPRINT_MS: int = _get_int("ENTERPRISE_FINGERPRINT_MS", 9000)
@@ -128,9 +131,10 @@ FEED_ENTERPRISE_RAW_URL: str = _get(
     "FEED_ENTERPRISE_RAW_URL",
     f"https://raw.githubusercontent.com/{_get('FEED_GITHUB_REPO', 'fevzican1/lead-qualification-engine')}/master/feeds/enterprise_targets.json",
 )
-# Faz C: legacy SMB lane (form filling to random small sites) is OFF by
-# default; the enterprise contractor lane replaces it as the primary channel.
-SMB_LANE_ENABLED: bool = _get("SMB_LANE_ENABLED", "0").strip() not in {"0", "false", "no"}
+# Faz C: legacy SMB lane (form filling) — main volume lane. Was OFF by default
+# during the enterprise-lane migration, which starved total form throughput to
+# ~4/day. Both lanes run together now; global caps (400/day, 32/hour) still gate.
+SMB_LANE_ENABLED: bool = _get("SMB_LANE_ENABLED", "1").strip() not in {"0", "false", "no"}
 
 # --- Product / outreach copy --------------------------------------------
 TELEGRAM_BOT_USERNAME: str = _get("TELEGRAM_BOT_USERNAME").lstrip("@")
