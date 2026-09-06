@@ -24,7 +24,8 @@ jobs:
       SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
       PAYONEER_LINK: ${{ secrets.PAYONEER_LINK }}
     steps:
-      - name: Deploy + canlı doğrulama
+      - uses: actions/checkout@v4
+      - name: SSH anahtarı hazırla
         run: |
           set -euo pipefail
           if [ -z "${HOST:-}" ] || [ -z "${USER:-}" ] || [ -z "${SSH_KEY:-}" ]; then
@@ -35,14 +36,31 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle.key
           chmod 600 ~/.ssh/oracle.key
           ssh-keyscan -T 8 -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+      - name: Paketle (commit'lenmiş kod only — git archive)
+        run: |
+          set -euo pipefail
+          git archive -o /tmp/nirvana-deploy.tgz HEAD nirvana oracle requirements.txt
+          echo "paket: $(tar -tzf /tmp/nirvana-deploy.tgz | wc -l) dosya"
+      - name: Oracle'a yükle (scp)
+        run: |
+          set -euo pipefail
+          scp -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+              -o ConnectTimeout=10 -o BatchMode=yes \
+              /tmp/nirvana-deploy.tgz "${USER}@${HOST}:/tmp/nirvana-deploy.tgz"
+      - name: Deploy + canlı doğrulama
+        run: |
+          set -euo pipefail
           ssh -i ~/.ssh/oracle.key \
               -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
               -o ConnectTimeout=10 -o ConnectionAttempts=1 -o BatchMode=yes \
               "${USER}@${HOST}" "PAYONEER_LINK='${PAYONEER_LINK}' bash -s" <<'REMOTE'
           set -euo pipefail
+          echo "=== [1] Paket açma (reviewed committed code, /opt/devsolve) ==="
           cd /opt/devsolve
-          echo "=== [1] Repo güncelleme ==="
-          git pull --ff-only origin master
+          tar -xzf /tmp/nirvana-deploy.tgz -C /opt/devsolve
+          find nirvana -name '*.sh' -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+          sed -i 's/\r$//' oracle/nirvana_oracle_install.sh
+          chmod +x oracle/nirvana_oracle_install.sh
           echo "=== [2] Nirvana kurulum (link + systemd timer'lar) ==="
           sudo -n PAYONEER_LINK="${PAYONEER_LINK:-}" bash oracle/nirvana_oracle_install.sh
           echo "=== [3] Canlı doğrulama ==="

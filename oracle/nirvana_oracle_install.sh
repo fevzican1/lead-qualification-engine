@@ -6,9 +6,8 @@ set -euo pipefail
 APP_DIR=/opt/devsolve
 UNIT_SRC="$(cd "$(dirname "$0")" && pwd)"
 
-echo "[1/6] Depo güncelleme"
+echo "[1/6] Uygulama dizini: $APP_DIR (tar/scp tabanlı deployment — git deposu değildir)"
 cd "$APP_DIR"
-git pull --ff-only origin master
 
 echo "[2/6] Python bağımlılıkları (yalnız ücretsiz paketler)"
 "$APP_DIR/.venv/bin/pip" install -q -r requirements.txt
