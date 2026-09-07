@@ -134,6 +134,12 @@ def build_hook(domain: str, metrics: dict[str, Any], image: str | None) -> str:
             "İlk 7 gün performans yamalarını ücretsiz uyguluyoruz.")
 
 
+def _identity_suffix() -> str:
+    """Gerçek insan kimliği — robot algısını kırmak için kanıt/hook metnine eklenir."""
+    url = str(getattr(config, "OWNER_LINKEDIN_URL", "") or "").strip()
+    return f"\nİnsan karşınızda: {url}" if url else ""
+
+
 def load_targets(in_name: str, *, limit: int) -> list[dict[str, Any]]:
     in_path = state_path(in_name)
     try:
@@ -174,6 +180,8 @@ def run_proofs(items: list[dict[str, Any]], *, out_name: str = HOOKS_OUT) -> dic
                 proofs.append(entry)
                 continue
             hook = build_hook(it["domain"], data, img_url)
+            if hook:
+                hook += _identity_suffix()
             entry.update({"mode": "proof", "hook": hook, "image_url": img_url,
                           "metrics": {"dom_ms": data.get("dom_ms"), "slow_res": data.get("slow_res"),
                                       "bad_reqs": data.get("bad_reqs")}})

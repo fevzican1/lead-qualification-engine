@@ -183,13 +183,38 @@ def _display_text(text: str | None) -> str:
     )
 
 
+def _identity_prompt_line() -> str:
+    """Gerçek insan kimliği — 'robot mu insan mı' algısını kırmak için sistem prompt'una eklenir."""
+    url = str(getattr(config, "OWNER_LINKEDIN_URL", "") or "").strip()
+    return (f"\nBehind this system is a real, verifiable human engineer: {url}. "
+            "You may share this when trust matters; never claim to be a human typing live — "
+            "you are an assistant backed by that engineer."
+            if url else "")
+
+
 def _complete(messages: list[dict[str, str]]) -> str:
-    return ollama_client.chat(
+    # Nirvana semantik önbellek: aynı system+user çiftine Ollama'yı tekrar yorma
+    # (Oracle CPU kotası dostu). Hata olursa sessizce normal yola düşer.
+    try:
+        from nirvana import semantic_cache
+        cached = semantic_cache.get(messages)
+        if cached:
+            return cached
+    except Exception:
+        pass
+    reply = ollama_client.chat(
         messages,
         temperature=0.4,
         max_tokens=380,
         timeout=180.0,
     )
+    try:
+        from nirvana import semantic_cache
+        if len(messages) <= 3:  # yalnız kısa bağlamlarda cache'le
+            semantic_cache.put(messages, reply)
+    except Exception:
+        pass
+    return reply
 
 
 def _owner_intro() -> str:
@@ -744,8 +769,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     _remember(chat_id, "user", user_text)
     brief = _closer_brief(_briefs.get(chat_id))
+    try:
+        system_prompt = knowledge.telegram_system_prompt(brief=brief) + _identity_prompt_line()
+    except Exception:
+        system_prompt = knowledge.telegram_system_prompt(brief=brief)
     messages = [
-        {"role": "system", "content": knowledge.telegram_system_prompt(brief=brief)},
+        {"role": "system", "content": system_prompt},
         *_histories[chat_id],
     ]
 

@@ -22,6 +22,13 @@ def welcome_packet(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
         return ""
     name = str(row.get("company") or row.get("name") or "").strip()
     hello = f"Merhaba {name} — " if name and turkish else (f"Hello {name} — " if name else "")
+    contract_line = ""
+    try:
+        from nirvana.contract_pack import pack_text
+        contract_line = "\n\nSözleşme paketi (SLA + NDA + fikri mülkiyet) taslağı hazır:\n" + \
+            pack_text(company=name)[:900]
+    except Exception:
+        contract_line = ""
     if turkish:
         return (
             f"{hello}ödemeniz doğrulandı, hoş geldiniz. Karşılama protokolü:\n"
@@ -31,7 +38,7 @@ def welcome_packet(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
             "3) Erişim kılavuzu: bize yalnızca okunur izleme erişimi verin (read-only API "
             "anahtarı veya durum sayfası). Yönetici şifresi asla paylaşılmaz.\n"
             "4) İlk tur 24 saat içinde başlar; raporlar bu sohbete düşer.\n"
-            "Kapsam sorunuz olursa buradan yazmanız yeterli."
+            "Kapsam sorunuz olursa buradan yazmanız yeterli." + contract_line
         )
     return (
         f"{hello}payment verified, welcome aboard. Onboarding protocol:\n"
@@ -41,7 +48,7 @@ def welcome_packet(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
         "3) Access guide: provide read-only monitoring access only (read-only API key or a "
         "status page). Never share admin passwords.\n"
         "4) First sweep starts within 24h; reports land in this chat.\n"
-        "Reply here with any scope questions."
+        "Reply here with any scope questions." + contract_line
     )
 
 

@@ -421,3 +421,84 @@ def test_proof_run_batch_empty_queue(isolated_state):
     result = mp.run_batch(in_name="verified_queue.json")
     assert result["probed"] == 0
 
+
+# --- M. retainer_report_agent (value-in-advance PDF) -------------------------
+
+def test_report_pdf_generated_from_proofs(isolated_state, monkeypatch):
+    from nirvana import retainer_report_agent as rr
+    monkeypatch.setattr(rr, "REPORT_DIR", isolated_state / "reports")
+    state_path("proof_hooks.json").write_text(json.dumps({
+        "proofs": [{"domain": "shop.example", "mode": "proof",
+                    "metrics": {"dom_ms": 5200,
+                                "slow_res": [{"url": "https://shop.example/cart", "ms": 2200}],
+                                "bad_reqs": []}}]}), encoding="utf-8")
+    result = rr.run_batch(notify=False)
+    assert result["reports"] == 1
+    pdf = isolated_state / "reports" / "shop.example.pdf"
+    assert pdf.exists() and pdf.read_bytes()[:4] == b"%PDF"
+    saved = json.loads(state_path("retainer_reports.json").read_text(encoding="utf-8"))
+    assert saved["reports"][0]["report_url"].endswith("shop.example.pdf")
+
+
+def test_report_findings_are_observed_only(isolated_state, monkeypatch):
+    from nirvana import retainer_report_agent as rr
+    findings = rr._findings_from_proof({"metrics": {"dom_ms": 3300, "slow_res": [], "bad_reqs": []}})
+    assert any("3300 ms" in f for f in findings)
+    full_text = "\n".join(findings)
+    assert "12-18" not in full_text and "35%" not in full_text  # uydurma istatistik yok
+
+
+# --- N. contract_pack --------------------------------------------------------
+
+def test_contract_pack_contains_sla_nda_ip_and_disclaimer():
+    from nirvana import contract_pack as cp
+    text = cp.pack_text(company="Acme", domain="acme.com")
+    assert "SLA" in text and "Gizlilik" in text and "mülkiyet" in text
+    assert "hukuki danışmanlık değildir" in text
+    assert "2.500 EUR" in text
+
+
+def test_onboarding_packet_includes_contract_pack(monkeypatch):
+    import telegram_sessions
+    from nirvana import onboarding_agent as onb
+    monkeypatch.setattr(telegram_sessions, "fulfillment_ready", lambda cid: True)
+    monkeypatch.setattr(telegram_sessions, "_row", lambda cid: {"chat_id": 9, "company": "Acme"})
+    packet = onb.packet_for(9)
+    assert "Sözleşme paketi" in packet and "SLA" in packet
+
+
+# --- Sahip kimliği (LinkedIn) ------------------------------------------------
+
+def test_identity_suffix_appears_in_proof_hook(monkeypatch):
+    from nirvana import micro_audit_proof as mp
+    monkeypatch.setattr(config, "OWNER_LINKEDIN_URL", "https://www.linkedin.com/in/fevzican-aytekin-0b5501105")
+    hook = mp.build_hook("shop.example",
+                         {"dom_ms": 3000, "slow_res": [], "bad_reqs": []},
+                         "https://raw.githubusercontent.com/x/master/nirvana/proof-cards/shop.example.png")
+    hook += mp._identity_suffix()
+    assert "linkedin.com/in/fevzican-aytekin" in hook
+
+
+def test_identity_prompt_line_off_when_unset(monkeypatch):
+    import telegram_sales_bot as bot
+    monkeypatch.setattr(config, "OWNER_LINKEDIN_URL", "")
+    assert bot._identity_prompt_line() == ""
+    monkeypatch.setattr(config, "OWNER_LINKEDIN_URL", "https://www.linkedin.com/in/fevzican-aytekin-0b5501105")
+    assert "verifiable human engineer" in bot._identity_prompt_line()
+
+
+# --- Semantik önbellek (Oracle kota dostu) -----------------------------------
+
+def test_semantic_cache_roundtrip_and_ttl(isolated_state, monkeypatch):
+    from nirvana import semantic_cache as sc
+    monkeypatch.setattr(sc, "DB_PATH", isolated_state / "cache.db")
+    msgs = [{"role": "system", "content": "s"}, {"role": "user", "content": "Fiyat nedir?"}]
+    assert sc.get(msgs) is None
+    assert sc.put(msgs, "2.500 EUR") is True
+    assert sc.get(msgs) == "2.500 EUR"
+    # farklı soru → farklı anahtar
+    assert sc.get([{"role": "user", "content": "SLA var mı?"}]) is None
+    # TTL: eski kayıt dönmez
+    monkeypatch.setattr(sc, "TTL_SECONDS", -1)
+    assert sc.get(msgs) is None
+

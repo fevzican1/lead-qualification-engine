@@ -26,6 +26,8 @@ RUNNERS = {
     "linkedin_router": "nirvana.linkedin_router",
     "meta_orchestrator": "nirvana.meta_orchestrator",
     "micro_audit_proof_agent": "nirvana.micro_audit_proof",
+    "retainer_report_agent": "nirvana.retainer_report_agent",
+    "contract_pack": "nirvana.contract_pack",
 }
 
 
@@ -62,6 +64,10 @@ def main(argv: list[str] | None = None) -> int:
         kwargs = {"notify": not args.no_notify}
     elif args.module == "micro_audit_proof_agent":
         kwargs = {"run_self_test": getattr(args, "self_test", False)}
+    elif args.module == "retainer_report_agent":
+        kwargs = {"notify": not args.no_notify}
+    elif args.module == "contract_pack":
+        kwargs = {}
     else:
         kwargs = {}
     result = runner.run_batch(**kwargs)

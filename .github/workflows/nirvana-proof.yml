@@ -48,6 +48,8 @@ jobs:
             ARGS="--self-test"
           fi
           python -m nirvana.runner micro_audit_proof_agent $ARGS
+      - name: M — retainer_report_agent (value-in-advance PDF'ler)
+        run: python -m nirvana.runner retainer_report_agent
       - name: Doğrulama
         run: |
           python - <<'PY'
@@ -68,7 +70,7 @@ jobs:
         run: |
           git config user.name "nirvana-proof"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add nirvana/proof-cards nirvana/state/proof_hooks.json
+          git add nirvana/proof-cards nirvana/state/proof_hooks.json nirvana/audit-reports nirvana/state/retainer_reports.json
           if git diff --cached --quiet; then
             echo "No proof changes"
           else

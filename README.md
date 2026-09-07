@@ -14,6 +14,8 @@
 | J | `linkedin_router` | Oracle VM | günlük `0 8 * * *` |
 | K | `meta_orchestrator` | GitHub Actions | günlük `31 4 * * *` |
 | L | `micro_audit_proof_agent` | GitHub Actions | günlük `23 5 * * *` |
+| M | `retainer_report_agent` | GitHub Actions | günlük `47 5 * * *` |
+| N | `contract_pack` | Oracle VM | sözleşme evresinde |
 
 - Kayıt defteri: `nirvana/nirvana.yaml` — tek doğruluk kaynağı (host, schedule, entrypoint).
 - CLI: `python -m nirvana.runner <modul>` (tüm lane'ler), `--list` ile envanter.

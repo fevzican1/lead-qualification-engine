@@ -119,6 +119,9 @@ PRICE_HIDDEN: bool = _get("PRICE_HIDDEN", "0").strip() in {"1", "true", "yes", "
 PRICE_USD: int = _get_int("PRICE_USD", 2500)
 ENTERPRISE_RETAINER_USD: int = _get_int("ENTERPRISE_RETAINER_USD", 2500)
 ENTERPRISE_PILOT_USD: int = _get_int("ENTERPRISE_PILOT_USD", 500)
+# --- Nirvana owner identity (insan algisi) ---------------------------------
+# Raporlarda, kanıt kartlarında ve Telegram kimliğinde gerçek insan görünür.
+OWNER_LINKEDIN_URL: str = _get("OWNER_LINKEDIN_URL", "").strip()
 # --- Nirvana retainer payment (Payoneer) -----------------------------------
 # Retainer request language for the Nirvana modules. The Payoneer request is
 # created by the owner in the provider panel; these values only describe the

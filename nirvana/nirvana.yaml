@@ -93,3 +93,17 @@ nirvana:
       entrypoint: "python -m nirvana.runner micro_audit_proof_agent"
       description: "Playwright ile checkout/sepet darboğazi tespiti + isaretli Proof Card PNG + gozleme dayali dinamik kanca. Oracle'da Playwright HICBIR ZAMAN calismaz."
       heavy: true
+    retainer_report_agent:
+      host: github
+      letter: M
+      schedule: "47 5 * * *"
+      entrypoint: "python -m nirvana.runner retainer_report_agent"
+      description: "Value-in-advance: olculen bulgulardan kisisellestirilmis PDF denetim raporu (Pillow->PDF) + insan kimligi. Rapor linki form/telegram akisina gecer."
+      heavy: true
+    contract_pack:
+      host: oracle
+      letter: N
+      schedule: "event"
+      entrypoint: "python -m nirvana.runner contract_pack"
+      description: "Dinamik SLA + NDA + fikri mülkiyet taslagi (sablon; hukuki danismanlik degil). Onboarding evresinde sunulur."
+      heavy: false
