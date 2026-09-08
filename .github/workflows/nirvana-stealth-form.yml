@@ -1,0 +1,31 @@
+name: "Nirvana Stealth Form (Lane O/P/Q)"
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Comma-separated form URLs (optional)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "7 */4 * * *"
+
+jobs:
+  stealth-submit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -q httpx pyyaml
+      - name: Stealth form submit (Lane O)
+        run: |
+          if [ -n "${{ github.event.inputs.targets }}" ]; then
+            python -m nirvana.runner stealth_former --urls "${{ github.event.inputs.targets }}"
+          else
+            python -m nirvana.runner stealth_former
+          fi
+      - name: Message optimizer (Lane P)
+        run: python -m nirvana.runner message_optimizer

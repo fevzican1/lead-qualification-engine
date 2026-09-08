@@ -28,6 +28,9 @@ RUNNERS = {
     "micro_audit_proof_agent": "nirvana.micro_audit_proof",
     "retainer_report_agent": "nirvana.retainer_report_agent",
     "contract_pack": "nirvana.contract_pack",
+    "stealth_former": "nirvana.stealth_former",
+    "message_optimizer": "nirvana.message_optimizer",
+    "github_orchestrator": "nirvana.github_orchestrator",
 }
 
 
@@ -67,6 +70,12 @@ def main(argv: list[str] | None = None) -> int:
     elif args.module == "retainer_report_agent":
         kwargs = {"notify": not args.no_notify}
     elif args.module == "contract_pack":
+        kwargs = {}
+    elif args.module == "stealth_former":
+        kwargs = {}
+    elif args.module == "message_optimizer":
+        kwargs = {}
+    elif args.module == "github_orchestrator":
         kwargs = {}
     else:
         kwargs = {}

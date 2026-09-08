@@ -640,3 +640,58 @@ def test_linkedin_router_run_includes_drafts(isolated_state, monkeypatch):
     assert len(result["drafts"]) == 1
     assert "Acme" in result["drafts"][0]["draft"]
 
+
+# --- Lane O: stealth_former (CAPTCHA detection + routing) -----------------
+
+
+def test_stealth_detects_captcha():
+    from nirvana import stealth_former as sf
+    html_with_captcha = '<div class="g-recaptcha" data-sitekey="6Le..."></div>'
+    html_clean = '<form action="/contact"><input name="email"></form>'
+    assert sf.detect_captcha(html_with_captcha)
+    assert not sf.detect_captcha(html_clean)
+
+
+def test_stealth_marks_captcha_and_routes(isolated_state, monkeypatch):
+    from nirvana import stealth_former as sf
+    monkeypatch.setattr(config, "ROOT", isolated_state)
+    # Mock httpx.get to return captcha HTML
+    class FakeResp:
+        text = '<div class="cf-turnstile" data-sitekey="x"></div>'
+        status_code = 200
+    monkeypatch.setattr(sf.httpx, "get", lambda *a, **kw: FakeResp())
+    result = sf.run_batch(urls=["https://acme.com/contact"])
+    assert result["captcha_routed"] == 1
+    assert result["submitted"] == 0
+
+
+# --- Lane P: message_optimizer (PAS framework) --------------------------
+
+
+def test_message_optimizer_pas_structure():
+    from nirvana import message_optimizer as mo
+    msg = mo.build_message(company="Acme", page="checkout", metric="2.1s gecikme", lang="tr")
+    assert "Acme" in msg
+    assert "checkout" in msg or "2.1s" in msg
+
+
+def test_message_optimizer_best_variant(isolated_state, monkeypatch):
+    from nirvana import message_optimizer as mo
+    monkeypatch.setattr(config, "ROOT", isolated_state)
+    mo.record_outcome("a.com", "A", replied=True, lang="tr")
+    mo.record_outcome("b.com", "A", replied=True, lang="tr")
+    mo.record_outcome("c.com", "B", replied=False, lang="tr")
+    assert mo.best_variant(lang="tr") == "A"
+
+
+# --- Lane Q: github_orchestrator (dry-run without token) -----------------
+
+
+def test_github_orchestrator_no_token(monkeypatch):
+    from nirvana import github_orchestrator as go
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    result = go.run_batch()
+    assert result["ok"] is False
+    assert result["reason"] == "no_token"
+

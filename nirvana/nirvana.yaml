@@ -107,3 +107,24 @@ nirvana:
       entrypoint: "python -m nirvana.runner contract_pack"
       description: "Dinamik SLA + NDA + fikri mülkiyet taslagi (sablon; hukuki danismanlik degil). Onboarding evresinde sunulur."
       heavy: false
+    stealth_former:
+      host: github
+      letter: O
+      schedule: "*/4 * * * *"
+      entrypoint: "python -m nirvana.runner stealth_former"
+      description: "Stealth form submitter: CAPTCHA yoksa gonderir, varsa linkedin_router'a rotalar (UCRETLI captcha cozulmez). Anti-detection + pacing."
+      heavy: true
+    message_optimizer:
+      host: github
+      letter: P
+      schedule: "7 4 * * *"
+      entrypoint: "python -m nirvana.runner message_optimizer"
+      description: "PAS cercevesi + A/B test: mesaj varyasyonlarinin donusum skoru. En iyiyi otomatik secer."
+      heavy: true
+    github_orchestrator:
+      host: oracle
+      letter: Q
+      schedule: "event"
+      entrypoint: "python -m nirvana.runner github_orchestrator"
+      description: "GitHub Actions REST API ile olay guendumlu serverless orkestrasyon. workflow_dispatch + repository_dispatch."
+      heavy: false
