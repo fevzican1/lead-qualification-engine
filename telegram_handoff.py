@@ -16,7 +16,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 import config
-import knowledge
 
 logger = logging.getLogger(__name__)
 
@@ -604,7 +603,6 @@ def remember(
 ) -> str:
     url = str(lead.get("url") or "")
     token = token_for(str(lead.get("identity_url") or url))
-    hints = [str(h) for h in (lead.get("stack_hints") or []) if h][:6]
     data = _load()
     gap_notes = [str(g) for g in (lead.get("technical_gaps") or []) if g]
     data[token] = build_handoff_record(

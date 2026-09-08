@@ -405,7 +405,6 @@ def telegram_system_prompt(*, brief: str = "") -> str:
     state = load()
     winning = ", ".join(state.get("winning_stacks") or []) or "IdeaSoft, iyzico, WooCommerce, ERP"
     price = config.price_label()
-    company = (config.SENDER_COMPANY or "DevSolve").strip()
     lab = str(getattr(config, "AUDIT_LAB_NAME", "DevSolve Flow Inspector") or "DevSolve Flow Inspector")
     inbound = (brief or "").strip() or "No form handoff. They typed in cold."
     price_rule = (

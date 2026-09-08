@@ -10,7 +10,6 @@ import json
 import time
 from typing import Any
 
-import config
 import telegram_sessions
 from nirvana.payment import retainer_label
 from nirvana.registry import state_path

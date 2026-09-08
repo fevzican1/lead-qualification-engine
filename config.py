@@ -26,7 +26,8 @@ ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
 
 try:
-    import pip_system_certs.wrapt_requests  # noqa: F401 — use Windows CA store (SSL inspection)
+    import pip_system_certs.wrapt_requests as _wrapt_certs  # use Windows CA store (SSL inspection)
+    _ = _wrapt_certs  # retain import side effects
 except Exception:
     pass
 

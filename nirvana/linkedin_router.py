@@ -20,6 +20,7 @@ from nirvana.registry import state_path
 
 CANDIDATE_STATUSES = {"skipped_captcha", "skipped_no_open_form"}
 ROUTED_NAME = "linkedin_routed.json"
+REPORTS_NAME = "retainer_reports.json"
 DAILY_LIMIT = 10
 TIMEOUT = 10.0
 
@@ -83,6 +84,21 @@ def candidates(leads_path: Any = None, *, limit: int = DAILY_LIMIT) -> list[dict
     return out
 
 
+def find_report_url(domain: str) -> str | None:
+    """Oracle'daki retainer raporlarından domain eşleşmesi (kullanıcıya gösterilecek kanıt)."""
+    domain = (domain or "").strip().lower().removeprefix("www.")
+    if not domain:
+        return None
+    try:
+        data = json.loads(state_path(REPORTS_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    for row in (data.get("reports") or []):
+        if str(row.get("domain") or "").strip().lower().removeprefix("www.") == domain:
+            return str(row.get("report_url") or "") or None
+    return None
+
+
 def build_card(items: list[dict[str, Any]]) -> str:
     lines = [f"LinkedIn inceleme kartı — {len(items)} captcha'lı hedef (manuel karar senin):"]
     for i, it in enumerate(items, 1):
@@ -93,6 +109,41 @@ def build_card(items: list[dict[str, Any]]) -> str:
         )
     lines.append("Form kilitli; kanal: LinkedIn manuel incele → Telegram funnel ile devam.")
     return "\n".join(lines)
+
+
+def build_outreach_draft(domain: str, company: str = "", *, turkish: bool = True) -> str:
+    """Captcha'lı hedefe LinkedIn'ten gönderilecek hazır outreach mesajı.
+
+    Otomasyon yok — bu metin insan tarafından kopyalanıp gönderilir. Audit raporu
+    varsa kanıt linkini içerir; yoksa generic değer önerisi sunar.
+    """
+    company = company.strip() or domain.strip()
+    report_url = find_report_url(domain)
+    proof_line = f"\n\nSizin için hazırladığım teknik denetim raporu: {report_url}" if report_url else ""
+    ident = str(getattr(config, "OWNER_LINKEDIN_URL", "") or "").strip()
+    ident_line = f"\n— {ident}" if ident else ""
+    retainer = "2.500 EUR/ay"
+    if turkish:
+        return (
+            f"Merhaba {company} ekibi,\n\n"
+            f"Sizinle kısa bir teknik bulgu paylaşmak istedim: dijital altyapınızda "
+            f"müşteri deneyimini ve dönüşümünü doğrudan etkileyen bir darboğaz tespit ettim."
+            f"{proof_line}\n\n"
+            f"Bu darboğazı 7 gün içinde ücretsiz yamalayabiliriz — sonrasında aylık "
+            f"{retainer} değerinde sürekli izleme ve optimizasyon retainer'ımızı "
+            f"değerlendirebiliriz. İlk turu sizin için hazırladım; onayınızla başlarız.\n\n"
+            f"İlgilenir misiniz?{ident_line}"
+        )
+    return (
+        f"Hi {company} team,\n\n"
+        f"I'd like to share a quick technical finding: I detected a bottleneck in your "
+        f"digital infrastructure that directly impacts user experience and conversions."
+        f"{proof_line}\n\n"
+        f"We can patch it within 7 days at no cost — then evaluate a monthly "
+        f"{retainer} retainer for continuous monitoring and optimization. I've "
+        f"prepared the first sweep for you; it starts on your approval.\n\n"
+        f"Interested?{ident_line}"
+    )
 
 
 def run_batch(*, leads_path: Any = None, notify: bool = True, limit: int = DAILY_LIMIT) -> dict[str, Any]:
@@ -112,8 +163,13 @@ def run_batch(*, leads_path: Any = None, notify: bool = True, limit: int = DAILY
     tmp.replace(routed_path)
 
     card = build_card(items) if items else ""
+    drafts = [
+        {"domain": it["domain"], "company": it["company"],
+         "draft": build_outreach_draft(it["domain"], it["company"])}
+        for it in items
+    ]
     sent = False
     if notify and card:
         sent = owner_notify.send(card)
-    return {"routed": len(items), "card": card, "notified": sent,
+    return {"routed": len(items), "card": card, "drafts": drafts, "notified": sent,
             "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}

@@ -18,7 +18,6 @@ import config
 import bounded_agents
 import knowledge
 import optout
-import optimized_payload
 import telegram_handoff
 from site_signals import compact_excerpt, extract_stack_hints, high_value_score, looks_turkish
 

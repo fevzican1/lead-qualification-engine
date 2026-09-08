@@ -39,6 +39,11 @@ import telegram_handoff
 import telegram_sessions
 import payment_safety
 
+try:
+    from nirvana.self_serve_close import TERMS_RE as _TERMS_RE
+except Exception:  # nirvana her koşulda botu bloklamaz
+    _TERMS_RE = re.compile(r"(sözleşme|sla|nda|şartlar|terms\s+accepted)", re.I)
+
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY = 16
@@ -747,8 +752,47 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "$5000 requires separately agreed scope and a matching verified payment request.")
         return
 
-    if _wants_to_buy(user_text):
+    terms_match = _TERMS_RE.search(user_text)
+    if terms_match and not _wants_to_buy(user_text):
+        try:
+            from nirvana import self_serve_close as ssc
+            if not ssc.terms_acknowledged(user_text):
+                who = str((_briefs.get(chat_id) or {}).get("company") or "")
+                await update.message.reply_text(
+                    ssc.terms_presentation(company=who, turkish=_customer_lang(update)))
+                return
+            # Şart onayı = satın alma niyeti; aşağıdaki SSC akışına düşer.
+        except Exception:
+            logger.exception("nirvana terms presentation failed")
+            return
+
+    if _wants_to_buy(user_text) or terms_match:
         telegram_sessions._put(chat_id, interest_reported=True, followup_sent=True)
+        # Lane N/SSC: owner /reply olmadan profesyonel kapanış denemesi.
+        # Kapılar: açık niyet + şart onayı + kanıt artefaktı + opt-out temiz.
+        try:
+            from nirvana import self_serve_close as ssc
+            allowed = not optout.is_chat_opted_out(chat_id)
+            ssc_res = ssc.evaluate(chat_id, user_text, brief=_briefs.get(chat_id),
+                                   row=telegram_sessions._row(chat_id), allowed=allowed)
+        except Exception:
+            logger.exception("nirvana self-serve close failed")
+            ssc_res = None
+        if ssc_res and ssc_res.get("ok"):
+            await update.message.reply_text(ssc_res["message"])
+            telegram_sessions._put(chat_id, terms_acknowledged=True, self_serve_link_sent=True)
+            telegram_sessions.mark_payment(chat_id)
+            who = str((_briefs.get(chat_id) or {}).get("company") or "—")
+            await asyncio.to_thread(
+                owner_notify.send,
+                f"SELF-SERVE SATIŞ — doğrulanmış ödeme linki gönderildi (chat {chat_id}, {who}). "
+                "Yerleşince insan doğrulaması yapılacak; teslimat o onaydan sonra.")
+            return
+        if ssc_res and ssc_res.get("reason") == "terms":
+            who = str((_briefs.get(chat_id) or {}).get("company") or "")
+            await update.message.reply_text(
+                ssc.terms_presentation(company=who, turkish=_customer_lang(update)))
+            return
         request = payment_safety.ready_request(chat_id)
         contract = telegram_sessions._row(chat_id)
         if (request is None or not contract.get("contract_signed")

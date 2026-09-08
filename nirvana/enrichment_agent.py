@@ -13,7 +13,6 @@ from typing import Any
 
 import httpx
 
-import config
 from nirvana.registry import state_path
 
 DEFAULT_IN = "discovery.json"

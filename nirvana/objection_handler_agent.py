@@ -11,7 +11,6 @@ import json
 import re
 from typing import Any
 
-import config
 from nirvana.payment import retainer_label
 
 # (pattern, turkish_reply, english_reply)

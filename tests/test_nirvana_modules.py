@@ -1,8 +1,10 @@
 """Nirvana lane unit/integration tests — all offline (no network, no paid API)."""
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -501,4 +503,140 @@ def test_semantic_cache_roundtrip_and_ttl(isolated_state, monkeypatch):
     # TTL: eski kayıt dönmez
     monkeypatch.setattr(sc, "TTL_SECONDS", -1)
     assert sc.get(msgs) is None
+
+
+# --- Self-Serve Close (owner /reply olmadan profesyonel kapanış) -------------
+
+def test_ssc_terms_ack_regex():
+    from nirvana import self_serve_close as ssc
+    assert ssc.terms_acknowledged("Şartları kabul ediyorum")
+    assert ssc.terms_acknowledged("I accept the terms")
+    assert not ssc.terms_acknowledged("SLA nedir?")
+
+
+def test_ssc_gate_requires_terms_and_artifact(isolated_state, monkeypatch):
+    from nirvana import self_serve_close as ssc
+    monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL", "https://link.payoneer.com/live")
+    r = ssc.evaluate(42, "hadi başlayalım", brief=None, row={}, link="https://link.payoneer.com/live")
+    assert not r["ok"] and r["reason"] == "terms"
+    r = ssc.evaluate(42, "şartları kabul ediyorum", brief=None, row={},
+                     link="https://link.payoneer.com/live")
+    assert not r["ok"] and r["reason"] == "artifact"
+    r = ssc.evaluate(42, "hadi", brief={"report_id": "DS-1"},
+                     row={"terms_acknowledged": True}, link="https://link.payoneer.com/live")
+    assert r["ok"] and "link.payoneer.com/live" in r["message"]
+
+
+def test_ssc_blocked_when_already_or_not_allowed():
+    from nirvana import self_serve_close as ssc
+    r = ssc.evaluate(1, "kabul ediyorum", brief={"report_id": "x"},
+                     row={"payment_sent": True}, link="l")
+    assert r["reason"] == "already"
+    r = ssc.evaluate(1, "kabul ediyorum", brief={"report_id": "x"}, row={}, allowed=False, link="l")
+    assert r["reason"] == "not_allowed"
+
+
+def test_ssc_message_carries_identity_and_retainer(monkeypatch):
+    from nirvana import self_serve_close as ssc
+    monkeypatch.setattr(config, "OWNER_LINKEDIN_URL", "https://www.linkedin.com/in/fevzican-aytekin-0b5501105")
+    r = ssc.evaluate(1, "şartları kabul ediyorum", brief={"report_id": "DS-9"}, row={},
+                     link="https://link.payoneer.com/live")
+    assert "2.500 EUR" in r["message"] and "linkedin.com/in/fevzican-aytekin" in r["message"]
+
+
+def test_ssc_find_report_url_from_state(isolated_state):
+    from nirvana import self_serve_close as ssc
+    state_path("retainer_reports.json").write_text(json.dumps({
+        "reports": [{"domain": "acme.com", "report_url": "https://raw.githubusercontent.com/x/master/nirvana/audit-reports/acme.com.pdf"}]
+    }), encoding="utf-8")
+    assert ssc.find_report_url("www.acme.com") and "acme.com.pdf" in ssc.find_report_url("acme.com")
+    assert ssc.find_report_url("none.example") is None
+
+
+def test_bot_self_serve_close_sends_link_without_reply(isolated_state, monkeypatch):
+    import telegram_sales_bot as bot
+    import telegram_sessions
+    monkeypatch.setattr(telegram_sessions, "PATH", isolated_state / "sessions.json")
+    monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL", "https://link.payoneer.com/live-2500eur")
+    monkeypatch.setattr(bot, "_is_owner", lambda cid: False)
+    monkeypatch.setattr(bot, "_hot_ping", AsyncMock())
+    monkeypatch.setattr(bot.owner_notify, "send", lambda *a, **kw: True)
+    monkeypatch.setattr(bot.optout, "is_chat_opted_out", lambda cid: False)
+    monkeypatch.setattr(bot, "_briefs", {55: {"report_id": "DS-77", "company": "Acme", "turkish": True}})
+    reply = AsyncMock()
+    update = SimpleNamespace(effective_chat=SimpleNamespace(id=55, type="private"),
+                             effective_user=SimpleNamespace(id=55, language_code="tr", username="t"),
+                             message=SimpleNamespace(text="Şartları kabul ediyorum, ödeme linkini gönderin.",
+                                                     reply_text=reply))
+    asyncio.run(bot.on_text(update, SimpleNamespace(bot=None)))
+    sent = reply.call_args.args[0]
+    assert "link.payoneer.com/live-2500eur" in sent
+    assert telegram_sessions._row(55).get("self_serve_link_sent")
+
+
+def test_bot_terms_question_gets_pack_not_link(isolated_state, monkeypatch):
+    import telegram_sales_bot as bot
+    import telegram_sessions
+    monkeypatch.setattr(telegram_sessions, "PATH", isolated_state / "sessions.json")
+    monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL", "https://link.payoneer.com/live-2500eur")
+    monkeypatch.setattr(bot, "_is_owner", lambda cid: False)
+    monkeypatch.setattr(bot, "_hot_ping", AsyncMock())
+    monkeypatch.setattr(bot.owner_notify, "send", lambda *a, **kw: True)
+    monkeypatch.setattr(bot.optout, "is_chat_opted_out", lambda cid: False)
+    # Ollama yerel server yoksa fallback calisir — mock ile cevabı sabitle
+    monkeypatch.setattr(bot, "_complete", lambda messages: "sözleşme paketi: SLA + NDA. kabul ediyorum yazın.")
+    reply = AsyncMock()
+    update = SimpleNamespace(effective_chat=SimpleNamespace(id=56, type="private"),
+                             effective_user=SimpleNamespace(id=56, language_code="tr", username="t"),
+                             message=SimpleNamespace(text="SLA ve sözleşme var mı?", reply_text=reply))
+    asyncio.run(bot.on_text(update, SimpleNamespace(bot=None)))
+    sent = reply.call_args.args[0]
+    assert "link.payoneer.com" not in sent
+    assert "kabul ediyorum" in sent
+
+
+# --- LinkedIn Router: captcha'lı hedeflere outreach draft ------------------------
+
+
+def test_linkedin_outreach_draft_turkish(monkeypatch):
+    from nirvana import linkedin_router as lr
+    monkeypatch.setattr(config, "OWNER_LINKEDIN_URL", "https://www.linkedin.com/in/fevzican-aytekin-0b5501105")
+    draft = lr.build_outreach_draft("acme.com", "Acme", turkish=True)
+    assert "Acme" in draft
+    assert "2.500 EUR/ay" in draft
+    assert "linkedin.com/in/fevzican-aytekin" in draft
+    assert "7 gün" in draft
+
+
+def test_linkedin_outreach_draft_english(monkeypatch):
+    from nirvana import linkedin_router as lr
+    monkeypatch.setattr(config, "OWNER_LINKEDIN_URL", "")
+    draft = lr.build_outreach_draft("acme.com", "Acme", turkish=False)
+    assert "Acme" in draft
+    assert "2.500 EUR/ay" in draft
+    assert "7 days" in draft
+
+
+def test_linkedin_outreach_draft_includes_report_url(isolated_state, monkeypatch):
+    from nirvana import linkedin_router as lr
+    state_path("retainer_reports.json").write_text(json.dumps({
+        "reports": [{"domain": "acme.com", "report_url": "https://raw.githubusercontent.com/x/master/nirvana/audit-reports/acme.com.pdf"}]
+    }), encoding="utf-8")
+    monkeypatch.setattr(config, "OWNER_LINKEDIN_URL", "")
+    draft = lr.build_outreach_draft("acme.com", "Acme", turkish=True)
+    assert "acme.com.pdf" in draft
+
+
+def test_linkedin_router_run_includes_drafts(isolated_state, monkeypatch):
+    from nirvana import linkedin_router as lr
+    import telegram_sessions
+    # Create a leads.json with a captcha'd target
+    leads = [{"host": "acme.com", "company": "Acme", "status": "skipped_captcha"}]
+    (isolated_state / "leads.json").write_text(json.dumps(leads), encoding="utf-8")
+    monkeypatch.setattr(config, "ROOT", isolated_state)
+    result = lr.run_batch(notify=False)
+    assert result["routed"] == 1
+    assert "drafts" in result
+    assert len(result["drafts"]) == 1
+    assert "Acme" in result["drafts"][0]["draft"]
 

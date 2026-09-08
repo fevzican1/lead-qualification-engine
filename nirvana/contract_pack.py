@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import config
 from nirvana.payment import retainer_label
 
 

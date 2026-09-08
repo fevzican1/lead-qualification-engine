@@ -316,7 +316,6 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
         scan_rows = scan_rows[cursor:] + scan_rows[:cursor]
 
     for row in scan_rows:
-        url = str(row.get("url") or "").strip()
         candidate = _row_to_candidate(row, min_score=min_score)
         if not candidate:
             continue
