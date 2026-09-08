@@ -33,6 +33,9 @@ RUNNERS = {
     "github_orchestrator": "nirvana.github_orchestrator",
     "email_infra_audit": "nirvana.email_infra_audit",
     "tech_stack_detector": "nirvana.tech_stack_detector",
+    "service_readiness": "nirvana.service_readiness",
+    "multi_service_runner": "nirvana.multi_service_runner",
+    "free_captcha_solver": "nirvana.free_captcha_solver",
 }
 
 
@@ -82,6 +85,12 @@ def main(argv: list[str] | None = None) -> int:
     elif args.module == "email_infra_audit":
         kwargs = {}
     elif args.module == "tech_stack_detector":
+        kwargs = {}
+    elif args.module == "service_readiness":
+        kwargs = {}
+    elif args.module == "multi_service_runner":
+        kwargs = {}
+    elif args.module == "free_captcha_solver":
         kwargs = {}
     else:
         kwargs = {}

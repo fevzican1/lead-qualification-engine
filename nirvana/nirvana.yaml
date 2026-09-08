@@ -142,3 +142,24 @@ nirvana:
       entrypoint: "python -m nirvana.runner tech_stack_detector"
       description: "Kullanilan teknolojileri tespit etmek (HTTP basliklari + HTML imzalari). Form kanitina ek teknik altyapi kaniti."
       heavy: true
+    service_readiness:
+      host: github
+      letter: T
+      schedule: "37 4 * * *"
+      entrypoint: "python -m nirvana.runner service_readiness"
+      description: "Hizmet altyapisi saglamligi: DNS/SSL/response/servis karisasi kontrolu. Hizmet verilmeden once hazirlik raporu."
+      heavy: true
+    multi_service_runner:
+      host: oracle
+      letter: U
+      schedule: "event"
+      entrypoint: "python -m nirvana.runner multi_service_runner"
+      description: "Coklu hizmet yurutme: max 5 eszamanli musteri. Her biri izole, haftalik tur. Musteri memnun kalirsa tekrar gelir."
+      heavy: false
+    free_captcha_solver:
+      host: github
+      letter: V
+      schedule: "*/4 * * * *"
+      entrypoint: "python -m nirvana.runner free_captcha_solver"
+      description: "Ucretsiz CAPTCHA cozucu: Tesseract OCR + Pillow. Basit metin CAPTCHA'larini cozer. Modern reCAPTCHA/Turnstile icin stealth + rotalama."
+      heavy: true

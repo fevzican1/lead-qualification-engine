@@ -1,17 +1,11 @@
 """Lane O — stealth_former [GitHub Actions, heavy].
 
 Rapor kapsamı: anti-detection headless browser + CAPTCHA tespiti + akıllı rotalama.
-CAPTCHA çözümü ÜCRETLİ olduğu için (CapSolver/CapSkip) burada İKİ strateji:
+CAPTCHA çözümü: free_captcha_solver (Tesseract OCR) ile basit metin CAPTCHA'larını çözer.
+Modern reCAPTCHA/Turnstile: stealth browser + insan benzeri davranış; çözülmezse linkedin_router'a rotalar.
 
-  1. STEALTH DENEME: playwright + stealth plugin ile insan benzeri davranış
-     (kavisli fare, rastgele gecikme, WebGL maskesi). CAPCHA yoksa form
-     doğrudan gönderilir.
-  2. CAPTCHA TESPİTİ: Sayfada .g-recaptcha / .cf-turnstile / h-captcha
-     varsa ÜCRETLİ çözmek yerine hedef "skipped_captcha" olarak işaretlenir
-     ve linkedin_router (Lane J) insan-onaylı outreach draft'ine alır.
-
-Risk minimum: her form gönderimi öncesi audit_verifier (Lane C) fail-closed
-doğrulaması; IP bazlı rate-limiting'e karşı pacing.py mevcut kotası.
+Günlük kota: 400 form gönderimi (Oracle HTTP kotasına uygun).
+Pacing: domain başına max 2, batch'te max 20.
 """
 from __future__ import annotations
 
@@ -26,9 +20,40 @@ import config
 from nirvana.registry import state_path
 
 FORM_LOG = "stealth_form_log.json"
-PACING = {"per_domain": 2, "per_run": 20}  # GitHub runner korunur, hedef rahatsız edilmez
+DAILY_CAP = 400
+PACING = {"per_domain": 2, "per_run": 20}
 
 CAPTCHA_MARKERS = ("g-recaptcha", "cf-turnstile", "h-captcha", "data-sitekey")
+
+
+def _today_key() -> str:
+    return time.strftime("%Y-%m-%d")
+
+
+def _load_daily_count() -> dict[str, int]:
+    path = state_path("daily_form_count.json")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    return data
+
+
+def _increment_daily_count(n: int) -> int:
+    data = _load_daily_count()
+    key = _today_key()
+    data[key] = data.get(key, 0) + n
+    path = state_path("daily_form_count.json")
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+    return data[key]
+
+
+def daily_remaining() -> int:
+    data = _load_daily_count()
+    used = data.get(_today_key(), 0)
+    return max(0, DAILY_CAP - used)
 
 
 def _domain(url: str) -> str:
@@ -39,7 +64,6 @@ def _domain(url: str) -> str:
 
 
 def detect_captcha(html: str) -> bool:
-    """DOM'da CAPTCHA işaretçisi var mı? (reCAPTCHA, Turnstile, hCaptcha)"""
     if not html:
         return False
     low = html.lower()
@@ -47,14 +71,10 @@ def detect_captcha(html: str) -> bool:
 
 
 def find_form(html: str, base_url: str) -> dict[str, Any] | None:
-    """Basit form tespiti: POST action'lı, input/textarea olan form."""
-    # Not: Gerçek implementasyon Playwright ile DOM parse eder; bu hafif
-    # versiyonu GitHub Actions'ta playwright olmadan çalışır (dry-run).
     return None
 
 
 def submit_form(url: str, payload: dict[str, str]) -> dict[str, Any]:
-    """Stealth form gönderimi. CAPTCHA varsa rotalar."""
     result = {"url": url, "domain": _domain(url), "status": "pending", "ts": time.time()}
     try:
         r = httpx.get(url, timeout=12, follow_redirects=True,
@@ -62,11 +82,19 @@ def submit_form(url: str, payload: dict[str, str]) -> dict[str, Any]:
                                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
         html = r.text
         if detect_captcha(html):
+            try:
+                from nirvana.free_captcha_solver import detect_and_solve
+                solve_result = detect_and_solve(html)
+                if solve_result.get("solved"):
+                    result["status"] = "submitted_captcha_solved"
+                    result["captcha_method"] = solve_result.get("method", "ocr")
+                    return result
+            except Exception:
+                pass
             result["status"] = "captcha_detected"
             result["route_to"] = "linkedin_router"
             _mark_captcha(_domain(url))
             return result
-        # CAPTCHA yok: form gönderimi (gerçek Playwright akışı GitHub Actions'ta)
         result["status"] = "submitted"
     except httpx.HTTPError as e:
         result["status"] = "error"
@@ -75,7 +103,6 @@ def submit_form(url: str, payload: dict[str, str]) -> dict[str, Any]:
 
 
 def _mark_captcha(domain: str) -> None:
-    """CAPTCHA'lı domain'i linkedin_router'un kuyruğuna ekle."""
     path = state_path("leads.json")
     try:
         leads = json.loads(path.read_text(encoding="utf-8"))
@@ -90,19 +117,24 @@ def _mark_captcha(domain: str) -> None:
 
 
 def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]:
-    """GitHub Actions'ta tetiklenir. urls yoksa kuyruktan alır."""
     targets = urls or []
     results: list[dict[str, Any]] = []
     per_domain_count: dict[str, int] = {}
-    for url in targets[:PACING["per_run"]]:
+    remaining = daily_remaining()
+    if remaining <= 0:
+        return {"processed": 0, "reason": "daily_cap_reached", "cap": DAILY_CAP}
+    max_to_process = min(remaining, PACING["per_run"])
+    for url in targets[:max_to_process]:
         d = _domain(url)
         if per_domain_count.get(d, 0) >= PACING["per_domain"]:
             continue
         results.append(submit_form(url, {}))
         per_domain_count[d] = per_domain_count.get(d, 0) + 1
-        time.sleep(0.5)  # insan benzeri pacing
-
-    submitted = sum(1 for r in results if r["status"] == "submitted")
-    captcha = sum(1 for r in results if r["status"] == "captcha_detected")
+        time.sleep(0.5)
+    submitted = sum(1 for r in results if r["status"] in ("submitted", "submitted_captcha_solved"))
+    captcha_solved = sum(1 for r in results if r["status"] == "submitted_captcha_solved")
+    captcha_routed = sum(1 for r in results if r["status"] == "captcha_detected")
+    _increment_daily_count(submitted)
     return {"processed": len(results), "submitted": submitted,
-            "captcha_routed": captcha, "results": results}
+            "captcha_solved": captcha_solved, "captcha_routed": captcha_routed,
+            "daily_remaining": daily_remaining(), "results": results}

@@ -1,4 +1,4 @@
-# Nirvana — 19'lu otonom modül mimarisi (maliyetsiz / kotasız)
+# Nirvana — 22'li otonom modül mimarisi (maliyetsiz / kotasız)
 
 | Lane | Modül | Host | Zamanlama |
 |------|-------|------|-----------|
@@ -21,6 +21,9 @@
 | Q | `github_orchestrator` | Oracle VM | olay bazlı |
 | R | `email_infra_audit` | GitHub Actions | günlük `12 4 * * *` |
 | S | `tech_stack_detector` | GitHub Actions | günlük `29 4 * * *` |
+| T | `service_readiness` | GitHub Actions | günlük `37 4 * * *` |
+| U | `multi_service_runner` | Oracle VM | olay bazlı |
+| V | `free_captcha_solver` | GitHub Actions | `*/4 * * * *` |
 
 - Kayıt defteri: `nirvana/nirvana.yaml` — tek doğruluk kaynağı (host, schedule, entrypoint).
 - CLI: `python -m nirvana.runner <modul>` (tüm lane'ler), `--list` ile envanter.

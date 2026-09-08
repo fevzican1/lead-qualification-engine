@@ -741,3 +741,87 @@ def test_tech_stack_evidence():
     assert "WordPress" in ev
     assert "Cloudflare" in ev
 
+
+# --- Lane T: service_readiness -------------------------------------------
+
+
+def test_service_readiness_conflict_detection():
+    from nirvana import service_readiness as sr
+    row = {"detected_stack": {"techs": ["WordPress", "Cloudflare"]}}
+    conflict = sr.assess_service_conflict(row)
+    assert conflict["conflict_risk"] == "medium"
+    assert "Cloudflare" in conflict["conflicting_services"]
+
+
+def test_service_readiness_no_conflict():
+    from nirvana import service_readiness as sr
+    row = {"detected_stack": {"techs": ["WordPress", "WooCommerce"]}}
+    conflict = sr.assess_service_conflict(row)
+    assert conflict["conflict_risk"] == "low"
+    assert conflict["recommendation"] == "proceed"
+
+
+def test_service_readiness_batch():
+    from nirvana import service_readiness as sr
+    result = sr.run_batch(targets=["https://example.com"])
+    assert result["checked"] == 1
+    assert "ready" in result
+
+
+# --- Lane U: multi_service_runner ---------------------------------------
+
+
+def test_multi_service_start(isolated_state, monkeypatch):
+    from nirvana import multi_service_runner as msr
+    monkeypatch.setattr(config, "ROOT", isolated_state)
+    result = msr.start_service(12345, "Acme Corp", "acme.com")
+    assert result["ok"] is True
+    assert result["active_count"] == 1
+
+
+def test_multi_service_return_visit(isolated_state, monkeypatch):
+    from nirvana import multi_service_runner as msr
+    monkeypatch.setattr(config, "ROOT", isolated_state)
+    msr.start_service(12345, "Acme Corp", "acme.com")
+    result = msr.record_return_visit(12345)
+    assert result["ok"] is True
+    assert result["returning"] is True
+    assert result["visit_count"] == 2
+
+
+def test_multi_service_quota_limit(isolated_state, monkeypatch):
+    from nirvana import multi_service_runner as msr
+    monkeypatch.setattr(config, "ROOT", isolated_state)
+    # 5 farklı müşteri ekle
+    for i in range(5):
+        msr.start_service(1000 + i, f"Company{i}", f"company{i}.com")
+    # 6. başarısız olmalı
+    result = msr.start_service(9999, "Overflow", "overflow.com")
+    assert result["ok"] is False
+    assert result["reason"] == "quota_full"
+
+
+# --- Lane V: free_captcha_solver -----------------------------------------
+
+
+def test_free_captcha_no_captcha():
+    from nirvana import free_captcha_solver as fcs
+    result = fcs.detect_and_solve("<html><form>no captcha</form></html>")
+    assert result["has_captcha"] is False
+    assert result["action"] == "proceed"
+
+
+def test_free_captcha_detects_captcha():
+    from nirvana import free_captcha_solver as fcs
+    html = '<html><div class="g-recaptcha" data-sitekey="x"></div></html>'
+    result = fcs.detect_and_solve(html)
+    assert result["has_captcha"] is True
+
+
+def test_free_captcha_without_tesseract(monkeypatch):
+    from nirvana import free_captcha_solver as fcs
+    monkeypatch.setattr(fcs, "_TESSERACT_AVAILABLE", False)
+    result = fcs.solve_text_captcha(b"fake_image_bytes")
+    assert result["ok"] is False
+    assert result["reason"] == "tesseract_not_installed"
+
