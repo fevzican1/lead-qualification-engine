@@ -695,3 +695,49 @@ def test_github_orchestrator_no_token(monkeypatch):
     assert result["ok"] is False
     assert result["reason"] == "no_token"
 
+
+# --- Lane R: email_infra_audit -------------------------------------------
+
+
+def test_email_infra_risk_score():
+    from nirvana import email_infra_audit as eia
+    good = {"spf": {"present": True}, "dmarc": {"present": True}, "mx": {"present": True}}
+    bad = {"spf": {"present": False}, "dmarc": {"present": False}, "mx": {"present": False}}
+    assert eia.risk_score(good) == 0
+    assert eia.risk_score(bad) == 100
+
+
+def test_email_infra_evidence():
+    from nirvana import email_infra_audit as eia
+    audit = {"spf": {"present": False}, "dmarc": {"present": True}, "mx": {"present": True}}
+    ev = eia.build_evidence(audit)
+    assert "SPF" in ev
+    assert "Risk" in ev
+
+
+# --- Lane S: tech_stack_detector ----------------------------------------
+
+
+def test_tech_stack_detect_from_html():
+    from nirvana import tech_stack_detector as tsd
+    html = '<html><script src="wp-content/themes/x.js"></script><script>var woocommerce</script></html>'
+    techs = tsd.detect_from_html(html)
+    assert "WordPress" in techs
+    assert "WooCommerce" in techs
+
+
+def test_tech_stack_detect_from_headers():
+    from nirvana import tech_stack_detector as tsd
+    headers = {"server": "nginx", "x-powered-by": "PHP/8.1"}
+    techs = tsd.detect_from_headers(headers)
+    assert "Nginx" in techs
+    assert "PHP" in techs
+
+
+def test_tech_stack_evidence():
+    from nirvana import tech_stack_detector as tsd
+    stack = {"techs": ["WordPress", "WooCommerce", "Cloudflare"]}
+    ev = tsd.build_evidence(stack)
+    assert "WordPress" in ev
+    assert "Cloudflare" in ev
+

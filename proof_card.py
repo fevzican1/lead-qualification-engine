@@ -279,6 +279,12 @@ def caption(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
     confirmed = bool((row or {}).get("platform_confirmed"))
     platform = str((row or {}).get("platform") or (row or {}).get("stack") or "").strip()
     err = str((row or {}).get("error_type") or (row or {}).get("pain") or "").strip().rstrip(".")
+    # Ek kanıtlar: email altyapısı + tech stack
+    email_infra = (row or {}).get("email_infra") or {}
+    tech_stack = (row or {}).get("tech_stack") or {}
+    email_risk = email_infra.get("risk_label") or ""
+    email_evidence = email_infra.get("evidence") or ""
+    tech_evidence = tech_stack.get("evidence") or ""
     if turkish:
         lead = f"{who}: " if who else ""
         head = (
@@ -290,12 +296,21 @@ def caption(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
             if str((row or {}).get("variant") or "").upper() == "S"
             else f"{lead}checkout / ödeme kopuğu bu kartta. Kırmızı kutu kilitlenmesi gereken halka."
         )
-        return (
-            f"{head} Kırmızı kutu = form notunuzdaki kopuk nokta. "
+        parts = [head]
+        if email_evidence:
+            parts.append(f"E-posta altyapısı: {email_evidence}")
+        if tech_evidence:
+            parts.append(f"Teknik altyapı: {tech_evidence}")
+        revenue_loss = (row or {}).get("revenue_loss_pct") or ""
+        if revenue_loss:
+            parts.append(f"Tahmini aylık ciro kaybı: %{revenue_loss}")
+        parts.append(
+            f"Kırmızı kutu = form notunuzdaki kopuk nokta. "
             f"İş {config.price_label()}, panel durur. "
             "Bu akışı bugün 2 saatlik bir uygulama slotunda kalıcı olarak kapatabiliriz — "
             "randevu oluşturalım mı? Uymuyorsa zorlamam."
         )
+        return " ".join(parts)
     lead = f"{who}: " if who else ""
     head = (
         f"{lead}{err} on your {platform} flow — the red box is the link that should lock on one id."
@@ -306,9 +321,17 @@ def caption(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
         if str((row or {}).get("variant") or "").upper() == "S"
         else f"{lead}this is the checkout/payment break. The red box is the link that should lock on one id."
     )
-    return (
-        f"{head} Red box = the break point from your form note. "
+    parts = [head]
+    if email_evidence:
+        parts.append(f"Email infra: {email_evidence}")
+    if tech_evidence:
+        parts.append(f"Tech stack: {tech_evidence}")
+    if revenue_loss:
+        parts.append(f"Est. monthly revenue loss: %{revenue_loss}")
+    parts.append(
+        f"Red box = the break point from your form note. "
         f"Job {config.price_label()}, panel stays. "
         "We can close this permanently in a 2-hour implementation slot today — "
         "shall I book it? If it does not fit, I will not push."
     )
+    return " ".join(parts)

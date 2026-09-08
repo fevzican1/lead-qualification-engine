@@ -90,6 +90,19 @@ _DECLINE_RE = re.compile(
     re.I,
 )
 
+# DeepSeek Handoff: müşteri patron/yetkili/insan isterse
+_HANDOFF_RE = re.compile(
+    r"patron(?:unuz)?la?\s*(?:görüş|gorus|konuş|konus)\s*(?:mek|mak|istiyorum|istiyoruz)|"
+    r"imza\s*sahibi(?:yle)?\s*(?:görüş|gorus|konuş|konus)|"
+    r"yetkili\s*(?:biri|kişi|kisi)?\s*(?:var\s*mı|ile\s*(?:görüş|gorus|konuş|konus))|"
+    r"seninle\s*(?:görüş|gorus|konuş|konus)\s*(?:mek|mak|istiyorum|istiyoruz)|"
+    r"owner|founder|boss|ceo|cmo|cto|human\s*(?:agent|representative)|"
+    r"talk\s+to\s+(?:a\s+)?(?:human|person|someone|the\s+(?:owner|founder|boss|ceo))|"
+    r"speak\s+(?:to|with)\s+(?:a\s+)?(?:human|person|someone|the\s+(?:owner|founder|boss))|"
+    r"real\s+(?:human|person)|insan\s*(?:temsilci|asistan)?",
+    re.I,
+)
+
 _HOT_RE = re.compile(
     r"fiyat|ne kadar|ücret|ucret|kaç\s*dolar|kac\s*dolar|price|how much|cost|"
     r"ne zaman başla|ne zaman basla|when (can|do) we start|kaç günde|kac gunde|"
@@ -539,6 +552,16 @@ async def cmd_verifypayment(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             "/verifypayment CHATID 2500 USD ISLEM_REFERANSI. Talep tutarı eşleşmeli; referans tek kullanımlık.")
         return
     await update.message.reply_text("Sahip doğrulaması kaydedildi. Sözleşme/erişim onayı olmadan iş başlamaz.")
+    # DeepSeek Success Alert: ödeme doğrulandığında owner'a bildir
+    row = telegram_sessions._row(int(chat))
+    who = str(row.get("company") or row.get("host") or "—")
+    await asyncio.to_thread(
+        owner_notify.send,
+        f"🎉 SATIŞ KAPANDI!\n"
+        f"💰 Tutar: {amount} {currency.upper()}\n"
+        f"🌐 Müşteri: {who}\n"
+        f"⚙️ Durum: Ödeme onaylandı, otomatik işlem başlatıldı."
+    )
 
 
 async def cmd_approvecontract(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -708,6 +731,20 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         _remember(chat_id, "user", user_text)
         _remember(chat_id, "assistant", text)
         await update.message.reply_text(text)
+        return
+
+    # DeepSeek Handoff: müşteri patron/yetkili isterse bot durur, owner'a bildir
+    if _HANDOFF_RE.search(user_text):
+        who = str((_briefs.get(chat_id) or {}).get("company") or (_briefs.get(chat_id) or {}).get("host") or "—")
+        user = _username(update) or "yok"
+        handle = f"@{user}" if user != "yok" else "yok"
+        await asyncio.to_thread(
+            owner_notify.send,
+            f"🚨 YETKİLİ TALEBİ: Müşteri {handle} doğrudan seninle görüşmek istiyor.\n"
+            f"📌 Site: {who}\n"
+            f"💬 Son Mesajı: \"{user_text[:300]}\""
+        )
+        telegram_sessions.set_takeover(chat_id, True)
         return
 
     await _hot_ping(chat_id, update, user_text)

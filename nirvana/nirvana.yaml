@@ -128,3 +128,17 @@ nirvana:
       entrypoint: "python -m nirvana.runner github_orchestrator"
       description: "GitHub Actions REST API ile olay guendumlu serverless orkestrasyon. workflow_dispatch + repository_dispatch."
       heavy: false
+    email_infra_audit:
+      host: github
+      letter: R
+      schedule: "12 4 * * *"
+      entrypoint: "python -m nirvana.runner email_infra_audit"
+      description: "DNS/email altyapisi tespiti (SPF, DKIM, DMARC, MX). Form kanitina ek altyapi saglamligi kaniti."
+      heavy: true
+    tech_stack_detector:
+      host: github
+      letter: S
+      schedule: "29 4 * * *"
+      entrypoint: "python -m nirvana.runner tech_stack_detector"
+      description: "Kullanilan teknolojileri tespit etmek (HTTP basliklari + HTML imzalari). Form kanitina ek teknik altyapi kaniti."
+      heavy: true

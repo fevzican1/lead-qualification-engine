@@ -31,6 +31,8 @@ RUNNERS = {
     "stealth_former": "nirvana.stealth_former",
     "message_optimizer": "nirvana.message_optimizer",
     "github_orchestrator": "nirvana.github_orchestrator",
+    "email_infra_audit": "nirvana.email_infra_audit",
+    "tech_stack_detector": "nirvana.tech_stack_detector",
 }
 
 
@@ -76,6 +78,10 @@ def main(argv: list[str] | None = None) -> int:
     elif args.module == "message_optimizer":
         kwargs = {}
     elif args.module == "github_orchestrator":
+        kwargs = {}
+    elif args.module == "email_infra_audit":
+        kwargs = {}
+    elif args.module == "tech_stack_detector":
         kwargs = {}
     else:
         kwargs = {}
