@@ -128,6 +128,51 @@ def _identity() -> str:
     return f"\nİnsan karşınızda: {url}" if url else ""
 
 
+def payment_mention(*, turkish: bool = True, retainer: str | None = None) -> str:
+    """Short payment mention for inline use (price only when explicitly asked)."""
+    retainer = retainer or retainer_label()
+    if turkish:
+        return f"2.500 EUR (tek seferlik retainer)" if not retainer else retainer
+    return f"2,500 EUR (one-time retainer)" if not retainer else retainer
+
+
+def payment_link_hit(*, domain: str, report_id: str = "") -> str:
+    """Return the customer-facing payment message (link + identity + proof URL)."""
+    try:
+        link = payment_link()
+    except Exception:
+        link = ""
+    report_url = find_report_url(domain) if domain else None
+    proof_line = f"\nDenetim raporu: {report_url}" if report_url else ""
+    ident = _identity()
+    if not link:
+        return "Ödeme linki hazır; onu hemen paylaşıyorum." + proof_line + ident
+    return f"Ödeme talebiniz:\n{link}\nTutar: {retainer_label()}\n" \
+        "Payoneer panelinde alıcı ve tutarı kontrol edin, ödeme yapın; " \
+        "insan doğrulamasından sonra hizmet başlar. " \
+        "Rapor bu sohbete otomatik düşer." + proof_line + ident
+
+
+def send_close_to(link: str, report_url: str | None = None, *,
+                  turkish: bool = True, company: str = "") -> str:
+    """Build the full customer close message with payment link."""
+    proof_line = f"\nDenetim raporu: {report_url}" if report_url else ""
+    ident = _identity()
+    if turkish:
+        return (
+            f"Anlaştık — {retainer_label()} aylık retainer. Doğrulanmış ödeme talebi:\n{link}\n"
+            "Ödeme öncesi alıcı adı ve tutarı Payoneer panelinde kontrol edin.\n"
+            "Ödemeniz yerleşince insan doğrulaması yapılır; 24 saat içinde ilk tur başlar, "
+            "raporlar bu sohbete düşer." + proof_line + ident
+        )
+    return (
+        f"Agreed — {retainer_label()} monthly retainer. Verified payment request:\n{link}\n"
+        "Check the recipient and amount on Payoneer before paying.\n"
+        "Once settled, a human verifies it; first sweep starts within 24h and reports land here." + proof_line + ident
+    )
+
+
+
 def _message(link: str, retainer: str, report_url: str | None, turkish: bool) -> str:
     proof_line = f"\nSizin için hazırlanan denetim raporu: {report_url}" if report_url else ""
     if turkish:

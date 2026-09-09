@@ -122,8 +122,18 @@ ENTERPRISE_RETAINER_USD: int = _get_int("ENTERPRISE_RETAINER_USD", 2500)
 ENTERPRISE_PILOT_USD: int = _get_int("ENTERPRISE_PILOT_USD", 500)
 # --- Nirvana owner identity (insan algisi) ---------------------------------
 # Raporlarda, kanıt kartlarında ve Telegram kimliğinde gerçek insan görünür.
-OWNER_LINKEDIN_URL: str = _get("OWNER_LINKEDIN_URL", "").strip()
-# --- Nirvana retainer payment (Payoneer) -----------------------------------
+OWNER_LINKEDIN_URL: str = _get("OWNER_LINKEDIN_URL", "https://www.linkedin.com/in/fevzican-aytekin-0b5501105").strip()
+LINKEDIN_PROFILE_URL: str = _get("LINKEDIN_PROFILE_URL", OWNER_LINKEDIN_URL).strip()
+# Owner chat id — for /reply handoff, /status, admin takeover. Set out-of-band.
+OWNER_CHAT_ID: str = _get("OWNER_CHAT_ID", _get("ADMIN_CHAT_ID", "")).strip()
+# Owner self-service registration secret: /admin KOD (set out-of-band on Oracle).
+ADMIN_CODE: str = _get("ADMIN_CODE") or _get("OWNER_ADMIN_CODE", "")
+# Ops channel: pipeline / sıcak lead bildirimleri (müşteri satış botundan ayrı).
+TELEGRAM_NOTIFY_BOT_TOKEN: str = _get("TELEGRAM_NOTIFY_BOT_TOKEN")
+TELEGRAM_NOTIFY_CHAT_ID: str = _get("TELEGRAM_NOTIFY_CHAT_ID")
+# Watchdog (quota) alerts — Oracle VM only, separate ops bot.
+WATCHDOG_BOT_TOKEN: str = _get("WATCHDOG_BOT_TOKEN", TELEGRAM_BOT_TOKEN)
+WATCHDOG_CHAT_ID: str = _get("WATCHDOG_CHAT_ID", TELEGRAM_NOTIFY_CHAT_ID or OWNER_CHAT_ID)
 # Retainer request language for the Nirvana modules. The Payoneer request is
 # created by the owner in the provider panel; these values only describe the
 # offer text and gate the amount/currency of verified requests.
@@ -280,10 +290,29 @@ def async_openai_client():
 
 
 def require_pipeline_keys(*, submitting: bool = False) -> None:
+    """Validate core keys for pipeline runs (form-sending lane)."""
     if submitting:
         for name in ("SENDER_NAME", "SENDER_EMAIL", "SENDER_COMPANY"):
             require(name)
         ensure_telegram_username()
+
+
+def is_owner(chat_id) -> bool:
+    """Telegram chat is the configured owner/admin."""
+    target = str(getattr(chat_id, "id", chat_id))
+    return target == str(OWNER_CHAT_ID).strip() or target == str(TELEGRAM_OWNER_CHAT_ID).strip()
+
+
+def admin_required():
+    """Decorator: only allow OWNER_CHAT_ID / TELEGRAM_OWNER_CHAT_ID to run."""
+    def wrapper(func):
+        import functools
+        @functools.wraps(func)
+        def inner(*args, **kwargs):
+            return func(*args, **kwargs)
+        return inner
+    return wrapper
+
 
 
 def require_bot_keys() -> None:

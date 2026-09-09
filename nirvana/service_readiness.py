@@ -115,3 +115,33 @@ def run_batch(**kwargs: Any) -> dict[str, Any]:
     
     ready_count = sum(1 for r in results if r["ready"])
     return {"checked": len(results), "ready": ready_count, "not_ready": len(results) - ready_count, "results": results}
+
+
+def gateway_ready(*, payment_confirmed: bool, contract: bool) -> bool:
+    """Teslimat kapısı: ödeme onayı + sözleşme İKİSİ birden doğrulanmadan
+    hiçbir teknik işlem/pipeline başlamaz (pay-first threshold, fail-closed)."""
+    return bool(payment_confirmed) and bool(contract)
+
+
+def _authorized_targets() -> set[str]:
+    """Yalnızca doğrulanmış (audit'ten geçmiş) hedeflere hizmet verilir.
+    Kaynak yoksa boş küme döner — unauthorized hedefe asla başlanmaz."""
+    targets: set[str] = set()
+    for name in ("oracle_queue.json", "verified_queue.json"):
+        try:
+            data = json.loads(state_path(name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        rows: Any = []
+        if isinstance(data, dict):
+            rows = data.get("targets") or data.get("rows") or []
+        elif isinstance(data, list):
+            rows = data
+        for r in rows:
+            if isinstance(r, dict):
+                verdict = str(r.get("verdict") or r.get("status") or "")
+                url = str(r.get("url") or r.get("form_url") or "")
+                if url and (verdict == "pass" or r.get("verified")):
+                    targets.add(url)
+    return targets
+

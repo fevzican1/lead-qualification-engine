@@ -8,5 +8,6 @@ by the existing quota/knowledge caps in this repo.
 from __future__ import annotations
 
 from nirvana.registry import MODULES, module, load_registry  # noqa: F401
+from nirvana import proof_card  # noqa: F401
 
-__all__ = ["MODULES", "module", "load_registry"]
+__all__ = ["MODULES", "module", "load_registry", "proof_card"]

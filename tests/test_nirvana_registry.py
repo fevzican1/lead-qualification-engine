@@ -10,11 +10,11 @@ from nirvana import runner as nirvana_runner
 ROOT = Path(config.ROOT)
 
 
-def test_registry_defines_exactly_twenty_three_modules():
+def test_registry_defines_exactly_twenty_four_modules():
     modules = MODULES()
-    assert len(modules) == 23
+    assert len(modules) == 24
     letters = sorted(m["letter"] for m in modules.values())
-    assert letters == list("ABCDEFGHIJKLMNOPQRSTUVW")
+    assert letters == list("ABCDEFGHIJKLMNOPQRSTUVWX")
 
 
 def test_host_assignment_matches_architecture():
@@ -28,7 +28,7 @@ def test_host_assignment_matches_architecture():
                       "tech_stack_detector", "service_readiness", "free_captcha_solver"}
     assert oracle == {"onboarding_agent", "delivery_runner", "watchdog_quota_agent",
                       "linkedin_router", "contract_pack", "github_orchestrator",
-                      "multi_service_runner", "forget_guard"}
+                      "multi_service_runner", "forget_guard", "proof_card"}
 
 
 def test_every_module_has_entrypoint_and_runner_binding():

@@ -868,3 +868,54 @@ def test_ssc_blocks_confusion(isolated_state, monkeypatch):
     assert r["reason"] == "confusion"
     assert not r["ok"]
 
+
+# --- Lane W/: proof_card + self_serve_close payment functions ------------------
+
+
+def test_self_serve_payment_link_hit(monkeypatch):
+    from nirvana import self_serve_close as ssc
+    monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL",
+                        "https://link.payoneer.com/Token?t=TEST")
+    msg = ssc.payment_link_hit(domain="")
+    assert "link.payoneer.com" in msg
+    assert "Tutar" in msg
+
+
+def test_self_serve_send_close_to_turkish():
+    from nirvana import self_serve_close as ssc
+    msg = ssc.send_close_to("https://link.payoneer.com/x", turkish=True)
+    assert "Anlaştık" in msg
+    assert "link.payoneer.com" in msg
+    assert "2.500" in msg
+
+
+def test_self_serve_send_close_to_english():
+    from nirvana import self_serve_close as ssc
+    msg = ssc.send_close_to("https://link.payoneer.com/x", turkish=False)
+    assert "Agreed" in msg
+    assert "link.payoneer.com" in msg
+    assert "2.500" in msg
+
+
+def test_self_serve_payment_mention():
+    from nirvana import self_serve_close as ssc
+    tr = ssc.payment_mention(turkish=True)
+    en = ssc.payment_mention(turkish=False)
+    assert "EUR" in tr
+    assert "EUR" in en
+
+
+def test_proof_card_url_for_domain(isolated_state):
+    from nirvana import proof_card as pc
+    # No state file → None is fine (graceful fallback)
+    result = pc.proof_url("example.com")
+    assert result is None or result.startswith("http")
+
+
+def test_proof_card_build_local():
+    from nirvana import proof_card as pc
+    path = pc.build_card("example.com", "checkout drop-off", "8-12% conversion loss")
+    if path:
+        assert path.suffix == ".png"
+
+

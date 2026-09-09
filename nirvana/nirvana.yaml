@@ -170,3 +170,10 @@ nirvana:
       entrypoint: "python -m nirvana.runner forget_guard"
       description: "Anti-karisiklik bekcisi: token-bound sirket disinda link yok, domain-disi kanit yok. Sessiz guard, bildirim atmaz."
       heavy: false
+    proof_card:
+      host: oracle
+      letter: X
+      schedule: "event"
+      entrypoint: "python -m nirvana.runner proof_card"
+      description: "Gorsel kanıt kartı yonetimi: GitHub Actions micro_audit_proof_agent ürettiği PNG'yi state/proof_cards.json'dan okur, Telegram botu için URL sağlar."
+      heavy: false

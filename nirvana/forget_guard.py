@@ -40,9 +40,18 @@ def company_conflict(session_company: str, brief: dict[str, Any] | None) -> bool
     return bool(a and b and a != b)
 
 
-def proof_matches_form(domain: str) -> bool:
-    """proof_hooks.json'daki bu domain'e ait GERÇEK kanıt var mı?"""
-    domain = domain_of(domain)
+def proof_matches_form(proof_domain: str, form_domain: str | None = None) -> bool:
+    """Kanıt domain'i, o anki formun domain'i ile birebir uyumlu mu?
+
+    - İki argümanlı çağrı: saf karşılaştırma (cross-domain kanıt asla geçmez).
+    - Tek argümanlı çağrı (form_domain=None): proof_hooks.json'daki bu domain'e
+      ait GERÇEK kanıt var mı diye state dosyasına bakar.
+    """
+    if form_domain is not None:
+        a = domain_of(proof_domain)
+        b = domain_of(form_domain)
+        return bool(a and b and a == b)
+    domain = domain_of(proof_domain)
     if not domain:
         return False
     try:
