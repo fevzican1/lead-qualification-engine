@@ -18,7 +18,7 @@ import config
 import owner_notify
 from nirvana.registry import state_path
 
-CANDIDATE_STATUSES = {"skipped_captcha", "skipped_no_open_form"}
+CANDIDATE_STATUSES = {"skipped_captcha"}  # yalnızca captcha'ya takılan hedefler LinkedIn'e gelir
 ROUTED_NAME = "linkedin_routed.json"
 REPORTS_NAME = "retainer_reports.json"
 DAILY_LIMIT = 10
@@ -129,9 +129,10 @@ def build_outreach_draft(domain: str, company: str = "", *, turkish: bool = True
             f"Sizinle kısa bir teknik bulgu paylaşmak istedim: dijital altyapınızda "
             f"müşteri deneyimini ve dönüşümünü doğrudan etkileyen bir darboğaz tespit ettim."
             f"{proof_line}\n\n"
-            f"Bu darboğazı 7 gün içinde ücretsiz yamalayabiliriz — sonrasında aylık "
-            f"{retainer} değerinde sürekli izleme ve optimizasyon retainer'ımızı "
-            f"değerlendirebiliriz. İlk turu sizin için hazırladım; onayınızla başlarız.\n\n"
+            f"Bu darboğazın nerede olduğunu, neden olduğunu ve adım adım nasıl "
+            f"kapatılacağını kanıtlarıyla Telegram'da gösteriyorum; uygulama, "
+            f"doğrulanmış ödeme sonrası aylık {retainer} retainer kapsamında "
+            f"otomatik başlar.\n\n"
             f"İlgilenir misiniz?{ident_line}"
         )
     return (
@@ -139,9 +140,10 @@ def build_outreach_draft(domain: str, company: str = "", *, turkish: bool = True
         f"I'd like to share a quick technical finding: I detected a bottleneck in your "
         f"digital infrastructure that directly impacts user experience and conversions."
         f"{proof_line}\n\n"
-        f"We can patch it within 7 days at no cost — then evaluate a monthly "
-        f"{retainer} retainer for continuous monitoring and optimization. I've "
-        f"prepared the first sweep for you; it starts on your approval.\n\n"
+        f"We show you exactly where the bottleneck is, why it happens and the "
+        f"step-by-step closure plan with evidence over Telegram; execution starts "
+        f"automatically after verified payment under the monthly "
+        f"{retainer} retainer.\n\n"
         f"Interested?{ident_line}"
     )
 

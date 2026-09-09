@@ -20,12 +20,12 @@ TEMPLATES = {
     "tr": {
         "problem": "Sitenizin {page} akışında {metric} tespit ettik.",
         "agitate": "Bu darboğaz müşteri deneyimini doğrudan etkiler; sepet terki riski artar.",
-        "solve": "İlk 7 günü ücretsiz yamalayıp, sonrasında sürekli izleme retainer'ımızı değerlendirebiliriz.",
+        "solve": "Kapanış planını kanıtlarıyla Telegram'da adım adım gösteriyoruz; uygulama doğrulanmış ödeme sonrası retainer kapsamında başlar.",
     },
     "en": {
         "problem": "We detected {metric} in your {page} flow.",
         "agitate": "This bottleneck directly impacts user experience and raises cart-abandonment risk.",
-        "solve": "We can patch it free for 7 days, then evaluate our continuous-monitoring retainer.",
+        "solve": "We walk you through the closure plan step by step with evidence on Telegram; execution starts after verified payment under the retainer.",
     },
 }
 

@@ -131,7 +131,7 @@ def build_hook(domain: str, metrics: dict[str, Any], image: str | None) -> str:
                 "yüklemesiyle ölçtük; hâlihazırda sınıra yakınsınız. "
                 f"Kanıt kartı: {image}")
     return (f"Sitenizin checkout/sepet akışında {line} "
-            "İlk 7 gün performans yamalarını ücretsiz uyguluyoruz.")
+            "Kapanış planı ve kanıt kartı bu sohbette; uygulama doğrulanmış ödeme sonrası otomatik başlar.")
 
 
 def _identity_suffix() -> str:

@@ -139,6 +139,9 @@ WATCHDOG_CHAT_ID: str = _get("WATCHDOG_CHAT_ID", TELEGRAM_NOTIFY_CHAT_ID or OWNE
 # offer text and gate the amount/currency of verified requests.
 PAYMENT_CURRENCY: str = _get("PAYMENT_CURRENCY", "EUR").upper()
 PAYMENT_AMOUNT: int = _get_int("PAYMENT_AMOUNT", 2500)
+# Payoneer webhook: HMAC-SHA256 imza doğrulama sırrı. Sadece bu imzayla gelen
+# PAID sinyali pipeline'ı otomatik başlatır; imzasız/sahte POST reddedilir.
+PAYONEER_WEBHOOK_SECRET: str = _get("PAYONEER_WEBHOOK_SECRET", "")
 # Faz B: GitHub Actions-produced enterprise application-channel feed
 # (harvested/validated on GitHub; feed downloads still use Oracle network).
 FEED_ENTERPRISE_RAW_URL: str = _get(

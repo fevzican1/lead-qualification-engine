@@ -1,8 +1,9 @@
 """Lane D — strategy_pivot_agent [GitHub Actions].
 
-Autonomous A/B over the outreach levers (hook variant, free-pilot offer,
+Autonomous A/B over the outreach levers (hook variant, solution-map presentation,
 timing) using recorded outcomes only. Deterministic: winner needs both a real
 conversion-rate edge and a minimum sample, otherwise the incumbent holds.
+No free-work lever exists: every arm presents evidence and the paid plan only.
 """
 from __future__ import annotations
 
@@ -83,8 +84,8 @@ def run_batch(*, in_path: Any = None, out_name: str = DEFAULT_OUT) -> dict[str, 
         "rates": stats["rates"],
         "arms": stats["arms"],
         "offer_variants": {
-            "A": "Ücretsiz 3 günlük pilot tarama",
-            "B": "Pilot: ilk hafta ücretsiz kurulum, sonra retainer",
+            "A": "Çözüm haritası: kanıt kartı + adım adım kapanış planı (Telegram'da)",
+            "B": "Çözüm haritası + mikro simülasyon: tek darboğaz diliminin önce/sonra gösterimi",
         },
         "timing": {"send_window_utc": "07:00-09:00", "followup_days": 1},
     }

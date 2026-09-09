@@ -175,14 +175,20 @@ def test_strategy_run_batch_writes_state(tmp_path):
     result = strategy.run_batch(in_path=src)
     state = json.loads(state_path("strategy_state.json").read_text(encoding="utf-8"))
     assert result["winner"] == state["winner"] == "A"
-    assert "Ücretsiz 3 günlük pilot" in state["offer_variants"]["A"]
+    # Ücretsiz iş yok: kollar kanıt + çözüm haritası sunar, iş taahhüdü değil
+    assert "Ücretsiz" not in json.dumps(state["offer_variants"], ensure_ascii=False)
+    assert "haritası" in state["offer_variants"]["A"]
 
 
 # --- E. objection handler ---------------------------------------------------
 
-def test_objection_price_gets_free_pilot_pivot():
+def test_objection_price_gets_value_pivot_no_free_work():
     reply = objection.handle("Fiyatınız çok yüksek, bütçemiz yok", turkish=True)
-    assert reply and "3 gün" in reply and "ücretsiz pilot" in reply.lower()
+    low = reply.lower()
+    # Ücretsiz İŞ/PILOT yok — "ücretsiz iş vermiyoruz" ret cümlesine izin var
+    assert reply and "pilot" not in low and "ücretsiz iş ver" not in low.replace("vermiyoruz", "")
+    assert "retainer" in low or "darboğaz" in low
+    assert "ücretsiz iş vermiyoruz" in low  # açık ret politikası mesajda net
 
 
 def test_objection_security_reply():
@@ -310,7 +316,8 @@ def test_linkedin_candidates_pick_captcha_only(tmp_path):
         {"host": "cap2.com", "status": "skipped_no_open_form", "company": "Cap2"},
     ]), encoding="utf-8")
     items = lr.candidates(leads, limit=10)
-    assert [i["domain"] for i in items] == ["cap2.com", "cap.com"]  # en yeni önce
+    # SADECE captcha-kilitli hedefler LinkedIn'e gider; submit edilen/normal akış gitmez
+    assert [i["domain"] for i in items] == ["cap.com"]
 
 
 def test_linkedin_run_batch_card_and_never_spam(tmp_path, monkeypatch):
@@ -605,7 +612,9 @@ def test_linkedin_outreach_draft_turkish(monkeypatch):
     assert "Acme" in draft
     assert "2.500 EUR/ay" in draft
     assert "linkedin.com/in/fevzican-aytekin" in draft
-    assert "7 gün" in draft
+    # Ücretsiz iş yok: kanıt gösterilir, uygulama doğrulanmış ödeme sonrası başlar
+    assert "ücretsiz" not in draft.lower()
+    assert "doğrulanmış ödeme" in draft
 
 
 def test_linkedin_outreach_draft_english(monkeypatch):
@@ -614,7 +623,8 @@ def test_linkedin_outreach_draft_english(monkeypatch):
     draft = lr.build_outreach_draft("acme.com", "Acme", turkish=False)
     assert "Acme" in draft
     assert "2.500 EUR/ay" in draft
-    assert "7 days" in draft
+    assert "free" not in draft.lower()
+    assert "verified payment" in draft
 
 
 def test_linkedin_outreach_draft_includes_report_url(isolated_state, monkeypatch):

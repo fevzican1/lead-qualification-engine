@@ -65,8 +65,8 @@ def _page(domain: str, findings: list[str], out_pdf: Path) -> None:
         y += 56
     y += 40
     d.rectangle([40, y, W - 40, y + 90], fill=(230, 240, 255))
-    d.text((60, y + 16), "Oneri: bulgularin giderilmesi icin aylik retainer planinda ilk 7 gun", font=font(22), fill=(30, 30, 60))
-    d.text((60, y + 50), "performans yamalari ucretsiz uygulanir (value-in-advance).", font=font(22), fill=(30, 30, 60))
+    d.text((60, y + 16), "Oneri: bulgularin giderilmesi icin aylik retainer plani; kapanis plani ve", font=font(22), fill=(30, 30, 60))
+    d.text((60, y + 50), "kanitlar odeme oncesi sunulur, uygulama dogrulanmis odeme sonrasi baslar.", font=font(22), fill=(30, 30, 60))
     y += 140
     d.text((40, y), "Guvenceler:", font=font(24), fill=(20, 20, 20))
     d.text((40, y + 44), "- Dinamik SLA + gizlilik (NDA) + fikri mülkiyet devri sözlesme paketi", font=font(22), fill=(60, 60, 60))

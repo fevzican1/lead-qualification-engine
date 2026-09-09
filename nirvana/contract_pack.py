@@ -20,7 +20,7 @@ def build_pack(*, company: str = "", domain: str = "") -> dict[str, str]:
             "1) Kapsam: haftalık zamanlanmış altyapı turları; hata, kesinti ve performans bulgularının raporlanması.\n"
             "2) Yanıt süresi: kritik bulgu 24 saat içinde raporlanır, ilk müdahale önerisi 48 saat içinde iletilir.\n"
             "3) Erişim: yalnızca okunur (read-only) izleme; kapsam dışı müdahale yapılmaz.\n"
-            f"4) Ücret: aylık {ret}, her ay yenilenir; ilk 7 gün performans yamaları ücretsiz."
+            f"4) Ücret: aylık {ret}, her ay yenilenir; tüm uygulama ve düzeltmeler bu kapsam içinde, doğrulanmış ödeme sonrası başlar."
         ),
         "nda": (
             f"Gizlilik (NDA) özeti ({who}):\n"

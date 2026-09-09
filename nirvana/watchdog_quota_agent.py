@@ -129,6 +129,15 @@ def run_batch(*, notify: bool = False, dry_run: bool = False) -> dict[str, Any]:
     status = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
               "mode": verdict["mode"], "cooldown_active": cooling_now,
               "reasons": verdict["reasons"], "system": snap, "quotas": quotas}
+    # Günlük form gönderim sayacı (patron raporu): bugün + son 1 saat.
+    try:
+        import knowledge as _knowledge
+        today_n, hour_n = _knowledge.submit_counts()
+        status["forms_submitted_today"] = today_n
+        status["forms_submitted_last_hour"] = hour_n
+        status["form_daily_cap"] = _knowledge.daily_cap()
+    except Exception:  # noqa: BLE001 — sayaç hatası watchdog görevini bozmaz
+        logger.debug("form counter unavailable", exc_info=True)
     path = state_path(STATUS_NAME)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(status, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
