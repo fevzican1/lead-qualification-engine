@@ -163,3 +163,10 @@ nirvana:
       entrypoint: "python -m nirvana.runner free_captcha_solver"
       description: "Ucretsiz CAPTCHA cozucu: Tesseract OCR + Pillow. Basit metin CAPTCHA'larini cozer. Modern reCAPTCHA/Turnstile icin stealth + rotalama."
       heavy: true
+    forget_guard:
+      host: oracle
+      letter: W
+      schedule: "event"
+      entrypoint: "python -m nirvana.runner forget_guard"
+      description: "Anti-karisiklik bekcisi: token-bound sirket disinda link yok, domain-disi kanit yok. Sessiz guard, bildirim atmaz."
+      heavy: false

@@ -46,13 +46,30 @@ def find_report_url(domain: str) -> str | None:
 
 
 def _artifact(brief: dict[str, Any] | None, row: dict[str, Any]) -> tuple[bool, str | None]:
-    """Kanıt artefaktı: form akışındaki rapor no ya da domaine ait denetim raporu."""
-    if brief:
-        if brief.get("report_id"):
-            return True, None
-        url = find_report_url(str(brief.get("host") or brief.get("domain") or ""))
-        if url:
+    """Kanıt artefaktı: form akışındaki rapor no ya da domaine ait denetim raporu.
+
+    Anti-karışıklık: rapor no varsa brief'in domain'i session COMPANY ile aynı olmalı;
+    aksi halde artefakt sayılmaz (geri döner: confusion).
+    """
+    brief = brief or {}
+    session_company = str(row.get("company") or "").strip().lower()
+    brief_company = str(brief.get("company") or brief.get("host") or "").strip().lower()
+    if session_company and brief_company and session_company != brief_company:
+        return False, None
+    if brief.get("report_id"):
+        form_host = str(brief.get("host") or brief.get("target_domain") or brief.get("url") or "")
+        if form_host:
+            from nirvana.forget_guard import domain_of, proof_matches_form
+            if not proof_matches_form(domain_of(form_host)):
+                return False, None
+        return True, None
+    url = find_report_url(str(brief.get("host") or brief.get("domain") or ""))
+    if url:
+        # Rapor gerçekten bu domain'e ait mi (+ kanıt PNG'si de var mı)?
+        from nirvana.forget_guard import proof_matches_form
+        if proof_matches_form(str(brief.get("host") or brief.get("domain") or "")):
             return True, url
+        return True, None
     url = find_report_url(str(row.get("company") or row.get("host") or ""))
     if url:
         return True, url
@@ -63,12 +80,18 @@ def evaluate(chat_id: int, text: str, *, brief: dict[str, Any] | None = None,
              row: dict[str, Any] | None = None, allowed: bool = True,
              link: str | None = None) -> dict[str, Any]:
     """SSC kapı değerlendirmesi. ok=False ise reason şunlardan biri:
-    'not_allowed' | 'already' | 'terms' | 'artifact' | 'no_link'."""
+    'not_allowed' | 'already' | 'terms' | 'artifact' | 'confusion' | 'no_link'."""
     row = row or {}
+    brief = brief or {}
     if not allowed:
         return {"ok": False, "reason": "not_allowed"}
     if row.get("payment_reported") or row.get("payment_sent") or row.get("self_serve_link_sent"):
         return {"ok": False, "reason": "already"}
+    # Anti-karışıklık kapısı: oturum şirketi ≠ form şirketi → link YOK.
+    session_company = str(row.get("company") or "").strip()
+    brief_company = str(brief.get("company") or brief.get("host") or "").strip()
+    if session_company and brief_company and session_company.lower() != brief_company.lower():
+        return {"ok": False, "reason": "confusion"}
     try:
         link = link or payment_link()
     except Exception:

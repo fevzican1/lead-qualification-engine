@@ -180,7 +180,7 @@ def approve_contract(chat_id: int, *, contract_ref: str, scope_ref: str, access_
         raise ValueError("Existing chat, signed contract, scope and access references required")
     _put(chat_id, contract_signed=True, contract_reference=contract_ref[:160], scope_reference=scope_ref[:160],
          access_reference=access_ref[:160], contract_verified_by_owner=int(owner_id),
-         contract_amount=config.PRICE_USD, contract_currency="USD", followup_sent=True)
+         contract_amount=config.PAYMENT_AMOUNT, contract_currency=config.PAYMENT_CURRENCY, followup_sent=True)
 
 
 def fulfillment_ready(chat_id: int) -> bool:

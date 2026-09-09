@@ -830,6 +830,18 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(
                 ssc.terms_presentation(company=who, turkish=_customer_lang(update)))
             return
+        if ssc_res and ssc_res.get("reason") == "confusion":
+            # Anti-karışıklık bekçisi devreye girdi: başka şirkete link yok.
+            await update.message.reply_text(
+                "Bu oturumda yalnızca formda geçen şirketle işlem yürüyebilir. "
+                "Karışıklık yaşandıysa tekrar iletin."
+                if _customer_lang(update) else
+                "This session is bound to the company from the form. "
+                "If there is a mix-up, please restate your company.")
+            await asyncio.to_thread(
+                owner_notify.send,
+                f"🛡️ KARIŞIKLIK BEKÇİSİ — chat {chat_id}: farklı şirket bağlanmaya çalıştı. Link gönderilmedi.")
+            return
         request = payment_safety.ready_request(chat_id)
         contract = telegram_sessions._row(chat_id)
         if (request is None or not contract.get("contract_signed")

@@ -825,3 +825,46 @@ def test_free_captcha_without_tesseract(monkeypatch):
     assert result["ok"] is False
     assert result["reason"] == "tesseract_not_installed"
 
+
+# --- Lane W: forget_guard (anti-karışıklık bekçisi) -----------------------
+
+
+def test_forget_guard_domain_of():
+    from nirvana import forget_guard as fg
+    assert fg.domain_of("https://www.acme.com/contact") == "acme.com"
+    assert fg.domain_of("acme.com") == "acme.com"
+    assert fg.domain_of("") == ""
+
+
+def test_forget_guard_company_conflict():
+    from nirvana import forget_guard as fg
+    assert fg.company_conflict("Acme Corp", {"company": "Other Labs"})
+    assert not fg.company_conflict("Acme Corp", {"company": "Acme Corp"})
+    assert not fg.company_conflict("Acme Corp", None)
+
+
+def test_forget_guard_check_requires_domain(isolated_state):
+    from nirvana import forget_guard as fg
+    r = fg.check("Acme", "")
+    assert not r["ok"]
+    assert "no_form_domain" in r["reasons"]
+
+
+def test_forget_guard_blocks_when_conflict(isolated_state):
+    from nirvana import forget_guard as fg
+    r = fg.check("Acme", "https://other.com/contact", brief={"company": "Other"})
+    assert not r["ok"]
+    assert "company_conflict" in r["reasons"]
+
+
+def test_ssc_blocks_confusion(isolated_state, monkeypatch):
+    """Oturum şirketi ≠ form şirketi → link YOK, reason confusion."""
+    from nirvana import self_serve_close as ssc
+    monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL", "https://link.payoneer.com/live")
+    r = ssc.evaluate(99, "şartları kabul ediyorum",
+                     brief={"report_id": "DS-9", "company": "Acme", "host": "acme.com"},
+                     row={"company": "Other Corp", "terms_acknowledged": True},
+                     link="https://link.payoneer.com/live")
+    assert r["reason"] == "confusion"
+    assert not r["ok"]
+

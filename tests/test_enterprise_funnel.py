@@ -198,11 +198,11 @@ def test_report_is_not_payment_and_fulfillment_requires_contract(isolated):
     sessions.mark_payment_confirmed(42)
     assert sessions._row(42)["payment_reported"]
     assert not sessions.fulfillment_ready(42)
-    sessions._put(42, payment_request={"amount": 2500, "currency": "USD"})
+    sessions._put(42, payment_request={"amount": 2500, "currency": "EUR"})
     sessions.mark_payment(42)
     with pytest.raises(ValueError):
-        sessions.verify_payment(42, amount=5000, currency="USD", reference="TX-1", owner_id=12)
-    sessions.verify_payment(42, amount=2500, currency="USD", reference="TX-1", owner_id=12)
+        sessions.verify_payment(42, amount=5000, currency="EUR", reference="TX-1", owner_id=12)
+    sessions.verify_payment(42, amount=2500, currency="EUR", reference="TX-1", owner_id=12)
     assert not sessions.fulfillment_ready(42)
     sessions.approve_contract(42, contract_ref="C1", scope_ref="S1", access_ref="A1", owner_id=12)
     assert sessions.fulfillment_ready(42)

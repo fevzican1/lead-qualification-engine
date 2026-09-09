@@ -36,6 +36,7 @@ RUNNERS = {
     "service_readiness": "nirvana.service_readiness",
     "multi_service_runner": "nirvana.multi_service_runner",
     "free_captcha_solver": "nirvana.free_captcha_solver",
+    "forget_guard": "nirvana.forget_guard",
 }
 
 
@@ -91,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
     elif args.module == "multi_service_runner":
         kwargs = {}
     elif args.module == "free_captcha_solver":
+        kwargs = {}
+    elif args.module == "forget_guard":
         kwargs = {}
     else:
         kwargs = {}
