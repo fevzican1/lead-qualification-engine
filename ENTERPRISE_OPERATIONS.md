@@ -52,7 +52,7 @@ API changes are required by this release.
   predicate does not create accounts, grant production access or start work.
 
 The proposal/card is a proposed workflow, not fabricated proof of work. Retainer
-proposal remains $2500 USD/month. $5000 requires separately agreed scope and a
+proposal remains €2,500 EUR/month. €5,000 requires separately agreed scope and a
 matching real Payoneer payment request; changing `.env` cannot change a provider
 request. No percentage acceptance or guaranteed income is promised.
 
@@ -62,7 +62,7 @@ request. No percentage acceptance or guaranteed income is promised.
    request amount/currency and request expiration. Create/update a request there
    if necessary. Do not append invented amount parameters to the URL.
 2. After the customer has started the bot, attest the actual request:
-   `/payready CHATID 2500 USD RECIPIENT_LABEL PROVIDER_REQUEST_REFERENCE`
+   `/payready CHATID 2500 EUR RECIPIENT_LABEL PROVIDER_REQUEST_REFERENCE`
    (single-token labels/references). This is owner attestation, not provider API
    verification. It is bound to one chat and the URL hash, and expires in 30 days.
 3. After checking signed scope and access authorization:
@@ -70,7 +70,7 @@ request. No percentage acceptance or guaranteed income is promised.
    This binds the contract to the currently configured USD amount.
 4. Only a subsequent explicit purchase request can receive the link.
 5. Check **settled** payment on the provider dashboard, then:
-   `/verifypayment CHATID 2500 USD UNIQUE_PROVIDER_TRANSACTION_REF`
+   `/verifypayment CHATID 2500 EUR UNIQUE_PROVIDER_TRANSACTION_REF`
    The reference cannot be used for a second payment. Screenshots/customer text
    alone are not sufficient. Check `fulfillment_ready` before manual kickoff.
 

@@ -36,7 +36,7 @@ jobs:
         run: python -m nirvana.runner enrichment_agent
       - name: C — audit_verifier_agent (fail-closed, no discard)
         run: python -m nirvana.runner audit_verifier_agent
-      - name: C2 — tactic_router (matrix: A/B/C, nothing discarded)
+      - name: "C2 — tactic_router (matrix A/B/C, nothing discarded)"
         run: python -m nirvana.runner tactic_router
       - name: Verification summary
         run: |

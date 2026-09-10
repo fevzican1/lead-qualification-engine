@@ -218,14 +218,14 @@ def test_enterprise_followup_stops(isolated):
 
 def test_hidden_price_is_shown_when_explicit(isolated):
     assert config.price_label() == ""
-    assert config.price_label(explicit=True) == "$2500 USD"
+    assert config.price_label(explicit=True) == "€2.500"
 
 
 def test_non_owner_cannot_verify_payment(isolated, monkeypatch):
     monkeypatch.setattr(bot, "_is_owner", lambda cid: False)
     update = SimpleNamespace(effective_chat=SimpleNamespace(id=42, type="private"),
                              effective_user=SimpleNamespace(id=42), message=SimpleNamespace(reply_text=AsyncMock()))
-    asyncio.run(bot.cmd_verifypayment(update, SimpleNamespace(args=["42", "2500", "USD", "TX1"])))
+    asyncio.run(bot.cmd_verifypayment(update, SimpleNamespace(args=["42", "2500", "EUR", "TX1"])))
     assert sessions._row(42) == {}
 
 
@@ -239,7 +239,7 @@ def test_explicit_price_and_interest_paths_skip_model(isolated, monkeypatch):
                              effective_user=SimpleNamespace(id=999, language_code="en", username="test"),
                              message=SimpleNamespace(text="How much?", reply_text=reply))
     asyncio.run(bot.on_text(update, SimpleNamespace(bot=None)))
-    assert "$2500 USD" in reply.call_args.args[0]
+    assert "€2.500" in reply.call_args.args[0]
     update.message.text = "I want to buy and pay."
     asyncio.run(bot.on_text(update, SimpleNamespace(bot=None)))
     assert "link.payoneer.com" not in reply.call_args.args[0]

@@ -139,6 +139,10 @@ WATCHDOG_CHAT_ID: str = _get("WATCHDOG_CHAT_ID", TELEGRAM_NOTIFY_CHAT_ID or OWNE
 # offer text and gate the amount/currency of verified requests.
 PAYMENT_CURRENCY: str = _get("PAYMENT_CURRENCY", "EUR").upper()
 PAYMENT_AMOUNT: int = _get_int("PAYMENT_AMOUNT", 2500)
+# Human-facing price label for all customer copy (Telegram, proof cards, PDFs).
+# Nirvana retainer: €2.500 EUR aylık. Payment gates stay numeric (PRICE_USD /
+# PAYMENT_AMOUNT == 2500); only the display currency changes here.
+PRICE_LABEL: str = _get("PRICE_LABEL", "€2.500")
 # Payoneer webhook: HMAC-SHA256 imza doğrulama sırrı. Sadece bu imzayla gelen
 # PAID sinyali pipeline'ı otomatik başlatır; imzasız/sahte POST reddedilir.
 PAYONEER_WEBHOOK_SECRET: str = _get("PAYONEER_WEBHOOK_SECRET", "")
@@ -233,9 +237,10 @@ OPTOUTS_PATH: Path = ROOT / "optouts.json"
 
 
 def price_label(*, explicit: bool = False) -> str:
+    """Human-facing retainer price (single source of truth: config.PRICE_LABEL)."""
     if PRICE_HIDDEN and not explicit:
         return ""
-    return f"${PRICE_USD} USD"
+    return PRICE_LABEL
 
 
 def payment_label() -> str:

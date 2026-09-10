@@ -534,7 +534,7 @@ async def cmd_payready(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except (ValueError, TypeError):
         await update.message.reply_text(
             "Payoneer panelinde gerçek tutar, alıcı ve hesap uygunluğunu kontrol ettikten sonra: "
-            "/payready CHATID 2500 USD ALICI_ETIKETI TALEP_REFERANSI. Bu komut ödeme oluşturmaz.")
+            "/payready CHATID 2500 EUR ALICI_ETIKETI TALEP_REFERANSI. Bu komut ödeme oluşturmaz.")
         return
     await update.message.reply_text("Talep sahibi tarafından kontrol edildi olarak kaydedildi. Tahsilat değildir.")
 
@@ -549,7 +549,7 @@ async def cmd_verifypayment(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     except (ValueError, TypeError):
         await update.message.reply_text(
             "Payoneer panelinde yerleşmiş ödemeyi kontrol ettikten sonra: "
-            "/verifypayment CHATID 2500 USD ISLEM_REFERANSI. Talep tutarı eşleşmeli; referans tek kullanımlık.")
+            "/verifypayment CHATID 2500 EUR ISLEM_REFERANSI. Talep tutarı eşleşmeli; referans tek kullanımlık.")
         return
     await update.message.reply_text("Sahip doğrulaması kaydedildi. Sözleşme/erişim onayı olmadan iş başlamaz.")
     # DeepSeek Success Alert: ödeme doğrulandığında owner'a bildir
@@ -783,10 +783,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         amount = config.price_label(explicit=True)
         await update.message.reply_text(
             f"Önerilen aylık hizmet bedeli {amount}; nihai kapsam ve sözleşme onayına bağlıdır. "
-            "$5000 ancak ayrı kapsam ve tutarı doğrulanmış ödeme talebiyle değerlendirilir."
+            "€5.000 ancak ayrı kapsam ve tutarı doğrulanmış ödeme talebiyle değerlendirilir."
             if _customer_lang(update) else
             f"The proposed monthly service retainer is {amount}, subject to agreed scope and contract. "
-            "$5000 requires separately agreed scope and a matching verified payment request.")
+            "€5,000 requires separately agreed scope and a matching verified payment request.")
         return
 
     terms_match = _TERMS_RE.search(user_text)
