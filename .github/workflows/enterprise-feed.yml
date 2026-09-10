@@ -34,7 +34,13 @@ jobs:
         run: |
           git config user.name "devsolve-enterprise"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add feeds/enterprise_targets.json
+          for f in feeds/enterprise_targets.json feeds/enterprise_scan_cursor.json; do
+            if [ -f "$f" ]; then
+              git add "$f"
+            else
+              echo "skip missing $f"
+            fi
+          done
           if git diff --cached --quiet; then
             echo "No enterprise feed changes"
           else
