@@ -163,6 +163,48 @@ nirvana:
       entrypoint: "python -m nirvana.runner free_captcha_solver"
       description: "Ucretsiz CAPTCHA cozucu: Tesseract OCR + Pillow. Basit metin CAPTCHA'larini cozer. Modern reCAPTCHA/Turnstile icin stealth + rotalama."
       heavy: true
+    financial_loss_engine:
+      host: github
+      letter: Y
+      schedule: "12 5 * * *"
+      entrypoint: "python -m nirvana.runner financial_loss_engine"
+      description: "MOD-05 kayip hesaplama: olculmus darboğazdan finansal etki bandi. Uydurma yok."
+      heavy: true
+    hash_tokenizer:
+      host: github
+      letter: Z
+      schedule: "manual"
+      entrypoint: "python -m nirvana.runner hash_tokenizer"
+      description: "MOD-09 SHA-256 baglanti token: chat-domain eslesme, izolasyon zinciri."
+      heavy: false
+    queue_fuel_guard:
+      host: oracle
+      letter: AA
+      schedule: "*/10 * * * *"
+      entrypoint: "python -m nirvana.runner queue_fuel_guard"
+      description: "MOD-11 token-bucket kuyruk+yakit: gunluk 400'u gune yayar, bitince durdurur."
+      heavy: false
+    forget_guard:
+      host: oracle
+      letter: W
+      schedule: "event"
+      entrypoint: "python -m nirvana.runner forget_guard"
+      description: "Anti-karisiklik bekcisi: token-bound sirket disinda link yok, domain-disi kanit yok. Sessiz guard, bildirim atmaz."
+      heavy: false
+    anti_spam_cadence:
+      host: oracle
+      letter: AB
+      schedule: "manual"
+      entrypoint: "python -m nirvana.runner anti_spam_cadence"
+      description: "MOD-14 spam-onleme ritmi: 24s/72s/7g kademeli takip, opt-out'a saygi."
+      heavy: false
+    interaction_tracker:
+      host: oracle
+      letter: AC
+      schedule: "event"
+      entrypoint: "python -m nirvana.runner interaction_tracker"
+      description: "MOD-19 etkilesim izleyici: link tiklama sinyali, odeme dogrulanmadan pipeline kapali."
+      heavy: false
     forget_guard:
       host: oracle
       letter: W

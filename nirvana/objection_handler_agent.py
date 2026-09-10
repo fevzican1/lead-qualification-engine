@@ -16,21 +16,32 @@ from typing import Any
 
 from nirvana.payment import retainer_label
 
-# (pattern, turkish_reply, english_reply)
+# (pattern, turkish_reply, english_reply) — SIRALAMA ÖNEMLİ: spesifikten genele.
 RULES: tuple[tuple[str, str, str], ...] = (
     (
-        r"(fiyat\w*\s*(çok\s*)?yüksek|pahalı|bütçe\w*\s*yok|budget|too expensive|price is high|cost is high)",
+        r"(ucretsiz (deneme|pilot|is|yama|hizmet)|free (trial|pilot|fix|work)|\btrial\b)",
+        f"Bu çözüm yalnızca aylık retainer kapsamında sunulur. Ödeme doğrulanana kadar "
+        f"hiçbir teknik işlem yapılmaz. Şeffaf kanıta dayalı ilerleriz: şimdi ölçülen "
+        f"darboğaz ve adım adım kapanış planı. "
+        f"Before payment we only show the solution roadmap and instant micro-proof.",
+        f"Available strictly under the monthly retainer. No engineering work runs "
+        f"before verified payment. We proceed on transparent evidence: the measured "
+        f"bottleneck and the step-by-step closure plan, right now. "
+        f"Before payment we only show the solution roadmap and instant micro-proof.",
+    ),
+    (
+        r"(fiyat\w*\s*(cok\s*)?(yuksek|yuksek)|pahali|butce\w*\s*yok|budget|too expensive|price is high|cost is high)",
         "Fiyatı kaybınla kıyaslayın: ölçtüğümüz darboğaz (raporda numaralı) her ay ciro "
         "kaybettiriyor. Retainer, bu darboğazın mimari olarak kapatılması ve sürekli "
-        "izlemedir; ücretsiz iş vermiyoruz çünkü ücretli mühendislik taahhüdüdür. "
-        "Kanıt kartı ve kapanış planı elimizde — bak, karar ver.",
+        "izlemedir; ödeme öncesi yalnızca kanıt (rapor + kart + kapanış planı) sunulur, "
+        "uygulama doğrulanmış ödeme sonrası başlar. Kanıt kartı ve kapanış planı elimizde — bak, karar ver.",
         "Compare the price to the loss: the bottleneck we measured (numbered in the "
         "report) leaks revenue every month. The retainer is closing that bottleneck "
         "architecturally plus continuous monitoring. We do not do unpaid engineering; "
         "the proof card and closure plan are in front of you — review and decide.",
     ),
     (
-        r"(güvenlik|veri|erişim|security|data (safety|risk)|access risk)",
+        r"(guvenlik|risc|veri(\s|nin|ye)?\s*(guven|risk|ihlali)?|erisim|security|data (safety|risk|breach)|access risk)",
         "Haklısınız, erişim en hassas konu. Denetim salt okunur ve dışarıdandır: panel, "
         "kimlik veya veri indirmesi yok. Rapor açık standartlarla numaralanır; ödeme "
         "öncesi yalnızca bu kanıt paylaşılır, üretim erişimi sözleşmeden sonra başlar.",
@@ -39,7 +50,7 @@ RULES: tuple[tuple[str, str, str], ...] = (
         "you only receive the evidence — production access starts after the contract.",
     ),
     (
-        r"(zaman[ıi]m yok|meşgul|daha sonra|no time|too busy|later)",
+        r"(zaman[ıi]m yok|mesgul|daha sonra|no time|too busy|later)",
         "Anlıyorum. O yüzden süreç size az dokunur: kanıt ve kapanış planı bu sohbette, "
         "ödeme sonrası ilk tur otomatik başlar, haftalık özet buraya düşer. Sizin "
         "cüzdanınızdaki kayıp ise her hafta devam ediyor.",
@@ -48,7 +59,7 @@ RULES: tuple[tuple[str, str, str], ...] = (
         "the weekly summary lands here. Meanwhile the leak keeps running.",
     ),
     (
-        r"(düşünelim|düşünmem lazım|karar veremem|let me think|we'll think|not sure)",
+        r"(dusunelim|dusunmem lazim|karar veremem|let me think|we'll think|not sure)",
         "Tabii, düşünün. Karar için ihtiyacınız olan üç şey zaten önünüzde: (1) ölçülmüş "
         "darboğaz, (2) rapor numarası ve kanıt kartı, (3) adım adım kapanış planı. "
         "Belirsizlik kalmadığında karar kolaylaşır.",
@@ -57,15 +68,15 @@ RULES: tuple[tuple[str, str, str], ...] = (
         "closure plan. Decisions get easy when ambiguity is gone.",
     ),
     (
-        r"(pilot (nasıl|nedir)|free pilot|ücretsiz pilot|trial|ücretsiz (iş|yama|hizmet))",
-        f"Ücretsiz pilot/ücretsiz yama yok: ciddi mühendislik taahhüdür. Ödeme öncesi "
-        f"sadece KANIT alırsınız — ölçülmüş bulgu, rapor no, kanıt kartı ve kapanış "
-        f"planı. İşin kendisi aylık {retainer_label()} retainer kapsamında, ödeme "
-        f"doğrulandığı an başlar.",
-        f"No free pilot and no free patches: real engineering is a commitment. Before "
-        f"payment you only receive EVIDENCE — the measured finding, report number, "
-        f"proof card and closure plan. The work itself runs under the monthly "
-        f"{retainer_label()} retainer and starts the moment payment is verified.",
+        r"(ucretsiz (deneme|pilot|is|yama|hizmet)|free (trial|pilot|fix|work)|\btrial\b)",
+        f"Bu çözüm yalnızca aylık retainer kapsamında sunulur. Ödeme doğrulanana kadar "
+        f"hiçbir teknik işlem yapılmaz. Şeffaf kanıt zinciri: ölçülmüş darboğaz → numaralı rapor → "
+        f"kanıt kartı → adım adım kapanış planı → doğrulanmış ödeme sonrası tek seferde uygulama. "
+        f"Ödeme öncesi yalnızca çözüm yol haritasını ve anlık mikro-kanıtı gösteririz.",
+        f"This solution is offered exclusively under the monthly retainer. No technical work is performed "
+        f"before verified payment. Transparent evidence chain: measured bottleneck → numbered report → "
+        f"proof card → step-by-step closure plan → one-shot implementation after verified payment. "
+        f"Before payment we only show the solution roadmap and instant micro-proof.",
     ),
 )
 
@@ -99,9 +110,16 @@ SOLUTION_WALKTHROUGH_EN = (
     "Execution runs under the monthly {retainer} retainer and starts automatically once payment is verified."
 )
 
-_SOLUTION_RE = (r"(nasıl\s*(çöz|düzelt|gider|hallet)|çözüm\s*(plan|sürec)|ne\s*yapacaksınız|"
+_SOLUTION_RE = (r"(nasil\s*(coz|duzelt|gider|hallet)|cozum\s*(plan|surec)|ne\s*yapacaksiniz|"
                 r"how\s*(will|would|do)\s*you\s*(fix|solve)|fix\s*it\s*how|solution\s*(plan|approach)|"
-                r"mikro\s*simülasyon|micro\s*simulation|önce\s*/\s*sonra)")
+                r"mikro\s*simulasyon|micro\s*simulation|once\s*/\s*sonra)")
+
+
+def _norm(text: str) -> str:
+    """Türkçe karakterleri ASCII'ye indirger (çöz → coz) — kural eşleşmesi için."""
+    table = str.maketrans({"ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u",
+                           "Ç": "c", "Ğ": "g", "İ": "i", "Ö": "o", "Ş": "s", "Ü": "u"})
+    return (text or "").translate(table)
 
 
 def solution_walkthrough(*, turkish: bool = True, metric: str = "ölçülen gecikme",
@@ -115,8 +133,13 @@ def handle(text: str, *, turkish: bool = False) -> str | None:
     raw = (text or "").strip()
     if not raw:
         return None
+    norm = _norm(raw)
+    # "Nasıl çözeceksiniz?" -> çözüm yol haritası + mikro-kanıt anlatımı
+    # (yalnızca anlatım; uygulama ödeme sonrası). Reaktif: kullanıcı sorunca.
+    if re.search(_SOLUTION_RE, norm, re.IGNORECASE):
+        return solution_walkthrough(turkish=turkish)
     for pattern, tr, en in RULES:
-        if re.search(pattern, raw, re.IGNORECASE):
+        if re.search(pattern, norm, re.IGNORECASE):
             return tr if turkish else en
     return None
 

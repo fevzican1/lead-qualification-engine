@@ -38,6 +38,11 @@ RUNNERS = {
     "free_captcha_solver": "nirvana.free_captcha_solver",
     "forget_guard": "nirvana.forget_guard",
     "proof_card": "nirvana.proof_card",
+    "financial_loss_engine": "nirvana.financial_loss_engine",
+    "hash_tokenizer": "nirvana.hash_tokenizer",
+    "queue_fuel_guard": "nirvana.queue_fuel_guard",
+    "anti_spam_cadence": "nirvana.anti_spam_cadence",
+    "interaction_tracker": "nirvana.interaction_tracker",
 }
 
 
@@ -97,6 +102,10 @@ def main(argv: list[str] | None = None) -> int:
     elif args.module == "forget_guard":
         kwargs = {}
     elif args.module == "proof_card":
+        kwargs = {}
+    elif args.module in {"financial_loss_engine", "hash_tokenizer",
+                         "queue_fuel_guard", "anti_spam_cadence",
+                         "interaction_tracker"}:
         kwargs = {}
     else:
         kwargs = {}

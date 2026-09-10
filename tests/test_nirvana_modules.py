@@ -185,10 +185,11 @@ def test_strategy_run_batch_writes_state(tmp_path):
 def test_objection_price_gets_value_pivot_no_free_work():
     reply = objection.handle("Fiyatınız çok yüksek, bütçemiz yok", turkish=True)
     low = reply.lower()
-    # Ücretsiz İŞ/PILOT yok — "ücretsiz iş vermiyoruz" ret cümlesine izin var
-    assert reply and "pilot" not in low and "ücretsiz iş ver" not in low.replace("vermiyoruz", "")
+    # Profesyonel dil: müşteriye "ücretsiz" kelimesi HİÇ geçmez —
+    # ne teklif ne ret cümlesi. Değer + kapanış planı anlatılır.
+    assert reply and "cretsiz" not in low and "pilot" not in low
     assert "retainer" in low or "darboğaz" in low
-    assert "ücretsiz iş vermiyoruz" in low  # açık ret politikası mesajda net
+    assert "kanıt" in low or "plan" in low
 
 
 def test_objection_security_reply():
