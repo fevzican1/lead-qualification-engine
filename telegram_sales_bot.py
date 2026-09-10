@@ -75,6 +75,11 @@ _NEGATIVE_BUY_RE = re.compile(
 _PRICE_RE = re.compile(r"fiyat|ne kadar|ücret|ucret|kaç\s*dolar|price|how much|cost|salary|retainer.*(?:amount|fee)", re.I)
 
 
+def _currency_symbol(currency: str) -> str:
+    """Return the display symbol for a currency code (EUR/USD/GBP)."""
+    return {"EUR": "€", "USD": "$", "GBP": "£"}.get((currency or "").upper(), "")
+
+
 def _wants_to_buy(text: str) -> bool:
     # Questions about a provider, negatives and conditional interest are not authorization.
     clean = (text or "").strip()
@@ -854,7 +859,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                                     "Kapsam/sözleşme ve Payoneer talep doğrulaması gerekiyor.")
             return
         await update.message.reply_text(
-            f"Agreed request: ${request['amount']} {request['currency']}. "
+            f"Agreed request: {_currency_symbol(request['currency'])}{request['amount']} {request['currency']}. "
             "Check the recipient and amount on Payoneer before paying.\n" + config.PAYONEER_PAYMENT_URL)
         telegram_sessions._put(chat_id, payment_request=request)
         telegram_sessions.mark_payment(chat_id)
