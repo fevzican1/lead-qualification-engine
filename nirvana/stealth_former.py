@@ -117,7 +117,27 @@ def _mark_captcha(domain: str) -> None:
 
 
 def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]:
+    """Matris kancasıyla 400/gün %100 kapasite: her hedef Taktik'e göre kanca alır."""
     targets = urls or []
+    # Taktik Matrisi'nden kanca yükle (varsa)
+    tactic_hooks: dict[str, dict[str, Any]] = {}
+    try:
+        tdata = json.loads(state_path("tactic_matrix.json").read_text(encoding="utf-8"))
+        for t in (tdata.get("routed") or []):
+            d = (t.get("domain") or "").lower()
+            tactic_hooks[d] = {"tactic": t.get("tactic"), "hook": t.get("hook", "")}
+    except (OSError, ValueError):
+        pass
+    # Ayrıca pending (audit fail -> matris) kuyruğunu da işle
+    try:
+        pending = json.loads(state_path("tactic_matrix_pending.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pending = []
+    for p in pending:
+        d = str(p.get("domain") or "").strip()
+        if d and targets.count(d) == 0:
+            targets.append(p.get("url") or f"https://{d}/")
+
     results: list[dict[str, Any]] = []
     per_domain_count: dict[str, int] = {}
     remaining = daily_remaining()
@@ -126,9 +146,16 @@ def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]
     max_to_process = min(remaining, PACING["per_run"])
     for url in targets[:max_to_process]:
         d = _domain(url)
+        if not d:
+            continue
         if per_domain_count.get(d, 0) >= PACING["per_domain"]:
             continue
-        results.append(submit_form(url, {}))
+        hook = (tactic_hooks.get(d.lower(), {}) or {}).get("hook", "")
+        result = submit_form(url, {})
+        if hook:
+            result["tactic_hook"] = hook
+            result["tactic"] = (tactic_hooks.get(d.lower(), {}) or {}).get("tactic", "?")
+        results.append(result)
         per_domain_count[d] = per_domain_count.get(d, 0) + 1
         time.sleep(0.5)
     submitted = sum(1 for r in results if r["status"] in ("submitted", "submitted_captcha_solved"))
@@ -137,4 +164,5 @@ def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]
     _increment_daily_count(submitted)
     return {"processed": len(results), "submitted": submitted,
             "captcha_solved": captcha_solved, "captcha_routed": captcha_routed,
+            "tactic_hooked": sum(1 for r in results if r.get("tactic")),
             "daily_remaining": daily_remaining(), "results": results}

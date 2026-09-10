@@ -146,10 +146,15 @@ def test_oracle_queue_only_gets_pass_rows(monkeypatch):
         {"domain": "bad.com", "verdict": "reject_dns", "company": "Bad", "url": "https://bad.com/apply", "hook": "h"},
     ]), encoding="utf-8")
     summary = audit.run_batch()
-    assert summary["audited"] == 1 and summary["rejected"] == 0
+    # "Ele/çöpe at" yok: üretim kuyruğu yalnızca pass alır; fail olanlar
+    # ÇÖPE ATILMAZ, Taktik Matrisi'ne rotalanır (routed_to_matrix).
+    assert summary["audited"] == 1 and summary["routed_to_matrix"] == 1
     rows = audit.oracle_queue_rows()
     assert [r["domain"] for r in rows] == ["good.com"]
     assert all((r["audit"]["verdict"]) == "pass" for r in rows)
+    # fail olan bad.com matriste; asla çöpe gitmez
+    pending = json.loads(state_path("tactic_matrix_pending.json").read_text(encoding="utf-8"))
+    assert any(str(p.get("domain")) == "bad.com" for p in pending)
 
 
 # --- D. strategy ------------------------------------------------------------
@@ -190,6 +195,44 @@ def test_objection_price_gets_value_pivot_no_free_work():
     assert reply and "cretsiz" not in low and "pilot" not in low
     assert "retainer" in low or "darboğaz" in low
     assert "kanıt" in low or "plan" in low
+
+
+def test_non_free_tone_policy_dimension():
+    """Müşteriye 'ücretsiz' kelimesi hiç geçmez (profesyonel dil politikası)."""
+    from nirvana.tactic_router import hook_for
+    h = hook_for("A", {"delay_band_pct": "8-10", "evidence_metric": 2100,
+                       "reason": {"latency_ms": 2100, "threshold_ms": 1200}},
+                 company="acme.com")
+    assert "cretsiz" not in h.lower()
+    assert "8-10" in h or "2100ms" in h
+
+
+def test_tactic_router_classify_cascade():
+    """Fallback cascade: A -> B -> C; hiçbir hedef boş kalmaz."""
+    from nirvana.tactic_router import classify
+    slow = classify({"ms": 2500, "headers": {"server": "nginx"}, "body": "hello"})
+    assert slow["tactic"] == "A" and slow["delay_band_pct"] == "8-10"
+    shop = classify({"ms": 300, "headers": {"x-powered-by": "Shopify"},
+                     "body": "<div class=product>shop"})
+    assert shop["tactic"] == "B" and shop["reason"]["platform"] == "Shopify"
+    ok_fast = classify({"ms": 200, "headers": {"server": "nginx"},
+                        "body": "<html>landing</html>"})
+    assert ok_fast["tactic"] == "C" and "missing_headers" in ok_fast["reason"]
+
+
+def test_tactic_router_runs_without_network_targets():
+    """Boş girdi ile sorunsuz çalışır (ağ gerektirmez)."""
+    from nirvana.tactic_router import run_batch
+    import tempfile, pathlib
+    from nirvana.registry import state_path
+    out = state_path("tactic_matrix_test.json")
+    # Geçici boş verified_queue yok -> boş çalışır
+    result = run_batch(in_name="tactic_matrix_nonexistent.json", out_name="tactic_matrix_test.json")
+    assert result["routed"] == 0
+    try:
+        out.unlink()
+    except OSError:
+        pass
 
 
 def test_objection_security_reply():

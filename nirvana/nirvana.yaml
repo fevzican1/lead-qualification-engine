@@ -219,3 +219,10 @@ nirvana:
       entrypoint: "python -m nirvana.runner proof_card"
       description: "Gorsel kanıt kartı yonetimi: GitHub Actions micro_audit_proof_agent ürettiği PNG'yi state/proof_cards.json'dan okur, Telegram botu için URL sağlar."
       heavy: false
+    tactic_router:
+      host: github
+      letter: AD
+      schedule: "*/4 * * * *"
+      entrypoint: "python -m nirvana.runner tactic_router"
+      description: "MOD coklu taktik rotalama: hicbir lead cope atilmaz - A latency / B stack / C header kademesi. Her hedef kanit+kanca alir, 400/gun %100 kapasite."
+      heavy: true

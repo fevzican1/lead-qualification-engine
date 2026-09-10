@@ -78,6 +78,7 @@ def verify(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def run_batch(*, in_name: str = DEFAULT_IN, out_name: str = DEFAULT_OUT, limit: int = 60) -> dict[str, Any]:
+    """Kademeli denetim: ilk geçilmezse -> Taktik Matrisi'ne rotala, ÇÖPE ATMA."""
     in_path = state_path(in_name)
     try:
         rows = json.loads(in_path.read_text(encoding="utf-8"))
@@ -91,34 +92,62 @@ def run_batch(*, in_name: str = DEFAULT_IN, out_name: str = DEFAULT_OUT, limit: 
     done = {str(r.get("domain")) for r in prior if isinstance(r, dict)}
 
     verified = list(prior)
-    audited = rejected = 0
+    audited = routed_to_matrix = 0
     for row in rows:
         if audited >= limit:
             break
-        if not isinstance(row, dict) or str(row.get("verdict") or "enriched") != "enriched":
+        if not isinstance(row, dict) or str(row.get("domain") or "").strip() == "":
             continue
         domain = str(row.get("domain") or "").strip()
-        if not domain or domain in done:
+        if domain in done:
             continue
-        result = verify(row)
-        audited += 1
-        if result["verdict"] != "pass":
-            rejected += 1
-            continue
-        verified.append({
-            "domain": domain,
-            "company": row.get("company", domain),
-            "url": row.get("url") or f"https://{domain}/",
-            "hook": row.get("hook", ""),
-            "audit": result,
-            "audit_by": "audit_verifier_agent",
-        })
+        verdict = str(row.get("verdict") or "enriched")
+        # Enriched satırlar denetlenir; pass olanlar üretim kuyruğuna gider.
+        if verdict == "enriched":
+            audited += 1
+            result = verify(row)
+            if result["verdict"] == "pass":
+                verified.append({
+                    "domain": domain,
+                    "company": row.get("company", domain),
+                    "url": row.get("url") or f"https://{domain}/",
+                    "hook": row.get("hook", ""),
+                    "audit": result,
+                    "audit_by": "audit_verifier_agent",
+                })
+                done.add(domain)
+                continue
+            reasons = result["reasons"]
+        else:
+            # Enriched değilse (ör. reject_dns / rejected): ÇÖPE ATILMAZ.
+            # Ne olursa olsun matrise gider; hiçbir hedef harcanmaz.
+            reasons = [f"upstream_verdict:{verdict}"]
+        # Fail-closed korunur (Oracle'a asla girmez) ama hedef ÇÖPE ATILMAZ:
+        # Taktik Matrisi'ne gider. Row matris girdisiyle işaretlenir.
+        routed_to_matrix += 1
+        matrix_rows: list[dict[str, Any]] = []
+        try:
+            matrix_rows = json.loads(state_path("tactic_matrix_pending.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+        if not any(str(m.get("domain")) == domain for m in matrix_rows):
+            matrix_rows.append({
+                "domain": domain,
+                "company": row.get("company", domain),
+                "url": row.get("url") or f"https://{domain}/",
+                "audit_fail_reasons": reasons,
+                "matrix_status": "pending",
+            })
+        tmp2 = state_path("tactic_matrix_pending.json").with_suffix(".tmp")
+        tmp2.write_text(json.dumps(matrix_rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        tmp2.replace(state_path("tactic_matrix_pending.json"))
         done.add(domain)
 
     tmp = out_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(verified, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(out_path)
-    return {"audited": audited, "rejected": rejected, "verified": len(verified), "out": str(out_path)}
+    return {"audited": audited, "routed_to_matrix": routed_to_matrix,
+            "verified": len(verified), "out": str(out_path)}
 
 
 def oracle_queue_rows(path: Any = None) -> list[dict[str, Any]]:

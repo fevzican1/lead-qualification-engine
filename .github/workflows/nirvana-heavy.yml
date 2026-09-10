@@ -34,8 +34,10 @@ jobs:
         run: python -m nirvana.runner discovery_agent
       - name: B — enrichment_agent
         run: python -m nirvana.runner enrichment_agent
-      - name: C — audit_verifier_agent (fail-closed)
+      - name: C — audit_verifier_agent (fail-closed, no discard)
         run: python -m nirvana.runner audit_verifier_agent
+      - name: C2 — tactic_router (matrix: A/B/C, nothing discarded)
+        run: python -m nirvana.runner tactic_router
       - name: Verification summary
         run: |
           python - <<'PY'
@@ -49,7 +51,7 @@ jobs:
         run: |
           git config user.name "nirvana-heavy"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add nirvana/state/discovery.json nirvana/state/enrichment.json nirvana/state/verified_queue.json
+          git add nirvana/state/discovery.json nirvana/state/enrichment.json nirvana/state/verified_queue.json nirvana/state/tactic_matrix.json nirvana/state/tactic_matrix_pending.json
           if git diff --cached --quiet; then
             echo "No nirvana queue changes"
           else
