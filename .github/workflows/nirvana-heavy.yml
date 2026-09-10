@@ -51,7 +51,13 @@ jobs:
         run: |
           git config user.name "nirvana-heavy"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add nirvana/state/discovery.json nirvana/state/enrichment.json nirvana/state/verified_queue.json nirvana/state/tactic_matrix.json nirvana/state/tactic_matrix_pending.json
+          for f in discovery.json enrichment.json verified_queue.json tactic_matrix.json tactic_matrix_pending.json; do
+            if [ -f "nirvana/state/$f" ]; then
+              git add "nirvana/state/$f"
+            else
+              echo "skip missing nirvana/state/$f"
+            fi
+          done
           if git diff --cached --quiet; then
             echo "No nirvana queue changes"
           else
