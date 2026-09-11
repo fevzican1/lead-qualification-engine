@@ -19,7 +19,6 @@ from urllib.parse import urlparse
 
 import httpx
 
-import config
 from nirvana.registry import state_path
 
 

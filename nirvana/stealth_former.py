@@ -21,8 +21,7 @@ import json
 import re
 import time
 from typing import Any
-from urllib.parse import urlparse
-
+from nirvana.registry import state_path
 import httpx
 
 import config

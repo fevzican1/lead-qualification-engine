@@ -12,7 +12,6 @@ from typing import Any
 
 import httpx
 
-import config
 from nirvana.registry import state_path
 
 CANARY_LOG = "canary_log.json"

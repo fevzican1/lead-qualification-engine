@@ -136,8 +136,8 @@ def run_batch(*, notify: bool = False, dry_run: bool = False) -> dict[str, Any]:
         status["forms_submitted_today"] = today_n
         status["forms_submitted_last_hour"] = hour_n
         status["form_daily_cap"] = _knowledge.daily_cap()
-    except Exception:  # noqa: BLE001 — sayaç hatası watchdog görevini bozmaz
-        logger.debug("form counter unavailable", exc_info=True)
+    except Exception as exc:  # noqa: BLE001 — sayaç hatası watchdog görevini bozmaz
+        status["forms_counter_error"] = str(exc)[:80]
     path = state_path(STATUS_NAME)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(status, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

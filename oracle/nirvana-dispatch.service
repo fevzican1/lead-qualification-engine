@@ -6,5 +6,5 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/devsolve
-ExecStart=/opt/devsolve/.venv/bin/python /opt/devsolve/oracle/dispatch_stealth.py
+ExecStart=/opt/devsolve/.venv/bin/python /opt/devsolve/oracle/dispatch_hub.py
 TimeoutStartSec=60

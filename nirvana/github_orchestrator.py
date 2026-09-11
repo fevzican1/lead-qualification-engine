@@ -7,7 +7,6 @@ return_run_details=true ile workflow_run_id anında döner.
 """
 from __future__ import annotations
 
-import json
 import os
 import time
 from typing import Any

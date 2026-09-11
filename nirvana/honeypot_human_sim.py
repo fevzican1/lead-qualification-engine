@@ -54,10 +54,6 @@ def detect_honeypot_fields(html: str) -> list[dict[str, Any]]:
     seen: set[str] = set()
 
     # 1. Style-based hidden containers wrapping <input>
-    input_blocks = re.findall(
-        r'<input[^>]*?(?:name|id)\s*=\s*["\']?(\w[\w-]*)["\']?[^>]*?>',
-        html, re.I,
-    )
     for m in re.finditer(
         r'<\w+[^>]*style\s*=\s*["\']([^"\']*)["\'][^>]*>(.*?)</\w+>',
         html, re.S | re.I,

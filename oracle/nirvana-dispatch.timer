@@ -1,9 +1,9 @@
 [Unit]
-Description=Nirvana dispatch 15dk timer (GitHub cron gecikmesine karsi Oracle tetikler)
+Description=Nirvana dispatch hub 5dk timer (tum GitHub modullerini tam ritimde tetikler)
 
 [Timer]
 OnBootSec=3min
-OnUnitActiveSec=15min
+OnUnitActiveSec=5min
 AccuracySec=30s
 Persistent=true
 Unit=nirvana-dispatch.service

@@ -14,7 +14,6 @@ import json
 from typing import Any
 from urllib.parse import urlsplit
 
-import config
 from nirvana.registry import state_path
 
 FORGET_LOG = "forget_guard.json"

@@ -13,9 +13,7 @@ This module reads the precomputed proof data from
 from __future__ import annotations
 
 import datetime as _dt
-import hashlib
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +23,6 @@ except Exception:  # Pillow optional on lightweight VM
     Image = None  # type: ignore
 
 import config
-from nirvana.registry import state_path
 
 PROOF_DIR = config.ROOT / "proof_cards"
 STATE_FILE = config.ROOT / "state" / "proof_cards.json"

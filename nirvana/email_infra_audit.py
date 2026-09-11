@@ -10,7 +10,6 @@ import json
 import time
 from typing import Any
 
-import config
 from nirvana.registry import state_path
 
 OUT_NAME = "email_infra_log.json"
