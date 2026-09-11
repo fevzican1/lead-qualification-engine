@@ -147,6 +147,28 @@ def _customer_lang(update: Update) -> bool:
     return code.startswith("tr")
 
 
+_TR_TEXT = re.compile(
+    r"[çğıöşüÇĞİÖŞÜ]|"
+    r"\b(merhaba|selam|fiyat|ödeme|ne kadar|ücret|ucret|kabul|onayl|başla|basla|evet|"
+    r"hayır|hayir|alıyorum|aliyorum|istiyorum|sözleşme|sozlesme|şart)\b",
+    re.I,
+)
+
+
+def _conv_lang(user_text: str, chat_id: int) -> bool:
+    """Konuşmanın gerçek dili: önce mesajın dili, sonra handoff, sonra profil.
+
+    Bu sayede müşteri TR siteye İngilizce yazsa bile yanıt İngilizce olur ve
+    tam tersi; dil karışıklığı yaşanmaz.
+    """
+    if _TR_TEXT.search(user_text or ""):
+        return True
+    row = _briefs.get(chat_id) or {}
+    if row.get("turkish") is not None:
+        return bool(row["turkish"])
+    return False
+
+
 def _username(update: Update) -> str:
     user = update.effective_user
     return (user.username or "").lstrip("@") if user else ""
@@ -785,13 +807,20 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if _PRICE_RE.search(user_text) and not _wants_to_buy(user_text):
-        amount = config.price_label(explicit=True)
-        await update.message.reply_text(
-            f"Önerilen aylık hizmet bedeli {amount}; nihai kapsam ve sözleşme onayına bağlıdır. "
-            "€5.000 ancak ayrı kapsam ve tutarı doğrulanmış ödeme talebiyle değerlendirilir."
-            if _customer_lang(update) else
-            f"The proposed monthly service retainer is {amount}, subject to agreed scope and contract. "
-            "€5,000 requires separately agreed scope and a matching verified payment request.")
+        # Yüksek otoriteli kapanış: direkt rakam satışı değil, kota + kabul protokolü.
+        try:
+            from nirvana import slot_gate
+            reply = slot_gate.price_response(turkish=_conv_lang(user_text, chat_id),
+                                             row=_briefs.get(chat_id), chat_id=chat_id)
+        except Exception:
+            logger.exception("slot_gate price fallback")
+            reply = (
+                f"Önerilen aylık retainer {config.price_label(explicit=True)}; "
+                "nihai kapsam ve sözleşme onayına bağlıdır."
+                if _conv_lang(user_text, chat_id) else
+                f"The proposed monthly retainer is {config.price_label(explicit=True)}, "
+                "subject to agreed scope and contract.")
+        await update.message.reply_text(reply)
         return
 
     terms_match = _TERMS_RE.search(user_text)
@@ -851,10 +880,26 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         contract = telegram_sessions._row(chat_id)
         if (request is None or not contract.get("contract_signed")
                 or contract.get("contract_amount") != request["amount"]):
-            await update.message.reply_text(
-                "Interest noted, not yet a signed engagement. Before payment we must agree scope, "
-                "contract and access, and verify the Payoneer request's recipient and amount. "
-                f"Proposed retainer: {config.price_label(explicit=True)}/month.")
+            try:
+                from nirvana import slot_gate
+                gate = slot_gate.intent_package(turkish=_conv_lang(user_text, chat_id),
+                                                row=_briefs.get(chat_id), chat_id=chat_id)
+            except Exception:
+                logger.exception("slot_gate intent fallback")
+                gate = None
+            if gate:
+                tail = (
+                    "\n\nŞartları görmek isterseniz 'kabul ediyorum' yazın — şart metni "
+                    "bu sohbete düşer; onayınızla Payoneer talebi ve SLA üretilir."
+                    if _conv_lang(user_text, chat_id) else
+                    "\n\nTo review the terms simply reply 'I accept' — the terms land here; "
+                    "on your approval the Payoneer request and SLA are produced.")
+                await update.message.reply_text(gate + tail)
+            else:
+                await update.message.reply_text(
+                    "Interest noted, not yet a signed engagement. Before payment we must agree scope, "
+                    "contract and access, and verify the Payoneer request's recipient and amount. "
+                    f"Proposed retainer: {config.price_label(explicit=True)}/month.")
             await asyncio.to_thread(owner_notify.send, f"Satın alma ilgisi (kabul/ödeme değil), chat {chat_id}. "
                                     "Kapsam/sözleşme ve Payoneer talep doğrulaması gerekiyor.")
             return
@@ -910,6 +955,15 @@ def _offline_reply(user_text: str, row: dict[str, Any] | None) -> tuple[str, boo
     except Exception:
         logger.exception("nirvana objection handler failed")
     buy = _wants_to_buy(user_text)
+    try:
+        from nirvana import slot_gate
+    except Exception:
+        slot_gate = None  # type: ignore[assignment]
+    # Yüksek otoriteli slot kapanışı (model kapalıyken de aynı dil):
+    if slot_gate and _PRICE_RE.search(user_text) and not buy:
+        return slot_gate.price_response(turkish=turkish, row=row), False
+    if slot_gate and buy:
+        return slot_gate.intent_package(turkish=turkish, row=row), False
     if turkish and buy:
         return (
             f"Önerilen bedel {config.price_label(explicit=True)}. Kapsam ve ödeme talebi doğrulanmalı.",

@@ -173,9 +173,9 @@ def submit_form(url: str, payload: dict[str, str]) -> dict[str, Any]:
     """
     result = {"url": url, "domain": _domain(url), "status": "pending", "ts": time.time()}
     try:
-        r = httpx.get(url, timeout=12, follow_redirects=True,
-                      headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                               "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
+        from nirvana.fingerprint_rotator import http_headers as _rotate_headers
+        headers = _rotate_headers()
+        r = httpx.get(url, timeout=12, follow_redirects=True, headers=headers)
         html = r.text
         expected_len = len(html or "")
         if detect_captcha(html):
@@ -209,8 +209,7 @@ def submit_form(url: str, payload: dict[str, str]) -> dict[str, Any]:
         if action and clean_payload:
             try:
                 pr = httpx.post(action, data=clean_payload, timeout=15, follow_redirects=True,
-                                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                                         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
+                                headers=_rotate_headers())
                 post_verdict = verify_submission_response(pr.status_code, pr.text, expected_len)
                 result["post_status_code"] = pr.status_code
             except Exception as e:
@@ -378,7 +377,9 @@ def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]
             result["tactic"] = (tactic_hooks.get(d.lower(), {}) or {}).get("tactic", "?")
         results.append(result)
         per_domain_count[d] = per_domain_count.get(d, 0) + 1
-        time.sleep(0.5)
+        # Sabit bekleme YOK: Gauss jitter (6s–30s) — bot ritmi yerine insan ritmi.
+        from nirvana.fingerprint_rotator import inter_submit_delay_ms
+        time.sleep(inter_submit_delay_ms() / 1000.0)
     submitted = sum(1 for r in results if r["status"] in ("verified", "verified_captcha_solved"))
     captcha_solved = sum(1 for r in results if r["status"] == "verified_captcha_solved")
     captcha_routed = sum(1 for r in results if r["status"] == "captcha_detected")

@@ -142,32 +142,43 @@ def _loss_band(ms: int | None) -> str:
     return "2-5"
 def hook_for(tactic: str, classification: dict[str, Any], *, company: str,
              turkish: bool = True) -> str:
-    """Kancayı Taktik'e göre kur. Sıfır uydurma: ölçülen veri neyse onu basar."""
+    """Kancayı Taktik'e göre kur. Sıfır uydurma: ölçülen veri neyse onu basar.
+
+    Format: kurumsal "Altyapı Güvenlik ve Performans Bildirimi" — reklam dili
+    değil, doğrudan kamuya açık teknik kanala yönelik resmî bildirim. Ölçülen
+    metrik mesajın merkezindedir; şablon hissi olmaması için rakam her satırda
+    gerçek ölçümden gelir.
+    """
     band = classification.get("delay_band_pct", "2-5")
     metric = classification.get("evidence_metric") or 0
     platform = (classification.get("reason") or {}).get("platform")
     if turkish:
+        head = f"{company} — Altyapı Güvenlik ve Performans Bildirimi. "
         if tactic == "A":
-            return (f"{company} — sitenizin yanıt süresinde ölçtüğümüz {metric}ms "
-                    f"darboğaz, dönüşüm hunisinde %{band} kayıp riski taşıyor. "
-                    f"Sayısal gecikme kartı hazır; çözüm yol haritamız bu sohbette.")
+            return (head + f"Sitenizin yanıt süresinde ölçtüğümüz {metric} ms "
+                    f"darboğaz kaydedildi; bu değer %{band} hız kaybı bandına karşılık "
+                    "geliyor. Sayısal gecikme kartı ve kapanış adımları bu sohbette.")
         if tactic == "B":
             stack = platform or "platform"
-            return (f"{company} — {stack} altyapınızdaki checkout/event akışında "
-                    f"kopukluk sinyali ölçtük (%{band} sepet-terki risk bandı). "
-                    f"Checkout Drop-off kartı ve kapanış planı Telegram'da.")
-        return (f"{company} — sitenizin HTTP/header altyapısında kritik koruma "
-                f"eksikleri tespit ettik (rapor numaralı). Altyapı Güvenlik Kartı "
-                f"ve düzeltme yol haritası Telegram'da.")
+            return (head + f"{stack} altyapınızdaki checkout/event akışında kopukluk "
+                    f"sinyali ölçüldü (%{band} sepet kaybı risk bandı). Checkout kartı "
+                    "ve kapanış planı bu sohbette.")
+        return (head + "HTTP/header altyapınızda kritik koruma eksikleri tespit "
+                "edildi (rapor numaralı). Altyapı Güvenlik Kartı ve düzeltme yol "
+                "haritası bu sohbette.")
+    head = f"{company} — Infrastructure Security & Performance Notice. "
     if tactic == "A":
-        return (f"{company} — measured {metric}ms response bottleneck, "
-                f"{band}% at-risk band for conversions. Numeric latency card ready.")
+        return (head + f"Measurements on your site show a {metric} ms response "
+                f"bottleneck, which maps to a {band}% speed-loss band. The numeric "
+                "latency card and the closure steps are in this chat.")
     if tactic == "B":
         stack = platform or "platform"
-        return (f"{company} — detected a checkout/event-flow gap on your {stack} "
-                f"({band}% cart-abandonment risk band). Drop-off card + closure plan.")
-    return (f"{company} — critical security-header gaps detected on your "
-            f"HTTP/email stack (numbered report). Infra Security Card + fix roadmap.")
+        return (head + f"A disconnect signal was measured in your {stack} "
+                f"checkout/event flow ({band}% cart-loss risk band). The drop-off "
+                "card and closure plan are in this chat.")
+    return (head + "Critical security-header gaps were detected on your HTTP/email "
+            "stack (numbered report). The Infrastructure Security Card and the fix "
+            "roadmap are in this chat.")
 
 
 def run_batch(*, in_name: str = "verified_queue.json", limit: int = 40,

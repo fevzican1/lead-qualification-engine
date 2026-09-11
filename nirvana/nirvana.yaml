@@ -226,3 +226,10 @@ nirvana:
       entrypoint: "python -m nirvana.runner tactic_router"
       description: "MOD coklu taktik rotalama: hicbir lead cope atilmaz - A latency / B stack / C header kademesi. Her hedef kanit+kanca alir, 400/gun %100 kapasite."
       heavy: true
+    slot_gate:
+      host: github
+      letter: AE
+      schedule: "manual"
+      entrypoint: "python -m nirvana.runner slot_gate"
+      description: "Yuksek otoriteli kapanis (Diagnostic Gate): G1 Karantina&Slot, G2 Sifir Sunucu Yuku, G3 24s Rezervasyon. 'Fiyat nedir?' -> kota ve kabul protokolu, satisci dili degil."
+      heavy: false

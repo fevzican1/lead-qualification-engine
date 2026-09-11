@@ -27,6 +27,11 @@ def retainer_label() -> str:
     return config.payment_label()
 
 
+def price_retainer() -> str:
+    """€-işaretli açık fiyat etiketi — 'fiyat nedir?' yolunda kullanılır (örn. €2.500)."""
+    return config.price_label(explicit=True)
+
+
 def payment_link() -> str:
     """Return the live Payoneer link; refuse to emit a placeholder."""
     url = (config.PAYONEER_PAYMENT_URL or "").strip()
