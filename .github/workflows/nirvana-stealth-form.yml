@@ -7,7 +7,9 @@ on:
         required: false
         default: ""
   schedule:
-    - cron: "7 */4 * * *"
+    # 15 dakikalık ritim: günde 96 tetikleme — kuyruk 500'lük taze yakıt
+    # deposundan beslenir, günlük 400 kotasına pürüzsüz ulaşılır.
+    - cron: "*/15 * * * *"
 
 jobs:
   stealth-submit:

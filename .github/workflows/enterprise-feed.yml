@@ -33,7 +33,8 @@ jobs:
           REFILL_TRIGGERED: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: |
           if [ -n "$REFILL_TRIGGERED" ]; then
-            python scripts/enterprise_demand_feed.py --scan --refill-batch 96
+            # Kuyruk 500'lük tamponun altına düştüğünde dolum dilimi 2x büyür.
+            python scripts/enterprise_demand_feed.py --scan --refill-batch 192
           else
             python scripts/enterprise_demand_feed.py --scan
           fi

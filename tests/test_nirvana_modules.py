@@ -773,7 +773,7 @@ def test_queue_fuel_refill_flag_and_widen(isolated_state, monkeypatch):
     d = qfg.request_refill_via_github()
     assert d["dispatched"] is False and d["reason"] == "no_token_or_repo_env"
     w = qfg.fallback_widen()
-    assert w["slow_ms"] == 800 and w["target"] == 200
+    assert w["slow_ms"] == 800 and w["target"] == qfg.REFILL_TARGET
     from nirvana import tactic_router as tr
     assert tr._effective_slow_ms() == 800
 

@@ -14,9 +14,12 @@ from nirvana.registry import state_path
 
 STATE = "queue_fuel.json"
 DAILY_CAP = 400
-# Acil dolum eşiği: kuyruk bu sayının altına düşerse EMERGENCY_REFILL_REQUIRED.
-LOW_WATERMARK = 50
-REFILL_TARGET = 200
+# Kuyruk hedef tamponu (Target Buffer): verified_queue havuzu sürekli ~500 temiz
+# hedef barındıracak şekilde beslenir. Havuz 500'ün altına düştüğü an
+# EMERGENCY_REFILL_REQUIRED bayrağı düşer + enterprise-feed/discovery zinciri
+# tetiklenip eksilen miktarı tamamlar.
+LOW_WATERMARK = 500
+REFILL_TARGET = 500
 
 
 def _count_rows(name: str) -> tuple[int, list[dict[str, Any]]]:
