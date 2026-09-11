@@ -1,4 +1,737 @@
 {
-  "updated_at": "2026-09-11T11:19:17Z",
-  "routed": []
+  "updated_at": "2026-09-11T13:52:54Z",
+  "routed": [
+    {
+      "domain": "bitkisatisi.com.tr",
+      "company": "bitkisatisi.com.tr",
+      "url": "https://bitkisatisi.com.tr/iletisim",
+      "tactic": "C",
+      "hook": "bitkisatisi.com.tr — sitenizin HTTP/header altyapısında kritik koruma eksikleri tespit ettik (rapor numaralı). Altyapı Güvenlik Kartı ve düzeltme yol haritası Telegram'da.",
+      "evidence": {
+        "tactic": "C",
+        "bottle_neck": "performance",
+        "evidence_metric": 313,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "missing_headers": [
+            "content-security-policy",
+            "strict-transport-security",
+            "x-content-type-options",
+            "x-frame-options",
+            "referrer-policy"
+          ],
+          "header_count": 11,
+          "has_csp": false
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 313,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bittigitti.com.tr",
+      "company": "bittigitti.com.tr",
+      "url": "https://www.bittigitti.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "bittigitti.com.tr — Magento altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "Magento",
+        "evidence_metric": 184,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "Magento",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy",
+          "permissions-policy"
+        ]
+      },
+      "measured_ms": 184,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "biymed.com.tr",
+      "company": "biymed.com.tr",
+      "url": "https://www.biymed.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "biymed.com.tr — Magento altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "Magento",
+        "evidence_metric": 44,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "Magento",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "permissions-policy"
+        ]
+      },
+      "measured_ms": 44,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "biyozen.com.tr",
+      "company": "biyozen.com.tr",
+      "url": "https://www.biyozen.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "biyozen.com.tr — WooCommerce altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "WooCommerce",
+        "evidence_metric": 164,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "WooCommerce",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 164,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bizce.com.tr",
+      "company": "bizce.com.tr",
+      "url": "https://bizce.com.tr/en/iletisim",
+      "tactic": "C",
+      "hook": "bizce.com.tr — sitenizin HTTP/header altyapısında kritik koruma eksikleri tespit ettik (rapor numaralı). Altyapı Güvenlik Kartı ve düzeltme yol haritası Telegram'da.",
+      "evidence": {
+        "tactic": "C",
+        "bottle_neck": "performance",
+        "evidence_metric": 446,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "missing_headers": [
+            "content-security-policy",
+            "strict-transport-security",
+            "x-content-type-options",
+            "x-frame-options",
+            "referrer-policy"
+          ],
+          "header_count": 7,
+          "has_csp": false
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 446,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bizcevahir.com.tr",
+      "company": "bizcevahir.com.tr",
+      "url": "https://www.bizcevahir.com.tr/iletisim",
+      "tactic": "C",
+      "hook": "bizcevahir.com.tr — sitenizin HTTP/header altyapısında kritik koruma eksikleri tespit ettik (rapor numaralı). Altyapı Güvenlik Kartı ve düzeltme yol haritası Telegram'da.",
+      "evidence": {
+        "tactic": "C",
+        "bottle_neck": "performance",
+        "evidence_metric": 32,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "missing_headers": [
+            "content-security-policy",
+            "strict-transport-security",
+            "x-content-type-options",
+            "x-frame-options",
+            "referrer-policy"
+          ],
+          "header_count": 13,
+          "has_csp": false
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 32,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bizial.com.tr",
+      "company": "bizial.com.tr",
+      "url": "https://bizial.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "bizial.com.tr — Magento altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "Magento",
+        "evidence_metric": 191,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "Magento",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "referrer-policy",
+          "permissions-policy"
+        ]
+      },
+      "measured_ms": 191,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bizimbahcecorlu.com.tr",
+      "company": "bizimbahcecorlu.com.tr",
+      "url": "https://www.bizimbahcecorlu.com.tr/iletisim",
+      "tactic": "A",
+      "hook": "bizimbahcecorlu.com.tr — sitenizin yanıt süresinde ölçtüğümüz 3966ms darboğaz, dönüşüm hunisinde %10-12 kayıp riski taşıyor. Sayısal gecikme kartı hazır; çözüm yol haritamız bu sohbette.",
+      "evidence": {
+        "tactic": "A",
+        "bottle_neck": "Magento",
+        "evidence_metric": 3966,
+        "delay_band_pct": "10-12",
+        "reason": {
+          "latency_ms": 3966,
+          "threshold_ms": 1200
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 3966,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bizimkitapci.com.tr",
+      "company": "bizimkitapci.com.tr",
+      "url": "https://www.bizimkitapci.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "bizimkitapci.com.tr — Magento altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "Magento",
+        "evidence_metric": 781,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "Magento",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 781,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bizimkitaplar.com.tr",
+      "company": "bizimkitaplar.com.tr",
+      "url": "https://www.bizimkitaplar.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "bizimkitaplar.com.tr — WooCommerce altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "WooCommerce",
+        "evidence_metric": 669,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "WooCommerce",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 669,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bizimmarket.com.tr",
+      "company": "bizimmarket.com.tr",
+      "url": "https://www.bizimmarket.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "bizimmarket.com.tr — WooCommerce altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "WooCommerce",
+        "evidence_metric": 773,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "WooCommerce",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 773,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bizimmutfak.com.tr",
+      "company": "bizimmutfak.com.tr",
+      "url": "https://www.bizimmutfak.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "bizimmutfak.com.tr — WooCommerce altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "WooCommerce",
+        "evidence_metric": 176,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "WooCommerce",
+          "checkout_signal": true
+        },
+        "missing_security_headers": []
+      },
+      "measured_ms": 176,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bizimsu.com.tr",
+      "company": "bizimsu.com.tr",
+      "url": "https://bizimsu.com.tr/iletisim",
+      "tactic": "C",
+      "hook": "bizimsu.com.tr — sitenizin HTTP/header altyapısında kritik koruma eksikleri tespit ettik (rapor numaralı). Altyapı Güvenlik Kartı ve düzeltme yol haritası Telegram'da.",
+      "evidence": {
+        "tactic": "C",
+        "bottle_neck": "performance",
+        "evidence_metric": 970,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "missing_headers": [
+            "content-security-policy",
+            "strict-transport-security",
+            "x-content-type-options",
+            "x-frame-options",
+            "referrer-policy"
+          ],
+          "header_count": 10,
+          "has_csp": false
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 970,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bizimtv.com.tr",
+      "company": "bizimtv.com.tr",
+      "url": "https://bizimtv.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "bizimtv.com.tr — Magento altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "Magento",
+        "evidence_metric": 430,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "Magento",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 430,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "black-fish.com.tr",
+      "company": "black-fish.com.tr",
+      "url": "https://black-fish.com.tr/iletisim",
+      "tactic": "C",
+      "hook": "black-fish.com.tr — sitenizin HTTP/header altyapısında kritik koruma eksikleri tespit ettik (rapor numaralı). Altyapı Güvenlik Kartı ve düzeltme yol haritası Telegram'da.",
+      "evidence": {
+        "tactic": "C",
+        "bottle_neck": "performance",
+        "evidence_metric": 57,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "missing_headers": [
+            "content-security-policy",
+            "strict-transport-security",
+            "x-content-type-options",
+            "x-frame-options",
+            "referrer-policy"
+          ],
+          "header_count": 13,
+          "has_csp": false
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 57,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "blackspade.com.tr",
+      "company": "blackspade.com.tr",
+      "url": "https://www.blackspade.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "blackspade.com.tr — T-Soft altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "T-Soft",
+        "evidence_metric": 359,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "T-Soft",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 359,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "blickle.com.tr",
+      "company": "blickle.com.tr",
+      "url": "https://www.blickle.com.tr/iletisim",
+      "tactic": "C",
+      "hook": "blickle.com.tr — sitenizin HTTP/header altyapısında kritik koruma eksikleri tespit ettik (rapor numaralı). Altyapı Güvenlik Kartı ve düzeltme yol haritası Telegram'da.",
+      "evidence": {
+        "tactic": "C",
+        "bottle_neck": "performance",
+        "evidence_metric": 1133,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "missing_headers": [
+            "permissions-policy"
+          ],
+          "header_count": 18,
+          "has_csp": true
+        },
+        "missing_security_headers": [
+          "permissions-policy"
+        ]
+      },
+      "measured_ms": 1133,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "blink.com.tr",
+      "company": "blink.com.tr",
+      "url": "https://www.blink.com.tr/tr/iletisim",
+      "tactic": "B",
+      "hook": "blink.com.tr — Magento altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "Magento",
+        "evidence_metric": 456,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "Magento",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 456,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "blokbims.com.tr",
+      "company": "blokbims.com.tr",
+      "url": "https://www.blokbims.com.tr/iletisim",
+      "tactic": "C",
+      "hook": "blokbims.com.tr — sitenizin HTTP/header altyapısında kritik koruma eksikleri tespit ettik (rapor numaralı). Altyapı Güvenlik Kartı ve düzeltme yol haritası Telegram'da.",
+      "evidence": {
+        "tactic": "C",
+        "bottle_neck": "performance",
+        "evidence_metric": 200,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "missing_headers": [
+            "content-security-policy",
+            "strict-transport-security",
+            "x-content-type-options",
+            "x-frame-options",
+            "referrer-policy"
+          ],
+          "header_count": 14,
+          "has_csp": false
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 200,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bloomvalley.com.tr",
+      "company": "bloomvalley.com.tr",
+      "url": "https://bloomvalley.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "bloomvalley.com.tr — Magento altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "Magento",
+        "evidence_metric": 92,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "Magento",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 92,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "blowmak.com.tr",
+      "company": "blowmak.com.tr",
+      "url": "https://blowmak.com.tr/iletisim",
+      "tactic": "A",
+      "hook": "blowmak.com.tr — sitenizin yanıt süresinde ölçtüğümüz 1419ms darboğaz, dönüşüm hunisinde %5-8 kayıp riski taşıyor. Sayısal gecikme kartı hazır; çözüm yol haritamız bu sohbette.",
+      "evidence": {
+        "tactic": "A",
+        "bottle_neck": "WooCommerce",
+        "evidence_metric": 1419,
+        "delay_band_pct": "5-8",
+        "reason": {
+          "latency_ms": 1419,
+          "threshold_ms": 1200
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 1419,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bluepet.com.tr",
+      "company": "bluepet.com.tr",
+      "url": "https://www.bluepet.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "bluepet.com.tr — Magento altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "Magento",
+        "evidence_metric": 286,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "Magento",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 286,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bogaziciteknikservis.com.tr",
+      "company": "bogaziciteknikservis.com.tr",
+      "url": "https://www.bogaziciteknikservis.com.tr/iletisim",
+      "tactic": "A",
+      "hook": "bogaziciteknikservis.com.tr — sitenizin yanıt süresinde ölçtüğümüz 1746ms darboğaz, dönüşüm hunisinde %5-8 kayıp riski taşıyor. Sayısal gecikme kartı hazır; çözüm yol haritamız bu sohbette.",
+      "evidence": {
+        "tactic": "A",
+        "bottle_neck": "Magento",
+        "evidence_metric": 1746,
+        "delay_band_pct": "5-8",
+        "reason": {
+          "latency_ms": 1746,
+          "threshold_ms": 1200
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 1746,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bolgem.com.tr",
+      "company": "bolgem.com.tr",
+      "url": "https://www.bolgem.com.tr/en/iletisim",
+      "tactic": "B",
+      "hook": "bolgem.com.tr — Magento altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "Magento",
+        "evidence_metric": 438,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "Magento",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 438,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bolgemuhendislik.com.tr",
+      "company": "bolgemuhendislik.com.tr",
+      "url": "https://bolgemuhendislik.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "bolgemuhendislik.com.tr — Magento altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "Magento",
+        "evidence_metric": 971,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "Magento",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 971,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "boltech.com.tr",
+      "company": "boltech.com.tr",
+      "url": "https://boltech.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "boltech.com.tr — WooCommerce altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "WooCommerce",
+        "evidence_metric": 716,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "WooCommerce",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 716,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bolton.com.tr",
+      "company": "bolton.com.tr",
+      "url": "https://bolton.com.tr/tr/iletisim",
+      "tactic": "B",
+      "hook": "bolton.com.tr — Magento altyapınızdaki checkout/event akışında kopukluk sinyali ölçtük (%2-5 sepet-terki risk bandı). Checkout Drop-off kartı ve kapanış planı Telegram'da.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "Magento",
+        "evidence_metric": 510,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "Magento",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 510,
+      "routed_by": "tactic_router"
+    }
+  ]
 }

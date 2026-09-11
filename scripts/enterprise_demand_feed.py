@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from html import unescape
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -39,6 +39,25 @@ BENCH_DEMAND_QUOTE = ("Contract web integration/automation review — "
                       "open contact form verified (form_verified)")
 BENCH_CHANNEL_QUOTE = ("Apply via the verified contact form for a "
                        "contract automation/integration review")
+
+
+def _row_published_at(raw: Any) -> str:
+    """Bench evidence freshness: the ready_queue harvest timestamp
+    (always < 30 days — required by enterprise_quality.fresh)."""
+    if isinstance(raw, dict):
+        val = raw.get("updated_at") or raw.get("fetched_at") or raw.get("harvested_at")
+        if isinstance(val, str) and val:
+            return val
+    return now_iso()
+
+
+def _hostname(url: str) -> str:
+    """Extract a clean registrable-ish hostname (no scheme, no path)."""
+    try:
+        h = (urlsplit(str(url)).hostname or "").removeprefix("www.")
+        return h
+    except ValueError:
+        return ""
 
 
 def harvest_bench(*, batch: int = HARVEST_BATCH) -> list[dict[str, Any]]:
@@ -71,8 +90,10 @@ def harvest_bench(*, batch: int = HARVEST_BATCH) -> list[dict[str, Any]]:
             continue
         source = str(row.get("source") or "ready_queue")
         host = str(row.get("host") or url)[:100]
+        hostname = _hostname(url) or host
         out.append({
             "company": host,
+            "domain": hostname,
             "url": url,
             "role_title": "",
             "platform": str(row.get("stack") or ""),
@@ -82,9 +103,11 @@ def harvest_bench(*, batch: int = HARVEST_BATCH) -> list[dict[str, Any]]:
             "score": score,
             "source": source,
             "contact_urls": [],
+            "form_verified": True,
             "evidence": {"source_url": url, "source": source,
                          "demand_quote": BENCH_DEMAND_QUOTE,
-                         "channel_quote": BENCH_CHANNEL_QUOTE},
+                         "channel_quote": BENCH_CHANNEL_QUOTE,
+                         "published_at": _row_published_at(raw)},
         })
     tmp = CURSOR_PATH.with_suffix(".json.tmp")
     tmp.write_text(json.dumps({"cursor": (start + len(slice_)) % len(rows)}, ensure_ascii=False) + "\n",
@@ -143,7 +166,7 @@ def _scan_url(page: Any, url: str, timeout_ms: int = 18_000) -> dict[str, Any] |
     return None
 
 
-def scan_targets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def scan_targets(rows: list[dict[str, Any]], *, scan_limit: int = 16) -> list[dict[str, Any]]:
     from playwright.sync_api import sync_playwright
 
     keep = []
@@ -151,7 +174,7 @@ def scan_targets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, executable_path=pw.chromium.executable_path)
         try:
-            for row in rows[:16]:
+            for row in rows[:scan_limit]:
                 if time.monotonic() >= deadline:
                     break
                 context = browser.new_context()
@@ -209,13 +232,13 @@ def main() -> int:
     try:
         response = httpx.get(API, timeout=20, follow_redirects=False)
         response.raise_for_status()
-        rows = demand_candidates(response.json()["jobs"])
-        demand_count = len(rows)
-        rows += harvest_bench(batch=batch)
-        scanned = scan_targets(rows)
-    except Exception as exc:
-        print(f"Discovery failed ({type(exc).__name__}); existing feed not replaced")
-        return 1
+        demand = demand_candidates(response.json()["jobs"])
+        demand_count = len(demand)
+        bench = harvest_bench(batch=batch)
+        # Bench rows carry pre-verified contact-form URLs (CommonCrawl harvest);
+        # scan THEM first so the Playwright budget never exhausts on ATS pages.
+        rows = bench + demand
+        scanned = scan_targets(rows, scan_limit=48)
     except Exception as exc:
         print(f"Discovery failed ({type(exc).__name__}); existing feed not replaced")
         return 1

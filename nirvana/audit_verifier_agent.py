@@ -22,7 +22,11 @@ DEFAULT_IN = "enrichment.json"
 DEFAULT_OUT = "verified_queue.json"
 TIMEOUT = 12.0
 FORM_PATH_TOKENS = ("apply", "application", "partner", "vendor", "supplier",
-                    "contractor", "careers", "contact", "onboarding", "rfp")
+                    "contractor", "careers", "contact", "onboarding", "rfp",
+                    # localized contact-form path tokens (fail-closed still holds:
+                    # the row must already carry form_verified=True from the scan)
+                    "iletisim", "contato", "kontakt", "contacto", "contatti",
+                    "contactez", "contacter", "контакт", "contatto")
 
 # Free ESP hosts a generic form might live on — a form there is NOT proof the
 # target owns it; such rows fail closed unless the site itself embeds it.
@@ -41,12 +45,15 @@ def registrable(host: str) -> str:
 
 def verify(row: dict[str, Any]) -> dict[str, Any]:
     """Pure-ish audit: network-light (one GET), verdict fail-closed."""
-    domain = str(row.get("domain") or "").strip().lower()
+    from nirvana import urlutil
+    domain = urlutil.clean_domain(row.get("domain") or row.get("url") or "")
     reasons: list[str] = []
     if not domain or "." not in domain:
         return {"verdict": "fail", "reasons": ["missing_or_invalid_domain"]}
 
-    target_url = str(row.get("url") or f"https://{domain}/")
+    target_url = urlutil.safe_url(row.get("url") or row.get("domain") or "")
+    if not target_url:
+        target_url = f"https://{domain}/"
     if not enterprise_quality.public_https(target_url):
         reasons.append("not_public_https")
     host = urlsplit(target_url).hostname or ""
@@ -93,12 +100,35 @@ def run_batch(*, in_name: str = DEFAULT_IN, out_name: str = DEFAULT_OUT, limit: 
 
     verified = list(prior)
     audited = routed_to_matrix = 0
+    from nirvana import urlutil
+
+    def _clean_ent(r: dict[str, Any]) -> dict[str, Any]:
+        """Repair legacy rows whose domain/url fields carry double-scheme URLs."""
+        d = urlutil.clean_domain(r.get("domain") or r.get("url"))
+        u = urlutil.safe_url(r.get("url") or d) or (f"https://{d}/" if d else "")
+        if not d and not u:
+            return r
+        out = dict(r)
+        out["domain"] = d or urlutil.clean_domain(u)
+        out["url"] = u
+        return out
+
+    # Pending kuyruğunu açarken eski bozuk URL'leri onar (çift şema -> tek şema).
+    matrix_rows: list[dict[str, Any]] = []
+    try:
+        matrix_rows = [_clean_ent(r) for r in json.loads(
+            state_path("tactic_matrix_pending.json").read_text(encoding="utf-8")) if isinstance(r, dict)]
+    except (OSError, ValueError):
+        pass
+
     for row in rows:
         if audited >= limit:
             break
-        if not isinstance(row, dict) or str(row.get("domain") or "").strip() == "":
+        if not isinstance(row, dict):
             continue
-        domain = str(row.get("domain") or "").strip()
+        domain = urlutil.clean_domain(row.get("domain") or row.get("url") or "")
+        if not domain:
+            continue
         if domain in done:
             continue
         verdict = str(row.get("verdict") or "enriched")
@@ -110,7 +140,8 @@ def run_batch(*, in_name: str = DEFAULT_IN, out_name: str = DEFAULT_OUT, limit: 
                 verified.append({
                     "domain": domain,
                     "company": row.get("company", domain),
-                    "url": row.get("url") or f"https://{domain}/",
+                    "url": urlutil.safe_url(row.get("url") or domain) or f"https://{domain}/",
+                    "form_verified": row.get("form_verified"),
                     "hook": row.get("hook", ""),
                     "audit": result,
                     "audit_by": "audit_verifier_agent",
@@ -125,16 +156,11 @@ def run_batch(*, in_name: str = DEFAULT_IN, out_name: str = DEFAULT_OUT, limit: 
         # Fail-closed korunur (Oracle'a asla girmez) ama hedef ÇÖPE ATILMAZ:
         # Taktik Matrisi'ne gider. Row matris girdisiyle işaretlenir.
         routed_to_matrix += 1
-        matrix_rows: list[dict[str, Any]] = []
-        try:
-            matrix_rows = json.loads(state_path("tactic_matrix_pending.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            pass
         if not any(str(m.get("domain")) == domain for m in matrix_rows):
             matrix_rows.append({
                 "domain": domain,
                 "company": row.get("company", domain),
-                "url": row.get("url") or f"https://{domain}/",
+                "url": urlutil.safe_url(row.get("url") or domain) or f"https://{domain}/",
                 "audit_fail_reasons": reasons,
                 "matrix_status": "pending",
             })

@@ -71,7 +71,8 @@ def build_hook(domain: str, recon: dict[str, Any]) -> str:
 
 
 def recon_target(domain: str) -> dict[str, Any]:
-    domain = (domain or "").strip().lower()
+    from nirvana import urlutil
+    domain = urlutil.clean_domain(domain)
     page = fetch_homepage(domain)
     stack: list[str] = []
     if page["ok"]:
@@ -111,7 +112,8 @@ def run_batch(*, in_name: str = DEFAULT_IN, out_name: str = DEFAULT_OUT, limit: 
             break
         if not isinstance(row, dict):
             continue
-        domain = str(row.get("domain") or "").strip()
+        from nirvana import urlutil
+        domain = urlutil.clean_domain(row.get("domain") or row.get("url") or "")
         if not domain or domain in done:
             continue
         data = recon_target(domain)
@@ -121,6 +123,8 @@ def run_batch(*, in_name: str = DEFAULT_IN, out_name: str = DEFAULT_OUT, limit: 
             data["verdict"] = "enriched"
             data["hook"] = build_hook(domain, data)
         data["company"] = row.get("company", domain)
+        data["url"] = urlutil.safe_url(row.get("url") or domain) or f"https://{domain}/"
+        data["form_verified"] = row.get("form_verified")
         enriched.append(data)
         done.add(domain)
         probed += 1

@@ -143,8 +143,10 @@ def daily_remaining() -> int:
 
 
 def _domain(url: str) -> str:
+    """Bare hostname; tolerant of double-scheme corruption in legacy state."""
     try:
-        return urlparse(url).netloc.removeprefix("www.")
+        from nirvana import urlutil
+        return urlutil.clean_domain(url)
     except Exception:
         return ""
 
@@ -330,24 +332,29 @@ def _mark_captcha(domain: str) -> None:
 def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]:
     """Matris kancasıyla 400/gün %100 kapasite: her hedef Taktik'e göre kanca alır."""
     targets = urls or []
-    # Taktik Matrisi'nden kanca yükle (varsa)
+        # Taktik Matrisi'nden kanca yükle (varsa) + routed (audit-pass) URL'leri hedefe ekle.
+    from nirvana import urlutil
     tactic_hooks: dict[str, dict[str, Any]] = {}
     try:
         tdata = json.loads(state_path("tactic_matrix.json").read_text(encoding="utf-8"))
         for t in (tdata.get("routed") or []):
-            d = (t.get("domain") or "").lower()
+            d = urlutil.clean_domain(t.get("domain") or t.get("url"))
             tactic_hooks[d] = {"tactic": t.get("tactic"), "hook": t.get("hook", "")}
+            u = urlutil.safe_url(t.get("url") or d)
+            if d and u and targets.count(u) == 0:
+                targets.append(u)
     except (OSError, ValueError):
         pass
-    # Ayrıca pending (audit fail -> matris) kuyruğunu da işle
+    # Ayrıca pending (audit fail -> matris) kuyruğunu da işle (URL'ler normalize)
     try:
         pending = json.loads(state_path("tactic_matrix_pending.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         pending = []
     for p in pending:
-        d = str(p.get("domain") or "").strip()
-        if d and targets.count(d) == 0:
-            targets.append(p.get("url") or f"https://{d}/")
+        d = urlutil.clean_domain(p.get("domain") or p.get("url"))
+        u = urlutil.safe_url(p.get("url") or d)
+        if d and u and targets.count(u) == 0:
+            targets.append(u)
 
     results: list[dict[str, Any]] = []
     per_domain_count: dict[str, int] = {}
@@ -355,9 +362,12 @@ def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]
     if remaining <= 0:
         return {"processed": 0, "reason": "daily_cap_reached", "cap": DAILY_CAP}
     max_to_process = min(remaining, PACING["per_run"])
-    for url in targets[:max_to_process]:
+    for raw_url in targets[:max_to_process]:
+        url = urlutil.safe_url(raw_url)
         d = _domain(url)
-        if not d:
+        if not d or not url:
+            results.append({"url": raw_url, "domain": d, "status": "error",
+                            "error": "invalid_url", "ts": time.time()})
             continue
         if per_domain_count.get(d, 0) >= PACING["per_domain"]:
             continue

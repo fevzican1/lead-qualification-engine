@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urlsplit
 
 import config
 from nirvana.registry import state_path
@@ -26,6 +27,14 @@ FIT_TOKENS = (
 
 DEFAULT_FEED = config.ROOT / "feeds" / "enterprise_targets.json"
 DEFAULT_OUT = "discovery.json"
+
+
+def _hostname(url: str) -> str:
+    """Extract a clean hostname (no scheme, no path) for dedup keys."""
+    try:
+        return (urlsplit(str(url)).hostname or "").removeprefix("www.")
+    except ValueError:
+        return ""
 
 
 def _tokens(text: str) -> str:
@@ -55,6 +64,7 @@ def run_batch(
     limit: int = 500,
 ) -> dict[str, Any]:
     """Scan the enterprise feed, keep only fits, dedupe against prior output."""
+    from nirvana import urlutil
     feed = feed_path or DEFAULT_FEED
     try:
         rows = json.loads(feed.read_text(encoding="utf-8"))
@@ -79,15 +89,17 @@ def run_batch(
         counts[verdict] = counts.get(verdict, 0) + 1
         if verdict != "fit":
             continue
-        key = str(row.get("domain") or row.get("url") or "")
+        raw_key = str(row.get("domain") or row.get("url") or "")
+        key = urlutil.clean_domain(raw_key) or raw_key
         if key in seen:
             continue
         seen.add(key)
         accepted.append({
             "domain": key,
             "company": row.get("company") or row.get("name") or key,
-            "url": row.get("url") or row.get("identity_url") or "",
+            "url": urlutil.safe_url(row.get("url") or row.get("identity_url") or key) or f"https://{key}/",
             "score": row.get("score"),
+            "form_verified": row.get("form_verified"),
             "discovered_by": "discovery_agent",
         })
 

@@ -178,14 +178,17 @@ def run_batch(*, in_name: str = "verified_queue.json", limit: int = 40,
     except (OSError, ValueError):
         rows = []
     routed: list[dict[str, Any]] = []
+    from nirvana import urlutil
     for row in rows[:limit]:
         if not isinstance(row, dict):
             continue
-        url = row.get("url") or f"https://{row.get('domain', '')}/"
+        url = urlutil.safe_url(row.get("url") or row.get("domain") or "")
+        if not url:
+            continue
         measured = probe(url)
         cls = classify(measured)
         routed.append({
-            "domain": row.get("domain"),
+            "domain": urlutil.clean_domain(row.get("domain") or url),
             "company": row.get("company", row.get("domain")),
             "url": url,
             "tactic": cls["tactic"],
