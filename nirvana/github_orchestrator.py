@@ -27,12 +27,12 @@ def _auth_headers() -> dict[str, str]:
 
 
 def dispatch_workflow(workflow: str, inputs: dict[str, str], *,
-                      owner: str = "", repo: str = "") -> dict[str, Any]:
-    """workflow_dispatch: belirli bir workflow'u tetikler."""
+                      owner: str = "", repo: str = "", ref: str = "master") -> dict[str, Any]:
+    """workflow_dispatch: belirli bir workflow'u tetikler (repo master dalını kullanır)."""
     owner = owner or os.getenv("GITHUB_OWNER", "")
     repo = repo or os.getenv("GITHUB_REPO", "")
     url = f"{GITHUB_API}/repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches"
-    payload = {"ref": "main", "inputs": inputs}
+    payload = {"ref": ref, "inputs": inputs}
     try:
         r = httpx.post(url, json=payload, headers=_auth_headers(), timeout=15)
         return {"ok": r.status_code in (200, 204), "status": r.status_code}

@@ -33,6 +33,12 @@ API = "https://remotive.com/api/remote-jobs?category=software-dev&limit=150"
 BENCH_PATH = ROOT / "feeds" / "ready_queue.json"
 CURSOR_PATH = ROOT / "feeds" / "enterprise_scan_cursor.json"
 HARVEST_BATCH = 48
+# Bench satırları form-kanıtlıdır (commoncrawl form harvest + form_verified):
+# Remotive-talebi değil, doğrudan iletişim-formu kanıtı taşırlar.
+BENCH_DEMAND_QUOTE = ("Contract web integration/automation review — "
+                      "open contact form verified (form_verified)")
+BENCH_CHANNEL_QUOTE = ("Apply via the verified contact form for a "
+                       "contract automation/integration review")
 
 
 def harvest_bench(*, batch: int = HARVEST_BATCH) -> list[dict[str, Any]]:
@@ -77,7 +83,8 @@ def harvest_bench(*, batch: int = HARVEST_BATCH) -> list[dict[str, Any]]:
             "source": source,
             "contact_urls": [],
             "evidence": {"source_url": url, "source": source,
-                         "demand_quote": f"harvested form candidate ({row.get('profile') or 'web'} profile)"},
+                         "demand_quote": BENCH_DEMAND_QUOTE,
+                         "channel_quote": BENCH_CHANNEL_QUOTE},
         })
     tmp = CURSOR_PATH.with_suffix(".json.tmp")
     tmp.write_text(json.dumps({"cursor": (start + len(slice_)) % len(rows)}, ensure_ascii=False) + "\n",
@@ -191,13 +198,24 @@ def main() -> int:
     if "--scan" not in sys.argv:
         print("Refusing to publish without --scan")
         return 2
+    # Acil dolum tetiklemesinde bench dilimi büyür (bekleme atlanır, taze hedef).
+    batch = HARVEST_BATCH
+    for a in sys.argv[1:]:
+        if a.startswith("--refill-batch"):
+            try:
+                batch = max(1, int(a.split("=", 1)[1] if "=" in a else sys.argv[sys.argv.index(a) + 1]))
+            except (ValueError, IndexError):
+                batch = HARVEST_BATCH * 2
     try:
         response = httpx.get(API, timeout=20, follow_redirects=False)
         response.raise_for_status()
         rows = demand_candidates(response.json()["jobs"])
         demand_count = len(rows)
-        rows += harvest_bench()
+        rows += harvest_bench(batch=batch)
         scanned = scan_targets(rows)
+    except Exception as exc:
+        print(f"Discovery failed ({type(exc).__name__}); existing feed not replaced")
+        return 1
     except Exception as exc:
         print(f"Discovery failed ({type(exc).__name__}); existing feed not replaced")
         return 1

@@ -29,7 +29,14 @@ jobs:
           pip install playwright httpx
           python -m playwright install --with-deps chromium
       - name: Build + form-scan enterprise target feed
-        run: python scripts/enterprise_demand_feed.py --scan
+        env:
+          REFILL_TRIGGERED: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: |
+          if [ -n "$REFILL_TRIGGERED" ]; then
+            python scripts/enterprise_demand_feed.py --scan --refill-batch 96
+          else
+            python scripts/enterprise_demand_feed.py --scan
+          fi
       - name: Commit feed
         run: |
           git config user.name "devsolve-enterprise"

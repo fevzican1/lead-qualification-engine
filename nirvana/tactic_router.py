@@ -25,10 +25,37 @@ import httpx
 from nirvana.registry import state_path
 
 OUT_NAME = "tactic_matrix.json"
-SLOW_MS = 1200            # Taktik A eşiği
+SLOW_MS = 1200            # Taktik A eşiği (tactic_widen.json varsa 800'e iner)
 TIMEOUT = 12.0
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+
+def _effective_slow_ms() -> int:
+    """Yedekli boru hattı genişletmesi aktifse eşiği düşür (daha çok Taktik A)."""
+    try:
+        widen = json.loads(state_path("tactic_widen.json").read_text(encoding="utf-8"))
+        return int(widen.get("slow_ms", SLOW_MS))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return SLOW_MS
+
+
+def _effective_platforms() -> dict[str, tuple[str, ...]]:
+    """Genişletme aktifse platform imza listesini büyüt."""
+    base = dict(STACK_SIGNATURES)
+    try:
+        widen = json.loads(state_path("tactic_widen.json").read_text(encoding="utf-8"))
+        names = widen.get("platforms") or []
+        extra = {"Wix": ("wix.com", "wixstatic", "parastorage"),
+                 "Squarespace": ("squarespace", "sqsp", "squarespace-cdn"),
+                 "Weebly": ("weebly", "weeblycloud"),
+                 "BigCommerce": ("bigcommerce", "mybigcommerce", "bigcommerce.com")}
+        for n in names:
+            if n in extra:
+                base.setdefault(n, extra[n])
+    except (OSError, ValueError, AttributeError):
+        pass
+    return base
 
 # Taktik B platform imzaları (header + HTML birlikte)
 STACK_SIGNATURES: dict[str, tuple[str, ...]] = {
@@ -57,7 +84,7 @@ def _platform_from(body: str, headers: dict[str, str]) -> str | None:
     low_body = (body or "").lower()
     server = " ".join(str(headers.get(k) or "") for k in ("server", "x-powered-by", "via")).lower()
     blob = f"{low_body} {server}"
-    for name, sigs in STACK_SIGNATURES.items():
+    for name, sigs in _effective_platforms().items():
         if any(s in blob for s in sigs):
             return name
     return None
@@ -85,7 +112,7 @@ def classify(probe: dict[str, Any]) -> dict[str, Any]:
     headers = probe.get("headers") or {}
     body = probe.get("body") or ""
     platform = _platform_from(body, headers)
-    slow = ms is not None and ms > SLOW_MS
+    slow = ms is not None and ms > _effective_slow_ms()
     missing = [h for h in SECURITY_HEADERS if not headers.get(h)]
 
     if slow:
@@ -110,7 +137,7 @@ def _loss_band(ms: int | None) -> str:
         return "10-12"
     if ms > 2000:
         return "8-10"
-    if ms > SLOW_MS:
+    if ms > _effective_slow_ms():
         return "5-8"
     return "2-5"
 def hook_for(tactic: str, classification: dict[str, Any], *, company: str,

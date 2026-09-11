@@ -762,6 +762,37 @@ def test_dual_delivery_no_smtp_is_safe_noop(isolated_state, monkeypatch):
     assert out["sent"] is False and out["error"] == "smtp_credentials_absent"
 
 
+def test_queue_fuel_refill_flag_and_widen(isolated_state, monkeypatch):
+    from nirvana import queue_fuel_guard as qfg
+    monkeypatch.setattr(config, "ROOT", isolated_state)
+    depth = qfg.queue_depth()
+    assert depth["total"] == 0
+    check = qfg.check_refill_needed()
+    assert check["needed"] is True and check["flag"] == "EMERGENCY_REFILL_REQUIRED"
+    # Token yoksa dry-run: dispatch olmaz ama guard bozulmaz.
+    d = qfg.request_refill_via_github()
+    assert d["dispatched"] is False and d["reason"] == "no_token_or_repo_env"
+    w = qfg.fallback_widen()
+    assert w["slow_ms"] == 800 and w["target"] == 200
+    from nirvana import tactic_router as tr
+    assert tr._effective_slow_ms() == 800
+
+
+def test_github_dispatch_uses_master_ref(monkeypatch):
+    from nirvana import github_orchestrator as go
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    calls = {}
+    class FakeResp:
+        status_code = 204
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls["url"] = url
+        calls["json"] = json
+        return FakeResp()
+    monkeypatch.setattr(go.httpx, "post", fake_post)
+    out = go.dispatch_workflow("enterprise-feed.yml", {}, owner="o", repo="r")
+    assert out["ok"] is True and calls["json"]["ref"] == "master"
+
+
 def test_live_stats_shape(isolated_state, monkeypatch):
     from nirvana import stealth_former as sf
     monkeypatch.setattr(config, "ROOT", isolated_state)
