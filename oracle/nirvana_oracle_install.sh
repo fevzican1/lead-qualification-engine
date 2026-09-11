@@ -48,12 +48,18 @@ install -m 644 "$UNIT_SRC/nirvana-delivery.service" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-delivery.timer" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-linkedin.service" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-linkedin.timer" /etc/systemd/system/
+install -m 644 "$UNIT_SRC/nirvana-dispatch.service" /etc/systemd/system/
+install -m 644 "$UNIT_SRC/nirvana-dispatch.timer" /etc/systemd/system/
 systemctl daemon-reload
+
+echo "[5.5/6] Dispatch bekçisi derleme kontrolü"
+"$APP_DIR/.venv/bin/python" -m py_compile "$APP_DIR/oracle/dispatch_stealth.py"
 
 echo "[6/6] Timer'ları canlıya alma"
 systemctl enable --now nirvana-watchdog.timer
 systemctl enable --now nirvana-delivery.timer
 systemctl enable --now nirvana-linkedin.timer
+systemctl enable --now nirvana-dispatch.timer
 
 systemctl list-timers 'nirvana-*' --no-pager
-echo "NIRVANA ORACLE LIVE — watchdog her 5 dk, delivery her Pazartesi 06:00 UTC."
+echo "NIRVANA ORACLE LIVE — watchdog 5dk, delivery haftalık, dispatch 15dk (tam ritim)."

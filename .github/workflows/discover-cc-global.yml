@@ -1,8 +1,8 @@
 name: discover-cc-global
 
 on:
-  schedule:
-    - cron: "12,42 * * * *"
+    # On-demand fleet: discovery-pipeline düşük yakıt tespitinde dispatch eder;
+    # sabit schedule kaldırıldı — gereksiz sürekli yük yok, gerektiğinde çalışır.
   workflow_dispatch:
 
 permissions:

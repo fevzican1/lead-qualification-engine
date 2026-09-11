@@ -7,9 +7,13 @@ on:
         required: false
         default: ""
   schedule:
-    # 15 dakikalık ritim: günde 96 tetikleme — kuyruk 500'lük taze yakıt
-    # deposundan beslenir, günlük 400 kotasına pürüzsüz ulaşılır.
+    # 15 dk ritim (GitHub best-effort cron — yedek katman; ana tetikleyici
+    # Oracle'daki nirvana-dispatch.timer'dır, tam 15 dk'da bir API ile tetikler).
     - cron: "*/15 * * * *"
+
+concurrency:
+  group: nirvana-stealth-form
+  cancel-in-progress: false
 
 jobs:
   stealth-submit:

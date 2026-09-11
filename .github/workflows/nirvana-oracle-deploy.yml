@@ -30,6 +30,9 @@ jobs:
       TG_NOTIFY_BOT_TOKEN: ${{ secrets.TELEGRAM_NOTIFY_BOT_TOKEN }}
       TG_NOTIFY_CHAT_ID: ${{ secrets.TELEGRAM_NOTIFY_CHAT_ID }}
       ADMIN_CODE: ${{ secrets.ADMIN_CODE }}
+      # Oracle'dan tam 15dk'da bir workflow tetiklemek için Actions:write PAT
+      # (secret yoksa boş geçilir — Oracle timer'ı Telegram uyarı modunda bekler).
+      GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - name: SSH anahtarı hazırla
@@ -60,7 +63,7 @@ jobs:
           ssh -i ~/.ssh/oracle.key \
               -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
               -o ConnectTimeout=10 -o ConnectionAttempts=1 -o BatchMode=yes \
-              "${USER}@${HOST}" "PAYONEER_LINK='${PAYONEER_LINK}' TG_BOT_TOKEN='${TG_BOT_TOKEN}' TG_BOT_USERNAME='${TG_BOT_USERNAME}' TG_OWNER_CHAT_ID='${TG_OWNER_CHAT_ID}' TG_NOTIFY_BOT_TOKEN='${TG_NOTIFY_BOT_TOKEN}' TG_NOTIFY_CHAT_ID='${TG_NOTIFY_CHAT_ID}' ADMIN_CODE='${ADMIN_CODE}' bash -s" <<'REMOTE'
+              "${USER}@${HOST}" "PAYONEER_LINK='${PAYONEER_LINK}' TG_BOT_TOKEN='${TG_BOT_TOKEN}' TG_BOT_USERNAME='${TG_BOT_USERNAME}' TG_OWNER_CHAT_ID='${TG_OWNER_CHAT_ID}' TG_NOTIFY_BOT_TOKEN='${TG_NOTIFY_BOT_TOKEN}' TG_NOTIFY_CHAT_ID='${TG_NOTIFY_CHAT_ID}' ADMIN_CODE='${ADMIN_CODE}' GH_DISPATCH_TOKEN='${GH_DISPATCH_TOKEN}' bash -s" <<'REMOTE'
           set -euo pipefail
           echo "=== [0] Telegram/ops config → /opt/devsolve/.env (only when secret set) ==="
           for kv in \
@@ -69,7 +72,8 @@ jobs:
             "TELEGRAM_OWNER_CHAT_ID|${TG_OWNER_CHAT_ID}" \
             "TELEGRAM_NOTIFY_BOT_TOKEN|${TG_NOTIFY_BOT_TOKEN}" \
             "TELEGRAM_NOTIFY_CHAT_ID|${TG_NOTIFY_CHAT_ID}" \
-            "ADMIN_CODE|${ADMIN_CODE}"; do
+            "ADMIN_CODE|${ADMIN_CODE}" \
+            "GITHUB_DISPATCH_TOKEN|${GH_DISPATCH_TOKEN}"; do
             key="${kv%%|*}"; val="${kv#*|}"
             if [ -n "$val" ] && [ "$val" != "null" ]; then
               touch /opt/devsolve/.env
@@ -85,6 +89,7 @@ jobs:
           cd /opt/devsolve
           tar -xzf /tmp/nirvana-deploy.tgz -C /opt/devsolve
           find nirvana -name '*.sh' -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+          find oracle -type f -exec sed -i 's/\r$//' {} + 2>/dev/null || true
           sed -i 's/\r$//' oracle/nirvana_oracle_install.sh
           chmod +x oracle/nirvana_oracle_install.sh
           echo "=== [2] Nirvana kurulum (link + systemd timer'lar) ==="
@@ -110,6 +115,7 @@ jobs:
           print("cooldown:", w.in_cooldown())
           PY
           systemctl list-timers 'nirvana-*' --no-pager || sudo -n systemctl list-timers 'nirvana-*' --no-pager
+          echo "dispatch timer durumu: $(systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || sudo -n systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || echo 'kurulamadı')"
           echo "=== [4] Satış botu + runner'ı yeni ayarlarla yeniden başlat ==="
           if sudo -n systemctl restart devsolve-bot.service devsolve-runner.service 2>/dev/null; then
             sleep 3

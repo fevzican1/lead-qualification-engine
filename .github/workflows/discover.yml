@@ -4,8 +4,8 @@ name: discover-cc-longtail
 # GitHub-side harvest. Does not touch Oracle HTTP 22/hour.
 # Fifty deterministic CDX shards rotate through new crawl slices every run.
 on:
-  schedule:
-    - cron: "0,30 * * * *"
+  # On-demand fleet: discovery-pipeline düşük yakıt tespitinde dispatch eder;
+  # sabit schedule kaldırıldı — gereksiz sürekli yük yok, gerektiğinde çalışır.
   workflow_dispatch:
 
 permissions:
