@@ -719,6 +719,57 @@ def test_stealth_marks_captcha_and_routes(isolated_state, monkeypatch):
     assert result["submitted"] == 0
 
 
+def test_verify_response_waf_reject_on_blocked_body():
+    from nirvana import stealth_former as sf
+    v = sf.verify_submission_response(200, "<html>Access Denied — Cloudflare security check</html>", 5000)
+    assert v["verdict"] == "WAF_REJECT"
+    v2 = sf.verify_submission_response(403, "<html>forbidden</html>", 5000)
+    assert v2["verdict"] == "WAF_REJECT"
+
+
+def test_verify_response_verified_on_ajax_and_dom():
+    from nirvana import stealth_former as sf
+    assert sf.verify_submission_response(200, '{"status": "success"}', 500)["verdict"] == "verified"
+    assert sf.verify_submission_response(200, "<p>Mesajınız alındı, teşekkürler</p>", 500)["verdict"] == "verified"
+    # 200 + kanıt yok + anormal kısa gövde → sessiz yutma şüphesi
+    v = sf.verify_submission_response(200, "<html>ok</html>", 5000)
+    assert v["verdict"] in ("WAF_REJECT", "unverified")
+    assert sf.verify_submission_response(200, "<html>" + "x" * 3000 + "</html>", 5000)["verdict"] == "unverified"
+
+
+def test_honeypot_fields_left_empty():
+    from nirvana import stealth_former as sf
+    html = ('<div style="display:none"><input name="email_confirm"></div>'
+            '<form action="/send"><input name="email"></form>')
+    found = sf.detect_honeypot_fields(html)
+    assert any(f["name"] == "email_confirm" for f in found)
+    assert all(f["name"] != "email" for f in found)
+
+
+def test_canary_fires_every_fifty():
+    from nirvana import canary_form as cf
+    assert cf.should_trigger_canary(50) is True
+    assert cf.should_trigger_canary(100) is True
+    assert cf.should_trigger_canary(49) is False
+    assert cf.should_trigger_canary(0) is False
+
+
+def test_dual_delivery_no_smtp_is_safe_noop(isolated_state, monkeypatch):
+    from nirvana import dual_delivery as dd
+    monkeypatch.setattr(config, "ROOT", isolated_state)
+    monkeypatch.setattr(config, "SENDER_EMAIL", "", raising=False)
+    out = dd.send_dual_email(to_addr="info@acme.com", subject="t", body_text="b")
+    assert out["sent"] is False and out["error"] == "smtp_credentials_absent"
+
+
+def test_live_stats_shape(isolated_state, monkeypatch):
+    from nirvana import stealth_former as sf
+    monkeypatch.setattr(config, "ROOT", isolated_state)
+    stats = sf.live_stats()
+    assert stats["daily_cap"] == 400
+    assert "today_by_status" in stats and "leads_hot" in stats
+
+
 # --- Lane P: message_optimizer (PAS framework) --------------------------
 
 

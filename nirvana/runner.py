@@ -54,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-notify", action="store_true")
     parser.add_argument("--chat-id", type=int, default=None)
     parser.add_argument("--self-test", action="store_true", help="micro_audit_proof: local-fixture dogrulama")
+    parser.add_argument("--live-stats", action="store_true", help="stealth_former: canlı log özeti (log + sıcak dönüş)")
     args = parser.parse_args(argv)
 
     if args.list or not args.module:
@@ -85,6 +86,10 @@ def main(argv: list[str] | None = None) -> int:
     elif args.module == "contract_pack":
         kwargs = {}
     elif args.module == "stealth_former":
+        if getattr(args, "live_stats", False):
+            result = runner.live_stats()
+            print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+            return 0
         kwargs = {}
     elif args.module == "message_optimizer":
         kwargs = {}
