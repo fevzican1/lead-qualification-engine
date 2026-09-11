@@ -1,8 +1,0 @@
-fix: double-scheme URL corruption in discovery->audit->stealth chain + deploy telegram config injection
-
-- nirvana/urlutil.py: clean_url/clean_domain/safe_url normalize repeated schemes
-- discovery/enrichment/audit/tactic_router/stealth_former: route all url/domain fields through urlutil; skip invalid rows instead of failing
-- audit_verifier: repairs legacy pending rows on load (https://https://... -> https://...)
-- tactic_matrix_pending.json: rebuilt 42 clean targets (0 double-scheme)
-- nirvana-oracle-deploy: injects TELEGRAM_*/ADMIN_CODE from repo secrets into Oracle .env
-- chain verified locally: 30 discovered, 27 audited pass, 27 routed, 42 pending clean
