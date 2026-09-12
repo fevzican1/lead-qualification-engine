@@ -77,7 +77,7 @@ def _read_env() -> dict[str, str]:
 
 
 def _token() -> str:
-    for key in ("GITHUB_DISPATCH_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"):
+    for key in ("GITHUB_DISPATCH_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "INGEST_API_TOKEN"):
         val = (os.getenv(key) or "").strip()
         if val and val != "null":
             return val
