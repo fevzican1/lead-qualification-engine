@@ -31,6 +31,7 @@ concurrency:
 
 jobs:
   gate:
+    if: ${{ vars.ENABLE_LEGACY_SMB_WORKFLOWS == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
