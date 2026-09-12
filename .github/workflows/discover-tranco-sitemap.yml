@@ -1,8 +1,8 @@
 name: discover-tranco-sitemap
 
 on:
-    # On-demand fleet: discovery-pipeline düşük yakıt tespitinde dispatch eder;
-    # sabit schedule kaldırıldı — gereksiz sürekli yük yok, gerektiğinde çalışır.
+  schedule:
+    - cron: "23 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   harvest:
-    if: ${{ vars.ENABLE_LEGACY_SMB_WORKFLOWS == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     concurrency:

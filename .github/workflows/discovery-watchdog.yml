@@ -4,6 +4,8 @@ name: discovery-watchdog
 # re-dispatches the five CDX fleets and publish-feed when harvest is stale.
 # Superseded by discovery-pipeline.yml (kept for manual dispatch).
 on:
+  schedule:
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -16,7 +18,6 @@ concurrency:
 
 jobs:
   watchdog:
-    if: ${{ vars.ENABLE_LEGACY_SMB_WORKFLOWS == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:

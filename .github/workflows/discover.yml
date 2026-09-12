@@ -1,11 +1,10 @@
 name: discover-cc-longtail
 
-# Manual run: Actions → discover-cc-longtail → Run workflow (branch: master)
 # GitHub-side harvest. Does not touch Oracle HTTP 22/hour.
 # Fifty deterministic CDX shards rotate through new crawl slices every run.
 on:
-  # On-demand fleet: discovery-pipeline düşük yakıt tespitinde dispatch eder;
-  # sabit schedule kaldırıldı — gereksiz sürekli yük yok, gerektiğinde çalışır.
+  schedule:
+    - cron: "11 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -13,7 +12,6 @@ permissions:
 
 jobs:
   shard:
-    if: ${{ vars.ENABLE_LEGACY_SMB_WORKFLOWS == 'true' }}
     uses: ./.github/workflows/harvest-shard.yml
     with:
       profile: longtail

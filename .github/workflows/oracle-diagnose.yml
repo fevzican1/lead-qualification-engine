@@ -3,6 +3,8 @@ name: oracle-diagnose
 # Form gönderimi 0 teşhisi: kuyruk, yakıt, sayaçlar, log kuyruğu, kilitler.
 
 on:
+  schedule:
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:

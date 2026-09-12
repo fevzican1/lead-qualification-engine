@@ -1,15 +1,13 @@
 name: "Nirvana Stealth Form (Lane O/P/Q)"
 on:
+  schedule:
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       targets:
         description: "Comma-separated form URLs (optional)"
         required: false
         default: ""
-  schedule:
-    # 15 dk ritim (GitHub best-effort cron — yedek katman; ana tetikleyici
-    # Oracle'daki nirvana-dispatch.timer'dır, tam 15 dk'da bir API ile tetikler).
-    - cron: "*/15 * * * *"
 
 concurrency:
   group: nirvana-stealth-form
