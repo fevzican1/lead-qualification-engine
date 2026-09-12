@@ -24,7 +24,6 @@ from nirvana.registry import state_path
 
 def check_dns(host: str) -> dict[str, Any]:
     """DNS cozuluyor mu?"""
-    import socket
     try:
         ip = socket.gethostbyname(host)
         return {"ok": True, "ip": ip}

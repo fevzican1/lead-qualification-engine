@@ -1,12 +1,12 @@
-"""Lane W — forget_guard [Oracle VM, olay bazlı].
+"""Lane W — forget_guard [Oracle VM, olay bazli].
 
-Anti-karışıklık / şirket bağlama bütünlüğü bekçisi.
-- Her oturumda SADECE formdan gelen (token-bound) şirketle konuşulur.
-- Şirket adı değişirse (B şirketi sorarken A varsa): link GÖNDERİLMEZ,
-  owner'a uyarı → sahibi karışıklığı engeller.
-- proof_hooks.json'daki kanıt, o anki formun domain'ine ait değilse:
-  generate_fallback — asla başka şirketin kanıtı sunulmaz.
-- _briefs içinde kanıt kaydı yoksa: model/LLM'e DEĞİL fail-safe karta düşer.
+Anti-karisiklik / sirket baglama butunlugu bekcisi.
+- Her oturumda SADECE formdan gelen (token-bound) sirketle konusulur.
+- Sirket adi degisirse (B sirketi sorarken A varsa): link GONDERILMEZ,
+  owner'a uyari ile karisiklik engellenir.
+- proof_hooks.json'daki kanit, o anki formun domain'ine ait degilse:
+  generate_fallback — asla baska sirketin kaniti sunulmaz.
+- _briefs icinde kanit kaydi yoksa: fail-safe karta duser.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def domain_of(url_or_host: str) -> str:
 
 
 def company_conflict(session_company: str, brief: dict[str, Any] | None) -> bool:
-    """Oturumun şirketi ile brief'in şirketi farklı mı?"""
+    """Oturum sirketi ile brief sirketi farkli mi?"""
     if not brief:
         return False
     a = (session_company or "").strip().lower()
@@ -40,11 +40,11 @@ def company_conflict(session_company: str, brief: dict[str, Any] | None) -> bool
 
 
 def proof_matches_form(proof_domain: str, form_domain: str | None = None) -> bool:
-    """Kanıt domain'i, o anki formun domain'i ile birebir uyumlu mu?
+    """Kanit domain'i, o anki formun domain'i ile birebir uyumlu mu?
 
-    - İki argümanlı çağrı: saf karşılaştırma (cross-domain kanıt asla geçmez).
-    - Tek argümanlı çağrı (form_domain=None): proof_hooks.json'daki bu domain'e
-      ait GERÇEK kanıt var mı diye state dosyasına bakar.
+    - Iki argumanli cagri: saf karsilastirma (cross-domain kanit asla gecmez).
+    - Tek argumanli cagri (form_domain=None): proof_hooks.json'daki bu domain'e
+      ait gercek kanit var mi diye state dosyasina bakar.
     """
     if form_domain is not None:
         a = domain_of(proof_domain)
@@ -67,7 +67,7 @@ def proof_matches_form(proof_domain: str, form_domain: str | None = None) -> boo
 
 
 def check(session_company: str, form_url: str, *, brief: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Kapı: hepsi geçerse iletişim/kanıt/link serbest."""
+    """Kapi: hepsi gecerse iletisim/kanit/link serbest."""
     domain = domain_of(form_url)
     conflict = company_conflict(session_company, brief)
     proof_ok = proof_matches_form(domain) if domain else False
@@ -93,6 +93,6 @@ def check(session_company: str, form_url: str, *, brief: dict[str, Any] | None =
 
 
 def run_batch(**kwargs: Any) -> dict[str, Any]:
-    """Oracle: bekçi durumunu loglar (bildirim ATMaz — sessiz bekçi)."""
+    """Oracle: bekci durumunu loglar (sessiz bekci, bildirim yok)."""
     return {"lanes_guarded": ["telegram", "form", "proof", "payment"],
             "policy": "token-bound company only; no-domain-proof -> fallback card"}

@@ -29,15 +29,38 @@ WARN_EVERY_S = 24 * 3600
 # Oracle'dan yönetilen tüm GitHub modülleri (workflow dosyası -> min aralık sn).
 # GitHub cron'ları yedek olarak aynı ritimde çalışır — çakışma concurrency kilidiyle önlenir.
 DISPATCH_MATRIX: dict[str, int] = {
-    "discovery-pipeline.yml": 5 * 60,        # yakıt omurgası: her 5 dk
-    "nirvana-stealth-form.yml": 15 * 60,     # form ateşleme: her 15 dk
-    "pipeline-watchdog.yml": 15 * 60,        # schedule-bekeci: 15 dk
-    "payload_optimizer.yml": 60 * 60,        # payload optimizasyonu: saatlik
-    "enterprise-feed.yml": 6 * 3600,         # feed üretimi: 6 saatte bir
-    "nirvana-heavy.yml": 6 * 3600,           # A→B→C zinciri: 6 saatte bir
-    "nirvana-proof.yml": 24 * 3600,          # kanıt kartı: günlük
+    # --- yakıt ve teşhis omurgası (fleet) ---
+    "discovery-pipeline.yml": 5 * 60,        # her 5dk: alt fleet'ları (discover-cc-*,
+                                             # harvest-shard, publish-feed, refill-on-low)
+                                             # zincir halinde tetikler
+    "nirvana-stealth-form.yml": 15 * 60,     # form ateşleme (Lane O/P/Q): 15dk (GitHub cron min 5dk; Oracle hub hassas 1dk tick ile tamamlar)
+    "pipeline-watchdog.yml": 30 * 60,        # schedule-bekçisi: 30dk
+    # --- on-beat analiz ve strateji (zincirli A→B→C) ---
+    "payload_optimizer.yml": 40 * 60,        # payload optimizasyonu: 40dk
+    "enterprise-feed.yml": 6 * 3600,         # feed üretimi oracle sync: 6saat
+    "nirvana-heavy.yml": 6 * 3600,           # A→B→C zinciri: 6saat
+    # --- kanıt ve satış pivotu (günlük) ---
+    "nirvana-proof.yml": 24 * 3600,          # kanıt kartı üretimi: günlük
     "nirvana-strategy.yml": 24 * 3600,       # strateji pivotu: günlük
     "nirvana-meta.yml": 24 * 3600,           # meta orkestratör: günlük
+    "oracle-diagnose.yml": 24 * 3600,        # oracle sağlık taraması: günlük
+    # --- discovery alt-fleet'ı (Oracle dispatch ile de tetiklenir;
+    #     discovery-pipeline içinde çağrılan zincir parçaları da
+    #     pasif kalmamak için burada listelenir) ---
+    "discover.yml": 6 * 3600,                # discover-cc-longtail fleet: 6saat
+    "discover-cc-eu.yml": 60,                # CDX EU shard fleet: 1dk ritim (hub 1dk tick)
+    "discover-cc-global.yml": 2 * 60,        # CDX global shard fleet: 2dk ritim
+    "discover-cc-platform.yml": 4 * 60,      # CDX platform shard fleet: 4dk ritim
+    "discover-cc-tr.yml": 5 * 60,            # CDX TR shard fleet: 5dk ritim
+    "discover-tranco-sitemap.yml": 6 * 3600, # tranco sitemap harvest: 6saat
+    "discovery-watchdog.yml": 5 * 60,        # discovery fleet tazelik bekçisi: 5dk
+    # zincir parçaları (discovery-pipeline içinde çağrılan);
+    # ayrıca pasif kalmamak için burada listelenir, min_gap boş
+    # bırakılarak hiç dispatch yapılmaz, active edilip pasif kalma
+    # riski ortadan kalkar.
+    "harvest-shard.yml": 0,                  # zincir parçası (discovery-pipeline çağrısı)
+    "publish-feed.yml": 0,                   # zincir parçası (discovery alt-completion)
+    "refill-on-low.yml": 0,                  # zincir parçası (yakıt düşünce)
 }
 
 
@@ -121,6 +144,12 @@ def run_hub(*, force: bool = False) -> dict[str, object]:
                                "(Actions:write PAT) eklenmeli")
     else:
         for workflow, min_gap in DISPATCH_MATRIX.items():
+            # min_gap == 0 olanlar zincir parçalarıdır (harvest-shard,
+            # publish-feed, refill-on-low) — discovery-pipeline tarafından
+            # içten çağrılır, hub tarafından ayrıca dispatch edilmez
+            # (ancak pasif kalmamak için burada listelenir ve active'dir).
+            if min_gap == 0:
+                continue
             record = state.get(workflow) if isinstance(state.get(workflow), dict) else {}
             last_ok = float((record or {}).get("last_ok", 0) or 0)
             if not force and now - last_ok < min_gap:

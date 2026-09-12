@@ -1,5 +1,5 @@
 [Unit]
-Description=Nirvana stealth-form dispatch (Oracle -> GitHub API, 15dk tam ritim)
+Description=Nirvana dispatch hub (Oracle -> GitHub API; 1dk tick, matris ritimli)
 After=network-online.target
 Wants=network-online.target
 
@@ -7,4 +7,6 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=/opt/devsolve
 ExecStart=/opt/devsolve/.venv/bin/python /opt/devsolve/oracle/dispatch_hub.py
-TimeoutStartSec=60
+TimeoutStartSec=90
+CPUQuota=5%
+MemoryMax=256M

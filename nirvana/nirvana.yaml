@@ -70,7 +70,7 @@ nirvana:
       letter: I
       schedule: "*/5 * * * *"
       entrypoint: "python -m nirvana.runner watchdog_quota_agent"
-      description: "Oracle CPU/RAM/HTTP-quota guard; autonomous cooling mode. Telegram'a bildirim ATMaz."
+      description: "Oracle CPU/RAM/HTTP-quota guard; autonomous cooling mode."
       heavy: false
     linkedin_router:
       host: oracle
@@ -91,7 +91,7 @@ nirvana:
       letter: L
       schedule: "23 5 * * *"
       entrypoint: "python -m nirvana.runner micro_audit_proof_agent"
-      description: "Playwright ile checkout/sepet darboğazi tespiti + isaretli Proof Card PNG + gozleme dayali dinamik kanca. Oracle'da Playwright HICBIR ZAMAN calismaz."
+      description: "Playwright ile checkout/sepet darbogaz tespiti + isaretli Proof Card PNG + gozleme dayali dinamik kanca. Oracle'da Playwright HICBIR ZAMAN calismaz."
       heavy: true
     retainer_report_agent:
       host: github
@@ -105,14 +105,14 @@ nirvana:
       letter: N
       schedule: "event"
       entrypoint: "python -m nirvana.runner contract_pack"
-      description: "Dinamik SLA + NDA + fikri mülkiyet taslagi (sablon; hukuki danismanlik degil). Onboarding evresinde sunulur."
+      description: "Dinamik SLA + NDA + fikri mulkiyet taslagi (sablon; hukuki danismanlik degil). Onboarding evresinde sunulur."
       heavy: false
     stealth_former:
       host: github
       letter: O
       schedule: "*/4 * * * *"
       entrypoint: "python -m nirvana.runner stealth_former"
-      description: "Stealth form submitter: CAPTCHA yoksa gonderir, varsa linkedin_router'a rotalar (UCRETLI captcha cozulmez). Anti-detection + pacing."
+      description: "Stealth form submitter: CAPTCHA yoksa gonderir, varsa linkedin_router'a rotalar. Anti-detection + pacing."
       heavy: true
     message_optimizer:
       host: github
@@ -161,14 +161,14 @@ nirvana:
       letter: V
       schedule: "*/4 * * * *"
       entrypoint: "python -m nirvana.runner free_captcha_solver"
-      description: "Ucretsiz CAPTCHA cozucu: Tesseract OCR + Pillow. Basit metin CAPTCHA'larini cozer. Modern reCAPTCHA/Turnstile icin stealth + rotalama."
+      description: "Ucretsiz CAPTCHA cozucu: Tesseract OCR + Pillow. Basit metin CAPTCHA'lari cozer. Modern engellerde stealth + rotalama."
       heavy: true
     financial_loss_engine:
       host: github
       letter: Y
       schedule: "12 5 * * *"
       entrypoint: "python -m nirvana.runner financial_loss_engine"
-      description: "MOD-05 kayip hesaplama: olculmus darboğazdan finansal etki bandi. Uydurma yok."
+      description: "MOD-05 kayip hesaplama: olculmus darbogazdan finansal etki bandi. Uydurma yok."
       heavy: true
     hash_tokenizer:
       host: github
@@ -189,7 +189,7 @@ nirvana:
       letter: W
       schedule: "event"
       entrypoint: "python -m nirvana.runner forget_guard"
-      description: "Anti-karisiklik bekcisi: token-bound sirket disinda link yok, domain-disi kanit yok. Sessiz guard, bildirim atmaz."
+      description: "Anti-karisiklik bekcisi: token-bound sirket disinda link yok, domain-disi kanit yok."
       heavy: false
     anti_spam_cadence:
       host: oracle
@@ -205,19 +205,12 @@ nirvana:
       entrypoint: "python -m nirvana.runner interaction_tracker"
       description: "MOD-19 etkilesim izleyici: link tiklama sinyali, odeme dogrulanmadan pipeline kapali."
       heavy: false
-    forget_guard:
-      host: oracle
-      letter: W
-      schedule: "event"
-      entrypoint: "python -m nirvana.runner forget_guard"
-      description: "Anti-karisiklik bekcisi: token-bound sirket disinda link yok, domain-disi kanit yok. Sessiz guard, bildirim atmaz."
-      heavy: false
     proof_card:
       host: oracle
       letter: X
       schedule: "event"
       entrypoint: "python -m nirvana.runner proof_card"
-      description: "Gorsel kanıt kartı yonetimi: GitHub Actions micro_audit_proof_agent ürettiği PNG'yi state/proof_cards.json'dan okur, Telegram botu için URL sağlar."
+      description: "Gorsel kanit karti yonetimi: GitHub Actions micro_audit_proof_agent urettigi PNG'yi state/proof_cards.json'dan okur, Telegram botu icin URL saglar."
       heavy: false
     tactic_router:
       host: github

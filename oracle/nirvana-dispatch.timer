@@ -1,10 +1,10 @@
 [Unit]
-Description=Nirvana dispatch hub 5dk timer (tum GitHub modullerini tam ritimde tetikler)
+Description=Nirvana dispatch hub 1dk timer (CDX feed dilimleri 1/2/4/5dk; diger moduller 30dk-24sa)
 
 [Timer]
-OnBootSec=3min
-OnUnitActiveSec=5min
-AccuracySec=30s
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s
 Persistent=true
 Unit=nirvana-dispatch.service
 

@@ -1,19 +1,18 @@
 """Lane O — stealth_former [GitHub Actions, heavy].
 
-Rapor kapsamı: anti-detection headless browser + CAPTCHA tespiti + akıllı rotalama.
-CAPTCHA çözümü: free_captcha_solver (Tesseract OCR) ile basit metin CAPTCHA'larını çözer.
-Modern reCAPTCHA/Turnstile: stealth browser + insan benzeri davranış; çözülmezse linkedin_router'a rotalar.
+Kapsam: anti-detection headless browser + CAPTCHA tespiti + akilli rotalama.
+CAPTCHA cozumu: free_captcha_solver (Tesseract OCR) ile basit metin CAPTCHA'lari.
+Modern engeller: stealth browser + insan benzeri davranis; cozulmezse rotalama.
 
-Yeni (v2):
-- DOM & HTTP yanıt doğrulama: 200 OK, AJAX JSON {"status":"success"}, DOM "Mesajınız alındı"
-- Content-length anomalisi tespiti (WAF sesiz yutma) → WAF_REJECT log
-- Honeypot tespiti (display:none input'lar boş bırakılır)
-- İnsan simülasyonu jitter (mouse/key gecikmeleri)
-- Kanarya testi (50 gönderimde bir IP/shadowban tespiti)
-- Çift kanallı teslimat (form + DMARC/SPF e-posta)
+Ozellikler:
+- DOM ve HTTP yanit dogrulama: 200 OK, AJAX JSON, DOM basari isareti
+- Content-length anomalisi tespiti (sessiz yutma suphesi)
+- Honeypot tespiti (gizli alanlar bos birakilir)
+- Insan simulasyonu jitter (mouse/key gecikmeleri)
+- Kanarya testi (50 gonderimde bir IP/shadowban tespiti)
+- Cift kanalli teslimat (form + e-posta)
 
-Günlük kota: 400 form gönderimi (Oracle HTTP kotasına uygun).
-Pacing: domain başına max 2, batch'te max 20.
+Gunluk kota: 400 form gonderimi. Pacing: domain basina max 2, batch'te max 20.
 """
 from __future__ import annotations
 
@@ -21,10 +20,9 @@ import json
 import re
 import time
 from typing import Any
-from nirvana.registry import state_path
+
 import httpx
 
-import config
 from nirvana.registry import state_path
 
 FORM_LOG = "stealth_form_log.json"
@@ -162,13 +160,13 @@ def find_form(html: str, base_url: str) -> dict[str, Any] | None:
 
 
 def submit_form(url: str, payload: dict[str, str]) -> dict[str, Any]:
-    """Form gönderimi: keşif GET → (varsa) POST → DOM/HTTP doğrulama.
+    """Form gonderimi: kesif GET -> (varsa) POST -> DOM/HTTP dogrulama.
 
-    Statüler:
-    - verified / verified_captcha_solved → gerçekten doğrulandı
-    - WAF_REJECT → WAF/anti-spam engeli veya sessiz yutma şüphesi
-    - captcha_detected → LinkedIn'e rotalanır
-    - unverified / error → PASSED sayılmaz, logda ayrı tutulur
+    Statuler:
+    - verified / verified_captcha_solved -> gercekten dogrulandi
+    - WAF_REJECT -> engel veya sessiz yutma suphesi
+    - captcha_detected -> rotalanir
+    - unverified / error -> PASSED sayilmaz, logda ayri tutulur
     """
     result = {"url": url, "domain": _domain(url), "status": "pending", "ts": time.time()}
     try:
@@ -328,9 +326,9 @@ def _mark_captcha(domain: str) -> None:
 
 
 def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]:
-    """Matris kancasıyla 400/gün %100 kapasite: her hedef Taktik'e göre kanca alır."""
+    """Matris kancasiyla 400/gun kapasite: her hedef Taktik'e gore kanca alir."""
     targets = urls or []
-        # Taktik Matrisi'nden kanca yükle (varsa) + routed (audit-pass) URL'leri hedefe ekle.
+    # Taktik Matrisi'nden kanca yukle (varsa) + routed URL'leri hedefe ekle.
     from nirvana import urlutil
     tactic_hooks: dict[str, dict[str, Any]] = {}
     try:
@@ -343,7 +341,7 @@ def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]
                 targets.append(u)
     except (OSError, ValueError):
         pass
-    # Ayrıca pending (audit fail -> matris) kuyruğunu da işle (URL'ler normalize)
+    # Ayrica pending kuyrugunu da isle (URL'ler normalize)
     try:
         pending = json.loads(state_path("tactic_matrix_pending.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -376,7 +374,7 @@ def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]
             result["tactic"] = (tactic_hooks.get(d.lower(), {}) or {}).get("tactic", "?")
         results.append(result)
         per_domain_count[d] = per_domain_count.get(d, 0) + 1
-        # Sabit bekleme YOK: Gauss jitter (6s–30s) — bot ritmi yerine insan ritmi.
+        # Sabit bekleme yok: Gauss jitter ile insan ritmi.
         from nirvana.fingerprint_rotator import inter_submit_delay_ms
         time.sleep(inter_submit_delay_ms() / 1000.0)
     submitted = sum(1 for r in results if r["status"] in ("verified", "verified_captcha_solved"))
@@ -394,7 +392,7 @@ def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]
 
 
 def live_stats() -> dict[str, Any]:
-    """Canlı log özeti: gönderim sayıları + sıcak dönüş (Telegram) + neden analizi."""
+    """Canli log ozeti: gonderim sayilari + donusum + neden analizi."""
     try:
         data = json.loads(state_path(FORM_LOG).read_text(encoding="utf-8"))
         if not isinstance(data, list):

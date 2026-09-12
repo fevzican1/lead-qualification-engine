@@ -1,17 +1,15 @@
 """Lane AD — tactic_router [GitHub Actions, heavy].
 
-Çoklu Taktik Rotalama Matrisi (Multi-Tactic Routing Matrix):
+Coklu Taktik Rotalama Matrisi (Multi-Tactic Routing Matrix):
 
-Hiçbir lead harcanmaz. "Ele / Çöpe At" yerine fallback cascade:
-  1) Sayfa gerçekten ölçülür (tek GET, gerçek ms + header + DOM sinyali).
-  2) Gecikme yüksekse        -> Taktik A (Performans & Latency)   — sayısal gecikme kanıtı
-  3) Platform tespit edilirse -> Taktik B (Platform & Checkout UX) — stack'e özel checkout kanıtı
-  4) İkisi de normalse        -> Taktik C (Altyapı & Güvenlik)    — eksik header / e-posta riski
+Hicbir lead harcanmaz. Fallback cascade:
+  1) Sayfa gercekten olculur (tek GET, gercek ms + header + DOM sinyali).
+  2) Gecikme yuksekse        -> Taktik A (Performans & Latency)
+  3) Platform tespit edilirse -> Taktik B (Platform & Checkout UX)
+  4) Ikisi de normalse        -> Taktik C (Altyapi & Guvenlik)
 
-Sıfır halüsinasyon: yalnızca canlı HTTP / header / DOM verisi kartına basılır.
-Uydurma kayıp yüzdesi yok; MOD-05 financial_loss_engine metriğini kanıt olarak kullanır.
-
-Oracle kotasına dokunmaz — yalnız GitHub runner.
+Sifir halusinasyon: yalnizca canli HTTP / header / DOM verisi karta basilir.
+Oracle kotasina dokunmaz — yalniz GitHub runner.
 """
 from __future__ import annotations
 
@@ -32,7 +30,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 
 
 def _effective_slow_ms() -> int:
-    """Yedekli boru hattı genişletmesi aktifse eşiği düşür (daha çok Taktik A)."""
+    """Yedekli boru hatti genisletmesi aktifse esigi dusur (daha cok Taktik A)."""
     try:
         widen = json.loads(state_path("tactic_widen.json").read_text(encoding="utf-8"))
         return int(widen.get("slow_ms", SLOW_MS))
@@ -41,7 +39,7 @@ def _effective_slow_ms() -> int:
 
 
 def _effective_platforms() -> dict[str, tuple[str, ...]]:
-    """Genişletme aktifse platform imza listesini büyüt."""
+    """Genisletme aktifse platform imza listesini buyut."""
     base = dict(STACK_SIGNATURES)
     try:
         widen = json.loads(state_path("tactic_widen.json").read_text(encoding="utf-8"))
@@ -57,7 +55,7 @@ def _effective_platforms() -> dict[str, tuple[str, ...]]:
         pass
     return base
 
-# Taktik B platform imzaları (header + HTML birlikte)
+# Taktik B platform imzalari (header + HTML birlikte)
 STACK_SIGNATURES: dict[str, tuple[str, ...]] = {
     "WooCommerce": ("woocommerce", "woo/", "?add-to-cart="),
     "Shopify": ("cdn.shopify.com", "shopify", "myshopify"),
@@ -69,7 +67,7 @@ STACK_SIGNATURES: dict[str, tuple[str, ...]] = {
     "OpenCart": ("opencart", "zen-cart"),
 }
 
-# Taktik C: eksikliği kanıt olan güvenlik başlıkları
+# Taktik C: eksikligi kanit olan guvenlik basliklari
 SECURITY_HEADERS = ("content-security-policy", "strict-transport-security",
                     "x-content-type-options", "x-frame-options",
                     "referrer-policy", "permissions-policy")
@@ -142,30 +140,27 @@ def _loss_band(ms: int | None) -> str:
     return "2-5"
 def hook_for(tactic: str, classification: dict[str, Any], *, company: str,
              turkish: bool = True) -> str:
-    """Kancayı Taktik'e göre kur. Sıfır uydurma: ölçülen veri neyse onu basar.
+    """Kancayi Taktik'e gore kur. Sifir uydurma: olculen veri neyse onu basar.
 
-    Format: kurumsal "Altyapı Güvenlik ve Performans Bildirimi" — reklam dili
-    değil, doğrudan kamuya açık teknik kanala yönelik resmî bildirim. Ölçülen
-    metrik mesajın merkezindedir; şablon hissi olmaması için rakam her satırda
-    gerçek ölçümden gelir.
+    Format: kurumsal bildirim dili; olculen metrik mesajin merkezindedir.
     """
     band = classification.get("delay_band_pct", "2-5")
     metric = classification.get("evidence_metric") or 0
     platform = (classification.get("reason") or {}).get("platform")
     if turkish:
-        head = f"{company} — Altyapı Güvenlik ve Performans Bildirimi. "
+        head = f"{company} — Altyapi Guvenlik ve Performans Bildirimi. "
         if tactic == "A":
-            return (head + f"Sitenizin yanıt süresinde ölçtüğümüz {metric} ms "
-                    f"darboğaz kaydedildi; bu değer %{band} hız kaybı bandına karşılık "
-                    "geliyor. Sayısal gecikme kartı ve kapanış adımları bu sohbette.")
+            return (head + f"Sitenizin yanit suresinde olctugumuz {metric} ms "
+                    f"darbogaz kaydedildi; bu deger %{band} hiz kaybi bandina karsilik "
+                    "geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.")
         if tactic == "B":
             stack = platform or "platform"
-            return (head + f"{stack} altyapınızdaki checkout/event akışında kopukluk "
-                    f"sinyali ölçüldü (%{band} sepet kaybı risk bandı). Checkout kartı "
-                    "ve kapanış planı bu sohbette.")
-        return (head + "HTTP/header altyapınızda kritik koruma eksikleri tespit "
-                "edildi (rapor numaralı). Altyapı Güvenlik Kartı ve düzeltme yol "
-                "haritası bu sohbette.")
+            return (head + f"{stack} altyapinizdaki checkout/event akisinda kopukluk "
+                    f"sinyali olculdu (%{band} sepet kaybi risk bandi). Checkout karti "
+                    "ve kapanis plani bu sohbette.")
+        return (head + "HTTP/header altyapinizda kritik koruma eksikleri tespit "
+                "edildi (rapor numarali). Altyapi Guvenlik Karti ve duzeltme yol "
+                "haritasi bu sohbette.")
     head = f"{company} — Infrastructure Security & Performance Notice. "
     if tactic == "A":
         return (head + f"Measurements on your site show a {metric} ms response "

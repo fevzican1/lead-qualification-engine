@@ -6,11 +6,11 @@ opt-out'a koşulsuz saygı. Saf Python — maliyet sıfır.
 """
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 
 from nirvana.registry import state_path
-import json
 
 FOLLOWUP_STAGES = (
     {"after_hours": 24, "kind": "hatırlatma",
