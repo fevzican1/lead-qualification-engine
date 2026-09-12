@@ -25,8 +25,7 @@ jobs:
       PAYONEER_LINK: ${{ secrets.PAYONEER_LINK }}
       # Oracle'dan tam 15dk'da bir workflow tetiklemek için Actions:write PAT
       # (secret yoksa boş geçilir — Oracle timer'ı Telegram uyarı modunda bekler).
-      # GH_PAT: GitHub Personal Access Token (classic) — repo + workflow scope
-      GH_DISPATCH_TOKEN: ${{ secrets.GH_PAT }}
+      GH_DISPATCH_TOKEN: ${{ secrets.INGEST_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - name: SSH anahtarı hazırla
