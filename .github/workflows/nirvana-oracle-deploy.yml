@@ -56,7 +56,7 @@ jobs:
           ssh -i ~/.ssh/oracle.key \
               -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
               -o ConnectTimeout=10 -o ConnectionAttempts=1 -o BatchMode=yes \
-              "${USER}@${HOST}" "PAYONEER_LINK='${PAYONEER_LINK}' TG_BOT_TOKEN='${TG_BOT_TOKEN}' TG_BOT_USERNAME='${TG_BOT_USERNAME}' TG_OWNER_CHAT_ID='${TG_OWNER_CHAT_ID}' TG_NOTIFY_BOT_TOKEN='${TG_NOTIFY_BOT_TOKEN}' TG_NOTIFY_CHAT_ID='${TG_NOTIFY_CHAT_ID}' ADMIN_CODE='${ADMIN_CODE}' GH_DISPATCH_TOKEN='${GH_DISPATCH_TOKEN}' bash -s" <<'REMOTE'
+              "${USER}@${HOST}" "PAYONEER_LINK='${PAYONEER_LINK}' TG_BOT_TOKEN='${TG_BOT_TOKEN:-}' TG_BOT_USERNAME='${TG_BOT_USERNAME:-}' TG_OWNER_CHAT_ID='${TG_OWNER_CHAT_ID:-}' TG_NOTIFY_BOT_TOKEN='${TG_NOTIFY_BOT_TOKEN:-}' TG_NOTIFY_CHAT_ID='${TG_NOTIFY_CHAT_ID:-}' ADMIN_CODE='${ADMIN_CODE:-}' GH_DISPATCH_TOKEN='${GH_DISPATCH_TOKEN}' bash -s" <<'REMOTE'
           set -euo pipefail
           echo "=== [0] Telegram/ops config → /opt/devsolve/.env (only when secret set) ==="
           for kv in \
