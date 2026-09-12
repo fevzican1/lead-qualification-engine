@@ -1,0 +1,10 @@
+[Unit]
+Description=Nirvana Lane AF schedule — delivery worker every 2 hours (19 past even hours UTC)
+
+[Timer]
+OnCalendar=*-*-* 03/2:19:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

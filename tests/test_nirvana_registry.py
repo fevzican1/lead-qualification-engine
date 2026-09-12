@@ -12,13 +12,13 @@ ROOT = Path(config.ROOT)
 
 def test_registry_defines_exactly_thirty_modules():
     modules = MODULES()
-    assert len(modules) == 31
+    assert len(modules) == 32
     letters = sorted((m["letter"] for m in modules.values()),
                      key=lambda L: (len(L), L))
     assert letters == (list("ABCDEFGH")
                        + ["I", "J", "K", "L", "M", "N", "O", "P", "Q", "R",
                           "S", "T", "U", "V", "W", "X"]
-                       + ["Y", "Z", "AA", "AB", "AC", "AD", "AE"])
+                       + ["Y", "Z", "AA", "AB", "AC", "AD", "AE", "AF"])
 
 
 def test_host_assignment_matches_architecture():
@@ -35,7 +35,8 @@ def test_host_assignment_matches_architecture():
     assert oracle == {"onboarding_agent", "delivery_runner", "watchdog_quota_agent",
                       "linkedin_router", "contract_pack", "github_orchestrator",
                       "multi_service_runner", "forget_guard", "proof_card",
-                      "queue_fuel_guard", "anti_spam_cadence", "interaction_tracker"}
+                      "queue_fuel_guard", "anti_spam_cadence", "interaction_tracker",
+                      "delivery_worker"}
 
 
 def test_every_module_has_entrypoint_and_runner_binding():
@@ -64,6 +65,7 @@ def test_nirvana_workflows_exist():
 def test_oracle_units_exist():
     for name in ("nirvana-watchdog.service", "nirvana-watchdog.timer",
                  "nirvana-delivery.service", "nirvana-delivery.timer",
+                 "nirvana-deliveryworker.service", "nirvana-deliveryworker.timer",
                  "nirvana-linkedin.service", "nirvana-linkedin.timer",
                  "nirvana_oracle_install.sh"):
         assert (ROOT / "oracle" / name).exists(), name

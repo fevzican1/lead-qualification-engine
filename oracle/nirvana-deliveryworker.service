@@ -1,0 +1,15 @@
+[Unit]
+Description=Nirvana Lane AF — delivery worker (paid-service fulfilment, Oracle VM, light)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=devsolve
+WorkingDirectory=/opt/devsolve
+EnvironmentFile=/opt/devsolve/.env
+ExecStart=/opt/devsolve/.venv/bin/python -m nirvana.runner delivery_worker
+# Light by design: max 2 jobs per run, 1 httpx request per job
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=600

@@ -156,6 +156,13 @@ nirvana:
       entrypoint: "python -m nirvana.runner multi_service_runner"
       description: "Coklu hizmet yurutme: max 5 eszamanli musteri. Her biri izole, haftalik tur. Musteri memnun kalirsa tekrar gelir."
       heavy: false
+    delivery_worker:
+      host: oracle
+      letter: AF
+      schedule: "19 */2 * * *"
+      entrypoint: "python -m nirvana.runner delivery_worker"
+      description: "TESLIMAT ISCISI: odemesi dogrulanmus ise kayitli hizmeti teslim eder. (chat_id, domain, service) uclusune bagli — hizmet karismaz. RPT rapor numarasi + Telegram bot raporu + musteri hafizasi. Max 5 eszamanli, tur basina 2 is, tek httpx istegi — kota/maliyet sifir."
+      heavy: false
     free_captcha_solver:
       host: github
       letter: V

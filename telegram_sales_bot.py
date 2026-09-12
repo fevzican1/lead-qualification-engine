@@ -126,6 +126,68 @@ _PAID_RE = re.compile(
     re.I,
 )
 
+# Teslimat işçisi (Lane AF): rapor hatırlatma + hizmet niyeti.
+_REPORT_RE = re.compile(r"\b(rapor|raporlar|report|reports|sonuç|sonuc|result|results)\b", re.I)
+_SERVICE_CONTACT_RE = re.compile(r"\b(iletişim|iletisim|contact|form)\b", re.I)
+_SERVICE_MONITOR_RE = re.compile(r"\b(izleme|monitor|renewal|yenileme)\b", re.I)
+
+
+def _service_intent(text: str) -> str | None:
+    """Müşteri metninden istenen hizmet (karışmaz: hizmet kataloğuyla sınırlı)."""
+    if _SERVICE_CONTACT_RE.search(text or ""):
+        return "contact-audit"
+    if _SERVICE_MONITOR_RE.search(text or ""):
+        return "renewal-monitor"
+    if re.search(r"\b(sağlık|saglik|tur|sweep|altyapı|altyapi|infra)\b", text or "", re.I):
+        return "infra-sweep"
+    return None
+
+
+def _returning_customer_greeting(mem: dict[str, Any], *, turkish: bool) -> str:
+    """Geri dönen teslimat müşterisi: bot geçmişi hatırlar (rapor numarası + sorunlar)."""
+    lines = ["Tekrar hoş geldiniz — sizi ve geçmiş teslimatlarınızı hatırlıyoruz."
+             if turkish else "Welcome back — we remember you and your past deliveries."]
+    last = mem.get("last_report")
+    if last:
+        lines.append(f"Geçmiş teslimat raporunuz: {last} "
+                     f"(toplam {mem.get('report_count')} rapor)."
+                     if turkish else
+                     f"Your last delivery report: {last} "
+                     f"({mem.get('report_count')} reports in total).")
+    issues = mem.get("past_issues") or []
+    if issues:
+        listed = ", ".join(f"{i.get('report_id')} ({i.get('status')})" for i in issues[:3])
+        lines.append(f"Geçmişte tespit ettiğimiz sorunlar: {listed}."
+                     if turkish else f"Issues we found earlier: {listed}.")
+    active = mem.get("active_jobs") or []
+    if active:
+        lines.append(f"Aktif teslimat işiniz: {', '.join(map(str, active))} — "
+                     "raporu numarasıyla bu sohbete düşecek."
+                     if turkish else
+                     f"Your active delivery jobs: {', '.join(map(str, active))} — "
+                     "the report will land here with its number.")
+    else:
+        lines.append("Şu an istediğiniz hizmeti yazın (örn. iletişim denetimi, izleme turu) — "
+                     "ödeme teyidiniz doğrulanmışsa hemen teslimat kuyruğuna alalım."
+                     if turkish else
+                     "Tell me the service you need now (e.g. contact audit, monitoring sweep) — "
+                     "with your verified payment we queue it right away.")
+    return "\n".join(lines)
+
+
+def _report_recall_text(reports: list[dict[str, Any]], *, turkish: bool) -> str:
+    lines = [("Teslimat kayıtlarınız (rapor numarasıyla):"
+              if turkish else "Your delivery records (by report number):")]
+    for r in reports[-5:]:
+        badge = {"ok": "✅", "degraded": "⚠️", "down": "🔴", "error": "❌"}.get(str(r.get("status")), "•")
+        lines.append(f"{badge} {r.get('report_id')} — {r.get('service')} — {r.get('domain')} "
+                     f"({r.get('status')}, {r.get('at')})")
+    lines.append("Yeni hizmet için: ödeme teyidiniz doğrulanmışsa istediğiniz hizmeti yazın."
+                 if turkish else
+                 "For a new service: state it and we queue it once payment is verified.")
+    return "\n".join(lines)
+
+
 
 def _remember(chat_id: int, role: str, content: str) -> None:
     history = _histories[chat_id]
@@ -481,6 +543,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     telegram_sessions.touch_start(
         chat_id, company=company, turkish=turkish, username=_username(update)
     )
+    # Teslimat işçisi (Lane AF): geri dönen müşteri hafızayla karşılanır —
+    # geçmiş rapor numaraları, önceki sorunlar, ödeme teyidi hatırlanır.
+    try:
+        from nirvana import delivery_worker as _dworker
+        mem = _dworker.customer_memory(chat_id)
+        if mem.get("returning"):
+            text = _returning_customer_greeting(mem, turkish=turkish)
+            _remember(chat_id, "assistant", text)
+            await update.message.reply_text(_display_text(text))
+            return
+    except Exception:
+        logger.exception("delivery memory greeting failed for chat %s", chat_id)
     if row:
         await _warm_ping(chat_id, update, row)
         await _greet_from_token(update, context.bot, chat_id, row)
@@ -589,6 +663,24 @@ async def cmd_verifypayment(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f"🌐 Müşteri: {who}\n"
         f"⚙️ Durum: Ödeme onaylandı, otomatik işlem başlatıldı."
     )
+    # Teslimat işçisi (Lane AF): ödeme teyitli → o anki hizmet kusursuz kuyruğa girer.
+    try:
+        from nirvana import delivery_worker as _dworker
+        brief = _briefs.get(int(chat)) or {}
+        domain = str(brief.get("host") or brief.get("target_domain") or who)
+        job = _dworker.start_job(int(chat), domain, "infra-sweep")
+        if job.get("ok"):
+            j = job["job"]
+            await update.message.reply_text(
+                f"Teslimat kuyruğa alındı: {j['job_id']} — {j['service']} "
+                f"({j['domain']}, chat {j['chat_id']}). "
+                "İşçi turunda teslim eder; rapor numarası (RPT-…) müşteriye ve size düşer.")
+        else:
+            await update.message.reply_text(
+                f"Teslimat kuyruğu kurulamadı: {job.get('reason')} — "
+                "domain'i /deliver CHATID HIZMET DOMAIN ile elle açabilirsiniz.")
+    except Exception:
+        logger.exception("delivery queue after payment verification failed")
 
 
 async def cmd_approvecontract(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -602,6 +694,65 @@ async def cmd_approvecontract(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("/approvecontract CHATID IMZALI_SOZLESME_REF KAPSAM_REF ERISIM_IZNI_REF")
         return
     await update.message.reply_text("Sözleşme ve izin referansları kaydedildi. Otomatik üretim erişimi açılmadı.")
+
+
+async def cmd_deliver(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Teslimat işçisi: elle iş aç. /deliver CHATID HIZMET [DOMAIN]"""
+    if not update.effective_chat or not update.message:
+        return
+    if not _is_owner(update.effective_chat.id):
+        await update.message.reply_text(_not_owner_hint())
+        return
+    from nirvana import delivery_worker as dworker
+    args = context.args or []
+    if len(args) < 2 or not str(args[0]).lstrip("-").isdigit():
+        await update.message.reply_text(
+            "Kullanım: /deliver CHATID HIZMET [DOMAIN]\n"
+            "Hizmetler: " + ", ".join(sorted(dworker.SERVICES)) + "\n"
+            "Domain verilmezse sohbetin bağlı olduğu şirketin alan adı kullanılır. "
+            "Ödeme doğrulanmamışsa iş awaiting_payment'te bekler.")
+        return
+    target = int(args[0])
+    service = args[1].strip().lower()
+    domain = args[2].strip() if len(args) > 2 else ""
+    if not domain:
+        brief = _briefs.get(target) or {}
+        domain = str(brief.get("host") or brief.get("target_domain")
+                     or telegram_sessions._row(target).get("company") or "")
+    res = dworker.start_job(target, domain, service)
+    if res.get("ok"):
+        j = res["job"]
+        await update.message.reply_text(
+            f"✅ İş açıldı: {j['job_id']} — {j['service']} ({j['domain']}) "
+            f"chat {j['chat_id']}, durum {j['status']}.")
+    else:
+        await update.message.reply_text(f"❌ İş açılamadı: {res.get('reason')} ({res})")
+
+
+async def cmd_deliveries(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Teslimat işçisi durumu: aktif işler + son rapor numaraları."""
+    if not update.effective_chat or not update.message:
+        return
+    if not _is_owner(update.effective_chat.id):
+        await update.message.reply_text(_not_owner_hint())
+        return
+    from nirvana import delivery_worker as dworker
+    s = dworker.status_summary()
+    lines = [
+        "TESLİMAT İŞÇİSİ — durum",
+        f"Aktif: {s['active']}/{s['max_concurrent']} | ödeme bekleyen: {s['awaiting_payment']} | "
+        f"kuyrukta: {s['queued']} | teslim edilen (toplam iş): {s['delivered_total']}",
+    ]
+    for j in s["jobs"]:
+        lines.append(f"• {j['job_id']} | chat {j['chat_id']} | {j['service']} | "
+                     f"{j['domain']} | {j['status']}")
+    reports = dworker.load_reports()[-8:]
+    if reports:
+        lines.append("Son raporlar:")
+        for r in reports:
+            lines.append(f"  {r['report_id']} | chat {r['chat_id']} | {r['service']} | "
+                         f"{r['domain']} | {r['status']} | {r['at']}")
+    await update.message.reply_text("\n".join(lines) or "Kayıt yok.")
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -730,6 +881,54 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if _is_owner(chat_id):
         return
+
+    # Teslimat işçisi (Lane AF): müşteri rapor numarasıyla sorar → kendi raporu.
+    # Yalnızca ödemesi doğrulanmış chate; satış akışını hiç etkilemez.
+    if _REPORT_RE.search(user_text) and not _wants_to_buy(user_text) and not _PRICE_RE.search(user_text):
+        try:
+            from nirvana import delivery_worker as _dworker
+            own = _dworker.reports_for_chat(chat_id)
+            if own:
+                reply = _report_recall_text(own, turkish=_conv_lang(user_text, chat_id))
+                _remember(chat_id, "assistant", reply)
+                await update.message.reply_text(_display_text(reply))
+                return
+        except Exception:
+            logger.exception("report recall failed for chat %s", chat_id)
+
+    # Ödeme teyitli müşteri o anki hizmetini yazınca doğrudan teslimat kuyruğu:
+    if telegram_sessions.fulfillment_ready(chat_id):
+        wanted = _service_intent(user_text)
+        if wanted:
+            from nirvana import delivery_worker as _dworker
+            brief = _briefs.get(chat_id) or {}
+            domain = str(brief.get("host") or brief.get("target_domain")
+                         or telegram_sessions._row(chat_id).get("company") or "")
+            job = _dworker.start_job(chat_id, domain, wanted)
+            if job.get("ok"):
+                reply = (
+                    f"Hizmetiniz kuyruğa alındı: {job['job']['job_id']} — "
+                    f"{wanted} ({job['job']['domain']}). Teslimat raporu numarasıyla "
+                    "bu sohbete düşecek."
+                    if _conv_lang(user_text, chat_id) else
+                    f"Your service is queued: {job['job']['job_id']} — "
+                    f"{wanted} ({job['job']['domain']}). The delivery report will land "
+                    "here with its report number.")
+                _remember(chat_id, "assistant", reply)
+                await update.message.reply_text(_display_text(reply))
+                await asyncio.to_thread(
+                    owner_notify.send,
+                    f"TESLİMAT KUYRUĞU — chat {chat_id}: {wanted} ({job['job']['domain']}), "
+                    f"iş {job['job']['job_id']}. Ödeme doğrulanmış; teslimat işçisi turda işler.")
+                return
+            if job.get("reason") == "domain_bound_to_other_chat":
+                await update.message.reply_text(
+                    "Bu oturum yalnızca kendi alan adınızla işlem yürütür; "
+                    "karışıklığı önlemek için başka bir alana teslimat açılmadı."
+                    if _conv_lang(user_text, chat_id) else
+                    "This session can only operate on your own domain; "
+                    "no delivery was opened for another domain.")
+                return
 
     telegram_sessions.touch_user(chat_id, user_text, username=_username(update))
     if chat_id not in _briefs:
@@ -1064,6 +1263,8 @@ def main() -> None:
     application.add_handler(CommandHandler("payready", cmd_payready))
     application.add_handler(CommandHandler("verifypayment", cmd_verifypayment))
     application.add_handler(CommandHandler("approvecontract", cmd_approvecontract))
+    application.add_handler(CommandHandler("deliver", cmd_deliver))
+    application.add_handler(CommandHandler("deliveries", cmd_deliveries))
     application.add_handler(CommandHandler("notifyme", cmd_notifyme))
     application.add_handler(CommandHandler("status", cmd_status))
     application.add_handler(CommandHandler("reply", cmd_reply))
