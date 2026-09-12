@@ -55,7 +55,7 @@ def sync_enterprise_feed() -> dict[str, Any] | None:
     targets = payload["targets"]
     dest = config.ROOT / "feeds" / "enterprise_targets.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(".json.tmp")
+    tmp = dest.with_suffix(dest.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     tmp.replace(dest)
     logger.info("Enterprise feed synced: %s target(s)", len(targets))
@@ -104,7 +104,7 @@ def _load_state() -> dict[str, Any]:
 def _save_state(data: dict[str, Any]) -> None:
     FEED_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     data["updated_at"] = domain_store.utc_now()
-    tmp = FEED_STATE_PATH.with_suffix(".json.tmp")
+    tmp = FEED_STATE_PATH.with_suffix(FEED_STATE_PATH.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(FEED_STATE_PATH)
 

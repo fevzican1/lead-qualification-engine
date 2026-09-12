@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -588,7 +589,7 @@ def _save(data: dict[str, Any]) -> None:
             key=lambda item: str((item[1] or {}).get("at") or ""),
         )
         data = dict(rows[-_MAX:])
-    tmp = PATH.with_suffix(PATH.suffix + ".tmp")
+    tmp = PATH.with_suffix(PATH.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(PATH)
 

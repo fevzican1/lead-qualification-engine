@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 import config
@@ -43,7 +44,10 @@ def _load_review() -> dict[str, Any]:
 
 def _save_review(payload: dict[str, Any]) -> None:
     payload["updated_at"] = domain_store.utc_now()
-    tmp = REVIEW_QUEUE_PATH.with_suffix(".json.tmp")
+    # PID-suffixed tmp: pipeline + ingest + optimizer write review_queue.json
+    # concurrently; a shared tmp name made the loser's replace() die with
+    # "No such file or directory" and the whole pipeline turn exit 1.
+    tmp = REVIEW_QUEUE_PATH.with_suffix(REVIEW_QUEUE_PATH.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(REVIEW_QUEUE_PATH)
 

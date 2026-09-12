@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -64,7 +65,7 @@ def load() -> dict[str, Any]:
 
 def save(data: dict[str, Any]) -> None:
     data["updated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    tmp = PATH.with_suffix(PATH.suffix + ".tmp")
+    tmp = PATH.with_suffix(PATH.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(PATH)
 

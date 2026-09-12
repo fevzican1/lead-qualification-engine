@@ -20,6 +20,7 @@ import argparse
 import gc
 import json
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -130,7 +131,9 @@ def load_leads(path: Path) -> list[dict[str, Any]]:
 
 def save_leads(path: Path, leads: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    # PID-suffixed tmp: leads.json is written by the pipeline runner and read/
+    # written by bot lanes concurrently; a shared tmp name made them race.
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(leads, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(path)
 

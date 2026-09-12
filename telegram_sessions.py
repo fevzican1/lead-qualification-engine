@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -45,7 +46,7 @@ def _load() -> dict[str, Any]:
 
 
 def _save(data: dict[str, Any]) -> None:
-    tmp = PATH.with_suffix(PATH.suffix + ".tmp")
+    tmp = PATH.with_suffix(PATH.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(PATH)
 

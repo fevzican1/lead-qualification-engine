@@ -54,3 +54,52 @@ def test_pending_rows_preserves_form_verified(tmp_path: Path, monkeypatch) -> No
     )
     row = domain_store.pending_rows(limit=1)[0]
     assert row["form_verified"] is True
+
+
+def test_save_review_uses_pid_suffixed_tmp(tmp_path: Path, monkeypatch) -> None:
+    """tmp adı PID-sonekli olmalı: paylaşımlı review_queue.json.tmp iki sürecin
+    yarışına girince kaybedenin replace()'i FileNotFoundError fırlatıyordu ve
+    pipeline turu kod 1 ile çıkıyordu ('Pipeline turu hata ile bitti')."""
+    path = tmp_path / "review_queue.json"
+    monkeypatch.setattr(target_pool, "REVIEW_QUEUE_PATH", path)
+    seen: list[str] = []
+    real_replace = Path.replace
+
+    def spy(self: Path, target) -> Path:
+        seen.append(self.name)
+        return real_replace(self, Path(target))
+
+    monkeypatch.setattr(Path, "replace", spy)
+    monkeypatch.setattr(target_pool.os, "getpid", lambda: 4242)
+
+    target_pool._save_review({"urls": ["x"]})
+
+    assert seen == ["review_queue.json.4242.tmp"]
+    assert json.loads(path.read_text(encoding="utf-8"))["urls"] == ["x"]
+
+
+def test_two_processes_saving_review_queue_do_not_crash(tmp_path: Path, monkeypatch) -> None:
+    """Eski paylaşımlı tmp adıyla process 111'in replace()'i, process 222 tmp'yi
+    alıp replace ettikten sonra FileNotFoundError ile çöküyordu. PID-sonekli tmp
+    ile her iki sürecin replace'i başarılı olmalı."""
+    path = tmp_path / "review_queue.json"
+    monkeypatch.setattr(target_pool, "REVIEW_QUEUE_PATH", path)
+    current_pid = {"v": 111}
+    monkeypatch.setattr(target_pool.os, "getpid", lambda: current_pid["v"])
+
+    # process 111: tmp'yi yazdı, replace'ten hemen önce askıya alındı
+    tmp_a = path.with_suffix(path.suffix + ".111.tmp")
+    tmp_a.write_text(
+        json.dumps({"urls": ["a"], "updated_at": ""}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    # process 222: kendi tmp'sini yazıp replace etti
+    current_pid["v"] = 222
+    target_pool._save_review({"urls": ["b"]})
+    assert json.loads(path.read_text(encoding="utf-8"))["urls"] == ["b"]
+
+    # process 111 devam etti: artık kendi tmp'si yerinde, replace çökmemeli
+    current_pid["v"] = 111
+    tmp_a.replace(path)  # eskiden: FileNotFoundError (paylaşımlı tmp silinmişti)
+    assert json.loads(path.read_text(encoding="utf-8"))["urls"] == ["a"]

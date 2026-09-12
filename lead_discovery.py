@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -95,7 +96,7 @@ def _state() -> dict[str, Any]:
 
 def _save_state(data: dict[str, Any]) -> None:
     data["updated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    tmp = STATE_PATH.with_suffix(STATE_PATH.suffix + ".tmp")
+    tmp = STATE_PATH.with_suffix(STATE_PATH.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(STATE_PATH)
 

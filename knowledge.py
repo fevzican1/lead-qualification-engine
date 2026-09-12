@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -278,7 +279,7 @@ def refresh(*, leads: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         "submitted": sum(v for k, v in statuses.items() if k in CONFIRMED_SUBMIT_STATUSES),
         "playbook_stacks": list(live_playbook().keys()),
     }
-    tmp = PATH.with_suffix(PATH.suffix + ".tmp")
+    tmp = PATH.with_suffix(PATH.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(PATH)
     global _cache, _cache_at

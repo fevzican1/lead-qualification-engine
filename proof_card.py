@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -262,7 +263,7 @@ def render(row: dict[str, Any] | None, *, turkish: bool = True) -> Path | None:
         note = "Illustrative plan only. No client system access, findings or work samples implied."
     draw.text((48, 610), _fit(note, 108), font=small, fill="#64748B")
 
-    tmp = out.with_suffix(".tmp.png")
+    tmp = out.with_suffix(f".{os.getpid()}.tmp.png")
     img.save(tmp, "PNG", optimize=True)
     tmp.replace(out)
     return out

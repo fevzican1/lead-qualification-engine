@@ -45,7 +45,7 @@ def _load_state() -> dict[str, Any]:
 
 
 def _save_state(data: dict[str, Any]) -> None:
-    tmp = STATE_PATH.with_suffix(STATE_PATH.suffix + ".tmp")
+    tmp = STATE_PATH.with_suffix(STATE_PATH.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(STATE_PATH)
 
@@ -92,7 +92,7 @@ def append_to_leads(row: dict[str, Any]) -> None:
         data = []
     row["updated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     data.append(row)
-    tmp = path.with_suffix(".json.tmp")
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(path)
 
