@@ -23,16 +23,9 @@ jobs:
       USER: ${{ secrets.ORACLE_USER }}
       SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
       PAYONEER_LINK: ${{ secrets.PAYONEER_LINK }}
-      # Telegram sales bot + ops config (optional; written to Oracle .env when set)
-      TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TG_BOT_USERNAME: ${{ secrets.TELEGRAM_BOT_USERNAME }}
-      TG_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
-      TG_NOTIFY_BOT_TOKEN: ${{ secrets.TELEGRAM_NOTIFY_BOT_TOKEN }}
-      TG_NOTIFY_CHAT_ID: ${{ secrets.TELEGRAM_NOTIFY_CHAT_ID }}
-      ADMIN_CODE: ${{ secrets.ADMIN_CODE }}
       # Oracle'dan tam 15dk'da bir workflow tetiklemek için Actions:write PAT
       # (secret yoksa boş geçilir — Oracle timer'ı Telegram uyarı modunda bekler).
-      GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
+      GH_DISPATCH_TOKEN: ${{ secrets.INGEST_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - name: SSH anahtarı hazırla
