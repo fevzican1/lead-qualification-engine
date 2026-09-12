@@ -966,12 +966,16 @@ def _offline_reply(user_text: str, row: dict[str, Any] | None) -> tuple[str, boo
         return slot_gate.intent_package(turkish=turkish, row=row), False
     if turkish and buy:
         return (
-            f"Önerilen bedel {config.price_label(explicit=True)}. Kapsam ve ödeme talebi doğrulanmalı.",
+            "Önce değer: ölçtüğümüz darboğaz her ay ciro kaybettiriyor ve kapanışı bu kaybı keser. "
+            "Oracle izleme slotlarımız sınırlı; 24 saatlik rezervasyonla ilerliyoruz. "
+            f"Sabit retainer: {config.price_label(explicit=True)}. Kapsam ve ödeme talebi doğrulanmalı.",
             False,
         )
     if buy:
         return (
-            f"Proposed fee {config.price_label(explicit=True)}. Scope and payment request need verification.",
+            "Value first: the bottleneck we measured leaks revenue every month and closing it stops the loss. "
+            "Our Oracle monitoring slots are limited and we proceed on a 24-hour reservation. "
+            f"Fixed retainer: {config.price_label(explicit=True)}. Scope and payment request need verification.",
             False,
         )
     if row:

@@ -27,14 +27,21 @@ RULES: tuple[tuple[str, str, str], ...] = (
     ),
     (
         r"(fiyat\w*\s*(cok\s*)?(yuksek|yuksek)|pahali|butce\w*\s*yok|budget|too expensive|price is high|cost is high)",
-        "Fiyati kaybinla kiyaslayin: olctugumuz darbogaz (raporda numarali) her ay ciro "
-        "kaybettiriyor. Retainer, bu darbogazin mimari olarak kapatilmasi ve surekli "
-        "izlemedir; odeme oncesi yalnizca kanit (rapor + kart + kapanis plani) sunulur, "
-        "uygulama dogrulanmis odeme sonrasi baslar. Kanit karti ve kapanis plani elimizde.",
-        "Compare the price to the loss: the bottleneck we measured (numbered in the "
-        "report) leaks revenue every month. The retainer is closing that bottleneck "
-        "architecturally plus continuous monitoring. We do not do unpaid engineering; "
-        "the proof card and closure plan are in front of you.",
+        "Once degeri konusalim: olctugumuz darbogaz (raporda numarali) her ay ciro "
+        "kaybettiriyor ve kapanisi bu kaybi dogrudan keser. Ayrica Oracle izleme "
+        "slotlarimiz sinirlidir ve 24 saatlik rezervasyonla ilerleriz; onay gecikirse "
+        "slot baska firmaya acilir. Retainer, bu darbogazin mimari olarak kapatilmasi "
+        "ve surekli izlemedir. Uygulama dogrulanmis odeme (PAID) sonrasi baslar; "
+        "odeme oncesi yalnizca kanit (rapor + kart + kapanis plani) ve mikro-kanit "
+        "sunulur, kod/yapilandirma PAID sonrasina saklanir.",
+        "Value first: the bottleneck we measured (numbered in the report) leaks "
+        "revenue every month and closing it stops the loss directly. Also, our Oracle "
+        "monitoring slots are limited and we proceed on a 24-hour reservation; if "
+        "approval is delayed the slot opens to another company. The retainer closes "
+        "that bottleneck architecturally plus continuous monitoring. Implementation "
+        "starts only after verified payment (PAID); before payment we share only the "
+        "evidence (report + card + closure plan) and micro-proof — code/config is "
+        "held back until PAID.",
     ),
     (
         r"(guvenlik|risc|veri(\s|nin|ye)?\s*(guven|risk|ihlali)?|erisim|security|data (safety|risk|breach)|access risk)",
