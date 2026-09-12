@@ -107,6 +107,11 @@ def lead_digest() -> str:
               ("interest_reported", "contract_signed", "payment_reported", "payment_verified")}
     lines = [
         "DevSolve motor özeti (Oracle, Always Free)",
+        f"Funnel (başvuru ≠ kabul ≠ tahsilat): {funnel}",
+        "Kabul/dönüş oranı yalnızca doğrulanmış (verified) sonuçlarla ölçülür; "
+        "henüz yeterli veri birmediğinde kesin rakam paylaşılmaz.",
+        f"Kuyruk: {domain_store.queue_depth()}/{getattr(config, 'QUEUE_TARGET', 150)} "
+
         f"Model: {config.OLLAMA_MODEL}",
         f"Toplam lead: {len(data)}",
         f"Form gönderildi: {submitted}",

@@ -333,6 +333,12 @@ def _submit_with_page(
     try:
         if fast:
             logger.info("Fast-fail %.0fs window for %s", budget, lead.get("url"))
+        # FAIL-FAST: Max 10 saniye timeout (takilan/yainit vermeyen sitelerde vakit kaybetme)
+        cap_ms = max(4_000, min(int(budget * 1000), 10_000))
+        try:
+            page.set_default_timeout(cap_ms)
+            page.set_default_navigation_timeout(cap_ms)
+
         cap_ms = max(4_000, min(int(budget * 1000), 25_000))
         try:
             page.set_default_timeout(cap_ms)
@@ -519,6 +525,9 @@ def _scopes(page: Page):
     for frame in widgets:
         yield frame
     yield page
+        el.scroll_into_view_if_needed(timeout=3000)
+        el.click(timeout=3000)
+
     for frame in others:
         yield frame
 
@@ -857,6 +866,8 @@ def _submit_cascade(page: Page, watcher: FormNetWatcher, last_field: list[Any]) 
             btn.evaluate(
                 """(e) => {
                     e.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true, view: window}));
+            btn.click(timeout=10_000, force=True)
+
                 }"""
             )
             clicked = True

@@ -86,7 +86,13 @@ def submit(page: Any, lead: dict[str, Any]) -> dict[str, Any]:
     def left_ms():
         left = int((deadline - time.monotonic()) * 1000)
         if left <= 0:
+        # FAIL-FAST: Max 10 saniye timeout (takilan/yanit vermeyen sitelerde vakit kaybetme)
+        page.set_default_timeout(5000)
+        page.goto(lead["url"], wait_until="domcontentloaded", timeout=10_000)
+
             raise TimeoutError("enterprise site deadline")
+        page.locator("form input[type='email']").first.wait_for(state="visible", timeout=min(8000, left_ms()))
+
         return left
     try:
         page.set_default_timeout(1500)
@@ -116,6 +122,14 @@ def submit(page: Any, lead: dict[str, Any]) -> dict[str, Any]:
                 return result
         if not form.evaluate("f => f.checkValidity()"):
             return result
+        # Single native click; a timeout after click is ambiguous and NEVER auto-retried.
+        result["status"] = "skipped_submit_failed"
+        action = evidence["form_action"].split("#")[0]
+        # FAIL-FAST: Submit ve response timeout max 10 saniye
+        with page.expect_response(lambda r: r.request.method == "POST" and r.url.split("#")[0] == action,
+                                  timeout=min(10_000, left_ms())) as pending:
+            form.locator("button[type='submit'], input[type='submit']").click(timeout=min(10_000, left_ms()))
+
         # Single native click; a timeout after click is ambiguous and NEVER auto-retried.
         result["status"] = "skipped_submit_failed"
         action = evidence["form_action"].split("#")[0]

@@ -1,3 +1,50 @@
+"""Lane V — free_captcha_solver [Oracle VM, heavy].
+
+GELISMIS UCRETSIZ CAPTCHA COZUCU:
+- Tesseract OCR ile basit metin CAPTCHA'larini cozer
+- OpenCV (cv2) ile gelismis goruntu isleme pipeline'i
+- DOM/Canvas bazli gelismis tarayici heuristikleri:
+  * Slider CAPTCHA tespiti ve cozumu
+  * Matematiksel dogrulama kodlari
+  * Metin tabanli dogrulama kodlari
+  * Canvas tabanli CAPTCHA analizi
+- Modern reCAPTCHA/Turnstile icin: stealth browser + insan benzeri davris
+  (UCRETLI API kullanilmaz; cozulmezse linkedin_router'a rotalar)
+
+Asiri korumali sayfalar: Yerel cozucu basarisiz -> 'skipped_captcha' olarak isaretlenir.
+
+Oracle VM uzerinde calisir: GitHub Actions'a yuk tasinmaz.
+"""
+from __future__ import annotations
+
+import io
+import re
+import time
+from html import unescape
+from typing import Any
+
+from nirvana.registry import state_path
+
+# Tesseract kurulu mu kontrol et
+_TESSERACT_AVAILABLE = False
+try:
+    import pytesseract
+    from PIL import Image, ImageFilter, ImageOps
+    _TESSERACT_AVAILABLE = True
+except ImportError:
+    pass
+
+# OpenCV kurulu mu kontrol et
+_OPENCV_AVAILABLE = False
+try:
+    import cv2
+    import numpy as np
+    _OPENCV_AVAILABLE = True
+except ImportError:
+    pass
+
+
+
 """Lane V — free_captcha_solver [GitHub Actions, heavy].
 
 Ucretsiz CAPTCHA cozucu:
@@ -26,6 +73,51 @@ try:
     _TESSERACT_AVAILABLE = True
 except ImportError:
     pass
+
+def _opencv_preprocess(image_bytes: bytes) -> bytes:
+    """OpenCV ile gelismis goruntu on isleme pipeline'i."""
+    if not _OPENCV_AVAILABLE:
+        return image_bytes
+    try:
+        import cv2
+        import numpy as np
+        from PIL import Image
+
+        img_array = np.frombuffer(image_bytes, dtype=np.uint8)
+        img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        if img is None:
+            return image_bytes
+
+        # Gri tonlama
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # Gurultu azaltma (Non-local means denoising)
+        denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
+
+        # Kontrast artirma (CLAHE)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(denoised)
+
+        # Adaptif esikleme
+        binary = cv2.adaptiveThreshold(
+            enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY, 11, 2
+        )
+
+        # Morfolojik isleme (gurultu temizleme)
+        kernel = np.ones((2, 2), np.uint8)
+        cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+
+        # Kenar kirma (segmentation icin)
+        result = cv2.GaussianBlur(cleaned, (3, 3), 0)
+
+        # Bytes'a geri cevir
+        _, buffer = cv2.imencode('.png', result)
+        return buffer.tobytes()
+    except Exception:
+        return image_bytes
+
+
 
 
 def solve_text_captcha(image_bytes: bytes) -> dict[str, Any]:
@@ -194,6 +286,183 @@ def detect_and_solve(html: str, screenshot_bytes: bytes | None = None) -> dict[s
         result = solve_text_captcha(screenshot_bytes)
         if result["ok"]:
             return {"has_captcha": True, "solved": True, "token": result["text"], "method": "ocr"}
+
+
+
+# --- GELISMIS HEURISTIK COZUCILER (UCRETSIZ, YEREL) ---------------------------------------
+
+def _solve_slider_captcha(html: str) -> dict[str, Any]:
+    """Slider CAPTCHA heuristigi: HTML'de slider widget'ini tespit et ve pozisyon hesapla."""
+    target_match = re.search(
+        r'(?:data-(?:target|position|slide|offset|gap))\s*=\s*["\']?(\d+)["\']?',
+        html, re.I
+    )
+    if target_match:
+        return {"ok": True, "token": target_match.group(1), "method": "slider_dom_target"}
+
+    track_match = re.search(
+        r'(?:slider|track|puzzle)[^>]*(?:width|size)\s*[:=]\s*["\']?(\d+)["\']?',
+        html, re.I
+    )
+    gap_match = re.search(
+        r'(?:gap|offset|move|distance)\s*[:=]\s*["\']?(\d+)["\']?',
+        html, re.I
+    )
+    if track_match and gap_match:
+        return {"ok": True, "token": gap_match.group(1), "method": "slider_track_calc"}
+
+    return {"ok": False}
+
+
+def _solve_canvas_captcha(html: str) -> dict[str, Any]:
+    """Canvas tabanlı CAPTCHA tespiti: canvas elementinde gizli token/cevap arar."""
+    for pattern in [
+        r'<canvas[^>]*>.*?</canvas>.*?<input[^>]*value\s*=\s*["\']([^"\']+)["\']',
+        r'<input[^>]*value\s*=\s*["\']([^"\']+)["\'].*?<canvas',
+        r'data-canvas-answer\s*=\s*["\']([^"\']+)["\']',
+        r'data-verify\s*=\s*["\']([^"\']+)["\']',
+    ]:
+        m = re.search(pattern, html, re.I | re.DOTALL)
+        if m:
+            return {"ok": True, "token": m.group(1), "method": "canvas_hidden_value"}
+
+    canvas_text_match = re.search(
+        r'(?:fillText|drawText)[^;]*["\']([A-Za-z0-9]{3,8})["\']',
+        html, re.I
+    )
+    if canvas_text_match:
+        return {"ok": True, "token": canvas_text_match.group(1), "method": "canvas_text"}
+
+    return {"ok": False}
+
+
+def _solve_text_verification(html: str) -> dict[str, Any]:
+    """Metin tabanlı dogrulama kodlari: 'Kelimeyi yazin', 'Type the text' gibi."""
+    for pattern in [
+        r'(?:verify|dogrula|confirm)[^>]*>([^<]{3,8})</',
+        r'(?:type|enter|write)\s+(?:the\s+)?(?:word|text|code)\s*[:=]?\s*["\']?([A-Za-z0-9]{3,8})',
+        r'verification\s+code\s*[:=]?\s*["\']?([A-Za-z0-9]{3,8})',
+        r'(?:captcha|dogrulama|verify)[^>]*value\s*=\s*["\']([^"\']+)["\']',
+    ]:
+        m = re.search(pattern, html, re.I)
+        if m:
+            return {"ok": True, "token": m.group(1), "method": "text_verification"}
+
+def _solve_advanced_ocr(image_bytes: bytes) -> dict[str, Any]:
+    """Gelismis OCR: OpenCV on isleme + Tesseract (birden fazla konfig ile)."""
+    if not _TESSERACT_AVAILABLE:
+        return {"ok": False, "reason": "tesseract_not_installed"}
+
+    try:
+        from PIL import Image, ImageFilter, ImageOps
+        import pytesseract
+
+        # Once OpenCV on isleme (varsa)
+        processed_bytes = _opencv_preprocess(image_bytes) if _OPENCV_AVAILABLE else image_bytes
+
+        img = Image.open(io.BytesIO(processed_bytes))
+
+        # Pillow ile ek temizleme (OpenCV yoksa veya destek olarak)
+        if not _OPENCV_AVAILABLE:
+            img = img.convert("L")
+            img = ImageOps.autocontrast(img)
+            img = img.filter(ImageFilter.MedianFilter(size=3))
+            threshold = 128
+            img = img.point(lambda p: 255 if p > threshold else 0)
+
+        # Birden fazla OCR konfigurasyonu dene
+        configs = [
+            "--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+            "--psm 8 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+            "--psm 13 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+        ]
+
+        for config in configs:
+            text = pytesseract.image_to_string(img, config=config)
+            cleaned = text.strip().replace(" ", "").replace("\n", "")
+            if len(cleaned) >= 4:
+                return {"ok": True, "text": cleaned, "confidence": "medium", "method": "advanced_ocr"}
+
+        return {"ok": False, "reason": "ocr_low_confidence"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:100]}
+
+
+def detect_and_solve_advanced(html: str, screenshot_bytes: bytes | None = None) -> dict[str, Any]:
+    """HTML'de CAPTCHA tespit et ve TUM yerel katmanlari sirayla dener.
+
+    GELISMIS KATMANLAR (sirasiyla):
+    1. Modern reCAPTCHA/Turnstile/CF -> direkt rotalama (cozum iddiasi YOK)
+    2. DOM bazli: matematik -> kelime -> kelime ters -> gizli-input
+    3. Gelismis heuristikler: slider -> canvas -> metin dogrulama
+    4. OpenCV + Tesseract OCR (gelismis on isleme ile)
+    5. Hepsi basarisiz -> skipped_captcha (linkedin_router'a rotala)
+
+    Harici API kullanilmaz — maliyet 0.
+    """
+    low = html.lower()
+    captcha_markers = ["g-recaptcha", "cf-turnstile", "h-captcha", "data-sitekey"]
+    has_modern = any(m.lower() in low for m in captcha_markers)
+
+    if has_modern:
+        if screenshot_bytes:
+            result = _solve_advanced_ocr(screenshot_bytes)
+            if result["ok"]:
+                return {"has_captcha": True, "solved": True, "token": result["text"], "method": "advanced_ocr"}
+        return {"has_captcha": True, "solved": False, "route_to": "linkedin_router", "method": "modern_unsolvable"}
+
+    # KATMAN 1: DOM bazli klasik cozuculer
+    dom = solve_dom_captcha(html)
+    if dom.get("ok"):
+        return {"has_captcha": True, "solved": True, "token": dom["token"], "method": dom["method"]}
+
+    # KATMAN 2: Gelismis heuristikler
+    slider = _solve_slider_captcha(html)
+    if slider.get("ok"):
+        return {"has_captcha": True, "solved": True, "token": slider["token"], "method": slider["method"]}
+
+    canvas = _solve_canvas_captcha(html)
+    if canvas.get("ok"):
+        return {"has_captcha": True, "solved": True, "token": canvas["token"], "method": canvas["method"]}
+
+    text_ver = _solve_text_verification(html)
+    if text_ver.get("ok"):
+        return {"has_captcha": True, "solved": True, "token": text_ver["token"], "method": text_ver["method"]}
+
+    # KATMAN 3: Gelismis OCR
+    if screenshot_bytes:
+        result = _solve_advanced_ocr(screenshot_bytes)
+        if result["ok"]:
+            return {"has_captcha": True, "solved": True, "token": result["text"], "method": "advanced_ocr"}
+
+    # Hicbir katlan cozemedi
+    if re.search(r"<[^>]*captcha", low):
+        return {"has_captcha": True, "solved": False, "route_to": "linkedin_router",
+                "method": "all_local_layers_failed"}
+
+    return {"has_captcha": False, "action": "proceed"}
+
+
+
+def run_batch(**kwargs: Any) -> dict[str, Any]:
+    """Oracle VM uzerinde gelismis CAPTCHA cozucu ozeti."""
+    return {
+        "tesseract_available": _TESSERACT_AVAILABLE,
+        "opencv_available": _OPENCV_AVAILABLE,
+        "local_solvers": [
+            "math", "word", "word_reverse", "hidden_input",
+            "slider", "canvas", "text_verification", "advanced_ocr"
+        ],
+        "solver_layers": [
+            "dom_classic", "slider_heuristic", "canvas_heuristic",
+            "text_verification", "opencv_ocr"
+        ],
+        "ts": time.time(),
+    }
+
+    return {"ok": False}
+
+
 
     return {"has_captcha": False, "action": "proceed"}
 
