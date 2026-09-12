@@ -48,10 +48,10 @@ DISPATCH_MATRIX: dict[str, int] = {
     #     discovery-pipeline içinde çağrılan zincir parçaları da
     #     pasif kalmamak için burada listelenir) ---
     "discover.yml": 6 * 3600,                # discover-cc-longtail fleet: 6saat
-    "discover-cc-eu.yml": 60,                # CDX EU shard fleet: 1dk ritim (hub 1dk tick)
-    "discover-cc-global.yml": 2 * 60,        # CDX global shard fleet: 2dk ritim
-    "discover-cc-platform.yml": 4 * 60,      # CDX platform shard fleet: 4dk ritim
-    "discover-cc-tr.yml": 5 * 60,            # CDX TR shard fleet: 5dk ritim
+    "discover-cc-eu.yml": 5 * 60,            # CDX EU shard fleet: 5dk ritim (zamana yayılmış)
+    "discover-cc-global.yml": 10 * 60,       # CDX global shard fleet: 10dk ritim
+    "discover-cc-platform.yml": 15 * 60,     # CDX platform shard fleet: 15dk ritim
+    "discover-cc-tr.yml": 20 * 60,           # CDX TR shard fleet: 20dk ritim
     "discover-tranco-sitemap.yml": 6 * 3600, # tranco sitemap harvest: 6saat
     "discovery-watchdog.yml": 5 * 60,        # discovery fleet tazelik bekçisi: 5dk
     # zincir parçaları (discovery-pipeline içinde çağrılan);
