@@ -58,6 +58,39 @@ SERVICES: dict[str, dict[str, Any]] = {
 
 
 # --- state ------------------------------------------------------------------
+
+def _read(path_json: str) -> Any:
+    try:
+        return json.loads(state_path(path_json).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _write(path_json: str, data: Any) -> None:
+    path = state_path(path_json)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def load_jobs() -> list[dict[str, Any]]:
+    rows = _read(JOBS_NAME)
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def save_jobs(jobs: list[dict[str, Any]]) -> None:
+    _write(JOBS_NAME, jobs[-500:])
+
+
+def load_reports() -> list[dict[str, Any]]:
+    rows = _read(REPORTS_NAME)
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def save_reports(reports: list[dict[str, Any]]) -> None:
+    _write(REPORTS_NAME, reports[-500:])
+
+
 def _stamp() -> str:
     return time.strftime("%Y%m%d", time.gmtime())
 
@@ -379,67 +412,3 @@ def run_batch(*, notify: bool = True, limit: int = RUN_LIMIT) -> dict[str, Any]:
             "reports": [r["report"]["report_id"] for r in delivered],
             "status_summary": status_summary()}
 
-
-
-def find_report(report_id: str) -> dict[str, Any] | None:
-    for r in load_reports():
-        if r.get("report_id") == report_id:
-            return r
-    return None
-
-    for j in load_jobs():
-        if j.get("job_id") == job_id:
-            return j
-    return None
-
-
-def complete_job(job_id: str, *, reason: str = "completed") -> dict[str, Any]:
-    jobs = load_jobs()
-    jobs = [j for j in jobs if j.get("job_id") != job_id]
-    save_jobs(jobs)
-    return {"ok": True, "reason": reason}
-
-
-def status_summary() -> dict[str, Any]:
-    jobs = load_jobs()
-    return {
-        "active": len([j for j in jobs if j.get("status") in ("awaiting_payment", "queued", "running")]),
-        "max_concurrent": MAX_CONCURRENT,
-        "awaiting_payment": len([j for j in jobs if j.get("status") == "awaiting_payment"]),
-        "queued": len([j for j in jobs if j.get("status") == "queued"]),
-        "delivered_total": len([j for j in jobs if j.get("status") == "delivered"]),
-        "jobs": [{"job_id": j.get("job_id"), "chat_id": j.get("chat_id"), "domain": j.get("domain"),
-                  "service": j.get("service"), "status": j.get("status")} for j in jobs[-10:]],
-    }
-
-
-def _read(path_json: str) -> Any:
-    try:
-        return json.loads(state_path(path_json).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-
-
-def _write(path_json: str, data: Any) -> None:
-    path = state_path(path_json)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(path)
-
-
-def load_jobs() -> list[dict[str, Any]]:
-    rows = _read(JOBS_NAME)
-    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
-
-
-def save_jobs(jobs: list[dict[str, Any]]) -> None:
-    _write(JOBS_NAME, jobs[-500:])
-
-
-def load_reports() -> list[dict[str, Any]]:
-    rows = _read(REPORTS_NAME)
-    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
-
-
-def save_reports(reports: list[dict[str, Any]]) -> None:
-    _write(REPORTS_NAME, reports[-500:])
