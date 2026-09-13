@@ -434,10 +434,35 @@ def _submit_with_page(
         return result
 
     if lead.get("captcha_detected") or form_meta.get("found") is not True:
-        reason = "captcha_detected" if lead.get("captcha_detected") else "no_contact_form"
-        logger.info("Skipping submit for %s (%s)", lead.get("url"), reason)
-        result["status"] = "skipped_captcha" if lead.get("captcha_detected") else "skipped_no_contact_form"
-        return result
+        if lead.get("captcha_detected"):
+            logger.info("Skipping submit for %s (captcha_detected)", lead.get("url"))
+            result["status"] = "skipped_captcha"
+            return result
+        # Upstream said "no form" — one cheap httpx scan before any skip
+        # verdict (quota-isolated: mailto / ajax / depth-2 candidate URL).
+        try:
+            import form_extractor
+
+            _rescued = form_extractor.rescue_scan_verdict(lead)
+        except Exception:  # noqa: BLE001
+            _rescued = None
+        if _rescued is not None and str(_rescued.get("status")) in {
+            "mailto_extracted",
+            "submitted_unconfirmed",
+        }:
+            result.update(_rescued)
+            return result
+        _cf = (_rescued or {}).get("contact_form") or {}
+        if _cf.get("found"):
+            result.update(_rescued or {})
+            lead = result
+            form_meta = _cf
+            form_url = _cf.get("page_url") or form_url
+            logger.info("Rescued contact URL for %s -> %s", lead.get("url"), form_url)
+        else:
+            logger.info("Skipping submit for %s (no_contact_form)", lead.get("url"))
+            result["status"] = "skipped_no_contact_form"
+            return result
 
     if lead.get("audience") == "enterprise":
         import enterprise_forms

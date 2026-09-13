@@ -551,3 +551,90 @@ def probe_contact_depth2(html: str, base_url: str) -> dict[str, Any]:
     ``probe_contact_depth2(html, base_url)`` signature keep working.
     """
     return analyze_html(html, base_url)
+
+
+def _sender_values_for(lead: dict[str, Any]) -> dict[str, str]:
+    """Sender values via form_submitter when available, plain fallback else."""
+    try:
+        from form_submitter import _sender_values
+
+        return _sender_values(
+            str(lead.get("value_proposition") or ""), str(lead.get("form_subject") or "")
+        )
+    except Exception:  # noqa: BLE001
+        return {
+            "email": "",
+            "name": "",
+            "message": str(lead.get("value_proposition") or "")[:600],
+            "subject": str(lead.get("form_subject") or "")[:120],
+        }
+
+
+def rescue_scan_verdict(lead: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Last cheap gate before any ``skipped_no_open_form`` stamp.
+
+    One httpx-only scan (8s budget, quota-isolated — never touches pacing/
+    knowledge counters). Returns an updated lead dict when a contact surface
+    was found — mailto handoff, ajax synthetic POST, or a browser-ready
+    candidate URL — and ``None`` when the domain is genuinely formless (only
+    then may callers stamp the terminal skip).
+    """
+    url = str(lead.get("final_url") or lead.get("url") or "").strip()
+    if not url:
+        return None
+    try:
+        scan = scan_domain_light(url)
+        match = ScanMatch.from_analysis(scan, url)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("rescue scan failed for %s: %s", url, type(exc).__name__)
+        return None
+
+    # Adım 5 — mailto handoff (e-mail worker lane; never burns submit quota).
+    if match.mode == "mailto" and match.mailtos:
+        rescued = dict(lead)
+        rescued["status"] = "mailto_extracted"
+        rescued["contact_emails"] = list(match.mailtos)
+        rescued.pop("error", None)
+        logger.info("rescue mailto handoff %s -> %s", url, match.mailtos)
+        return rescued
+
+    # Adım 4 — same-origin ajax POST straight from mined endpoints.
+    if match.mode == "ajax" and match.endpoints:
+        import config as _config
+
+        if getattr(_config, "AJAX_POST_ENABLED", True):
+            try:
+                values = _sender_values_for(lead)
+                endpoint = match.endpoints[0]
+                payload = merge_payload(
+                    extract_hidden_payload(scan.get("html") or "", endpoint), values
+                )
+                code = post_synthetic(endpoint, payload)
+                logger.info("rescue ajax POST %s -> %s", endpoint, code)
+                if 200 <= code < 300:
+                    rescued = dict(lead)
+                    rescued["status"] = "submitted_unconfirmed"
+                    rescued["submitted_url"] = endpoint
+                    rescued["submitted_kind"] = "ajax_endpoint"
+                    rescued.pop("error", None)
+                    return rescued
+            except Exception as exc:  # noqa: BLE001
+                logger.info("rescue ajax failed for %s: %s", url, type(exc).__name__)
+
+    # Adım 1/2/3 — hand a concrete form URL back to the browser lane.
+    if match.mode in {"direct", "widget", "shadow"} and match.candidate_url:
+        cand = match.candidate_url
+        if cand.rstrip("/") == url.rstrip("/"):
+            return None  # same page already fingerprint-missed; do not loop
+        rescued = dict(lead)
+        rescued["contact_form"] = {
+            "found": True,
+            "page_url": cand,
+            "fields": [],
+            "rescued": "depth2_scan:" + match.mode,
+        }
+        rescued["final_url"] = cand
+        rescued.pop("status", None)
+        rescued.pop("error", None)
+        return rescued
+    return None

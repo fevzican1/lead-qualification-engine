@@ -356,6 +356,16 @@ def _collect_one(page: Page, url: str, probe: dict[str, Any]) -> dict[str, Any]:
 
 
 def _skip_no_form(item: dict[str, Any]) -> dict[str, Any]:
+    # Last rescue chance before the terminal stamp: one httpx-only scan may
+    # still find a mailto contact, an ajax endpoint, or a real form URL.
+    try:
+        import form_extractor
+
+        rescued = form_extractor.rescue_scan_verdict(item)
+    except Exception:  # noqa: BLE001
+        rescued = None
+    if rescued is not None:
+        return rescued
     skipped = dict(item)
     skipped.update(
         {
@@ -739,8 +749,9 @@ def _run_browser_pipeline(
                         item = _skip_no_form(item)
                         leads = upsert(leads, item)
                         save_leads(leads_path, leads)
-                    status = str(item.get("status") or "skipped_no_open_form")
-                    domain_store.mark(str(item.get("url") or ""), status, source="chromium-purge")
+                    status = str(item.get("status") or "")
+                    if status in domain_store.TERMINAL or status in domain_store.DEAD_QUEUE:
+                        domain_store.mark(str(item.get("url") or ""), status, source="chromium-purge")
                     processed.append(item)
                     logger.info("Skip %s status=%s", item.get("url"), item.get("status"))
                     continue

@@ -175,6 +175,16 @@ def _scan_one_body(page: Page, url: str, *, timeout_ms: int) -> dict[str, Any]:
                 found = False
             break
         if not found:
+            try:
+                import form_extractor
+
+                _rescued = form_extractor.rescue_scan_verdict(
+                    {"url": url, "final_url": getattr(page, "url", url)}
+                )
+            except Exception:  # noqa: BLE001
+                _rescued = None
+            if _rescued is not None:
+                return _rescued
             logger.info("DOM fingerprint miss %s — skip without fill", url)
             return {
                 "url": url,
