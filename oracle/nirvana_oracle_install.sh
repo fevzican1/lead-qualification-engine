@@ -12,6 +12,23 @@ cd "$APP_DIR"
 echo "[2/6] Python bağımlılıkları (yalnız ücretsiz paketler)"
 "$APP_DIR/.venv/bin/pip" install -q -r requirements.txt
 
+echo "[2.6/6] Dedicated CAPTCHA OCR yığını (ücretsiz apt paketleri; yoksa DOM çözücü)"
+if command -v apt-get >/dev/null 2>&1; then
+  (sudo -n apt-get install -y -q tesseract-ocr python3-opencv 2>/dev/null \
+    || sudo apt-get install -y -q tesseract-ocr python3-opencv 2>/dev/null \
+    || apt-get install -y -q tesseract-ocr python3-opencv 2>/dev/null) || echo "apt OCR kurulamadı — DOM çözücü + Pillow ile devam (maliyet $0)"
+  "$APP_DIR/.venv/bin/pip" install -q pytesseract 2>/dev/null || echo "pytesseract kurulamadı — OCR'siz DOM katmanı ile devam"
+else
+  echo "apt yok — OCR'siz DOM katmanı ile devam"
+fi
+"$APP_DIR/.venv/bin/python" - <<'PY'
+try:
+    from nirvana import free_captcha_solver as f
+    print("OCR durumu: tesseract=", f._TESSERACT_AVAILABLE, "opencv=", f._OPENCV_AVAILABLE)
+except Exception as e:
+    print("OCR durum okunamadı:", str(e)[:100])
+PY
+
 echo "[2.5/6] Payoneer linkini /opt/devsolve/.env içine yazma (PAYONEER_LINK verilmişse)"
 if [ -n "${PAYONEER_LINK:-}" ]; then
   # sed replacement'taki & işaretini escape et (link ?t=..&src=pl içerir)
@@ -41,6 +58,14 @@ PY
 echo "[4/6] Watchdog dry-run (kota koruması canlı test)"
 "$APP_DIR/.venv/bin/python" -m nirvana.runner watchdog_quota_agent --no-notify
 
+echo "[4.5/6] Dedicated CAPTCHA worker derleme kontrolü (max 2 worker sabiti)"
+"$APP_DIR/.venv/bin/python" -m py_compile "$APP_DIR/nirvana/free_captcha_solver.py" "$APP_DIR/nirvana/free_captcha_worker.py" "$APP_DIR/nirvana/stealth_former.py"
+"$APP_DIR/.venv/bin/python" - <<'PY'
+from nirvana import stealth_former as sf, free_captcha_solver as fcs
+assert sf.CAPTCHA_MAX_WORKERS == 2 and fcs.CAPTCHA_MAX_WORKERS == 2, "captcha worker max 2 olmali"
+print("OK — captcha_queue:", sf.CAPTCHA_QUEUE_NAME, "| max_workers=2 | $0 (parali API yok)")
+PY
+
 echo "[5/6] systemd unit + timer kurulumu"
 install -m 644 "$UNIT_SRC/nirvana-watchdog.service" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-watchdog.timer" /etc/systemd/system/
@@ -50,6 +75,8 @@ install -m 644 "$UNIT_SRC/nirvana-deliveryworker.service" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-deliveryworker.timer" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-linkedin.service" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-linkedin.timer" /etc/systemd/system/
+install -m 644 "$UNIT_SRC/nirvana-captcha.service" /etc/systemd/system/
+install -m 644 "$UNIT_SRC/nirvana-captcha.timer" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-dispatch.service" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-dispatch.timer" /etc/systemd/system/
 systemctl daemon-reload
@@ -62,7 +89,8 @@ systemctl enable --now nirvana-watchdog.timer
 systemctl enable --now nirvana-delivery.timer
 systemctl enable --now nirvana-deliveryworker.timer
 systemctl enable --now nirvana-linkedin.timer
+systemctl enable --now nirvana-captcha.timer
 systemctl enable --now nirvana-dispatch.timer
 
 systemctl list-timers 'nirvana-*' --no-pager
-echo "NIRVANA ORACLE LIVE — watchdog 5dk, delivery haftalık, teslimat işçisi 2 saatte bir, dispatch hub 5dk (tüm modüller tam ritim)."
+echo "NIRVANA ORACLE LIVE — watchdog 5dk, delivery haftalık, teslimat işçisi 2 saatte bir, captcha worker 10dk (max 2), dispatch hub 5dk (tüm modüller tam ritim)."

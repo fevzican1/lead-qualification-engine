@@ -108,12 +108,12 @@ nirvana:
       description: "Dinamik SLA + NDA + fikri mulkiyet taslagi (sablon; hukuki danismanlik degil). Onboarding evresinde sunulur."
       heavy: false
     stealth_former:
-      host: github
+      host: oracle
       letter: O
-      schedule: "*/4 * * * *"
+      schedule: "*/15 * * * *"
       entrypoint: "python -m nirvana.runner stealth_former"
-      description: "Stealth form submitter: CAPTCHA yoksa gonderir, varsa linkedin_router'a rotalar. Anti-detection + pacing."
-      heavy: true
+      description: "Ana form seridi (Oracle VM): CAPTCHA gorunce atlamaz, captcha_queue'ya yazar; dedicated free_captcha_worker (max 2) yerel OCR ile teslim eder. Gunluk 400 cap, domain pacing 2/run 20."
+      heavy: false
     message_optimizer:
       host: github
       letter: P
@@ -164,12 +164,19 @@ nirvana:
       description: "TESLIMAT ISCISI: odemesi dogrulanmus ise kayitli hizmeti teslim eder. (chat_id, domain, service) uclusune bagli — hizmet karismaz. RPT rapor numarasi + Telegram bot raporu + musteri hafizasi. Max 5 eszamanli, tur basina 2 is, tek httpx istegi — kota/maliyet sifir."
       heavy: false
     free_captcha_solver:
-      host: github
+      host: oracle
       letter: V
-      schedule: "*/4 * * * *"
+      schedule: "*/10 * * * *"
       entrypoint: "python -m nirvana.runner free_captcha_solver"
-      description: "Ucretsiz CAPTCHA cozucu: Tesseract OCR + Pillow. Basit metin CAPTCHA'lari cozer. Modern engellerde stealth + rotalama."
-      heavy: true
+      description: "Ucretsiz CAPTCHA cozucu cekirdegi (Oracle VM): OpenCV + Tesseract OCR pipeline (DOM/slider/canvas/OCR katmanlari). Parali API yok ($0). Dogrudan calismaz; captcha_queue'yu free_captcha_worker tuketir."
+      heavy: false
+    free_captcha_worker:
+      host: oracle
+      letter: AG
+      schedule: "*/10 * * * *"
+      entrypoint: "python -m nirvana.runner free_captcha_worker"
+      description: "DEDICATED CAPTCHA WORKER (Oracle VM): sadece captcha_queue'yu dinler, max 2 eszamanli worker ile yerel OCR cozup formu teslim eder. Watchdog sogutma + gunluk 400 cap korumali, $0 maliyet."
+      heavy: false
     financial_loss_engine:
       host: github
       letter: Y

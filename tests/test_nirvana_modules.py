@@ -962,6 +962,95 @@ def test_free_captcha_without_tesseract(monkeypatch):
     assert result["reason"] == "tesseract_not_installed"
 
 
+def test_captcha_queue_enqueues_instead_of_skipping(isolated_state, monkeypatch):
+    """stealth_former CAPTCHA'da atlamaz — captcha_queue'ya yazar (dedicated worker)."""
+    from nirvana import stealth_former as sf
+    from nirvana import fingerprint_rotator as fr
+    monkeypatch.setattr(config, "ROOT", isolated_state)
+    monkeypatch.setattr(fr, "inter_submit_delay_ms", lambda: 0)
+    monkeypatch.setattr(sf.time, "sleep", lambda s: None)
+
+    class FakeResp:
+        text = '<div class="cf-turnstile" data-sitekey="x"></div>'
+        status_code = 200
+
+    monkeypatch.setattr(sf.httpx, "get", lambda *a, **kw: FakeResp())
+    result = sf.run_batch(urls=["https://acme.com/contact"])
+    assert result["captcha_routed"] == 1
+    assert result["queued_captcha"] == 1
+    assert result["submitted"] == 0
+    assert result["results"][0]["status"] == "queued_captcha"
+    assert result["results"][0]["route_to"] == "captcha_queue"
+    depth = sf.captcha_queue_depth()
+    assert depth["queued"] == 1
+    # dedup: ayni URL tekrar kuyruga girmez
+    again = sf.enqueue_captcha_target("https://acme.com/contact", {})
+    assert again["deduped"] is True
+
+
+def test_captcha_worker_max_two_and_zero_cost(isolated_state, monkeypatch):
+    """Worker max 2 eszamanli, parali API yok, kota korumali."""
+    from nirvana import free_captcha_solver as fcs
+    from nirvana import stealth_former as sf
+    monkeypatch.setattr(config, "ROOT", isolated_state)
+    assert fcs.CAPTCHA_MAX_WORKERS == 2
+    assert sf.CAPTCHA_MAX_WORKERS == 2
+    # cooling aktifse worker calismaz (kota korumasi)
+    monkeypatch.setattr(fcs, "_cooling_active", lambda: True)
+    out = fcs.run_captcha_worker()
+    assert out["ran"] is False and out["why"] == "cooling"
+    # bos kuyruk: calisir ama is yok
+    monkeypatch.setattr(fcs, "_cooling_active", lambda: False)
+    monkeypatch.setattr(fcs, "_daily_remaining", lambda: 400)
+    out2 = fcs.run_captcha_worker()
+    assert out2["ran"] is True and out2["processed"] == 0
+    # summary_only: cozucu katmanlari + worker sabiti
+    summary = fcs.run_batch(summary_only=True)
+    assert summary["worker"]["max_workers"] == 2
+    assert "advanced_ocr" in summary["local_solvers"]
+
+
+def test_captcha_worker_delivers_math_captcha(isolated_state, monkeypatch):
+    """Yerel DOM cozucu (2+3) -> token ile POST -> verified_captcha_solved."""
+    from nirvana import free_captcha_solver as fcs
+    from nirvana import stealth_former as sf
+    monkeypatch.setattr(config, "ROOT", isolated_state)
+    monkeypatch.setattr(fcs, "_cooling_active", lambda: False)
+    monkeypatch.setattr(fcs, "_daily_remaining", lambda: 400)
+
+    html = ('<form action="/send"><input name="email">'
+            '<span>Please solve: 2 + 3 = ?</span></form>')
+
+    class FakeGet:
+        text = html
+        status_code = 200
+        content = b"x" * 100
+
+    class FakePost:
+        status_code = 200
+        text = "<p>Mesajınız alındı, teşekkürler</p>"
+
+    import httpx as _hx
+    monkeypatch.setattr(_hx, "get", lambda *a, **kw: FakeGet())
+    monkeypatch.setattr(_hx, "post", lambda *a, **kw: FakePost())
+    monkeypatch.setattr(sf.httpx, "get", lambda *a, **kw: FakeGet())
+    monkeypatch.setattr(sf.httpx, "post", lambda *a, **kw: FakePost())
+
+    enq = sf.enqueue_captcha_target("https://acme.com/contact", {"email": "a@b.com"})
+    assert enq["ok"] is True
+    out = fcs.run_captcha_worker()
+    assert out["ran"] is True and out["delivered"] == 1
+    assert out["workers"] <= 2
+    stats = fcs.queue_stats()
+    assert stats["done"] == 1 and stats["queued"] == 0
+
+    # runner baglantisi: free_captcha_worker modulu calisiyor
+    from nirvana import free_captcha_worker as fcw
+    out2 = fcw.run_batch()
+    assert out2["module"] == "free_captcha_worker"
+    assert out2["max_workers"] == 2
+
+
 # --- Lane W: forget_guard (anti-karışıklık bekçisi) -----------------------
 
 

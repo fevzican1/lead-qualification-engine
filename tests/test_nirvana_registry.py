@@ -12,13 +12,13 @@ ROOT = Path(config.ROOT)
 
 def test_registry_defines_exactly_thirty_modules():
     modules = MODULES()
-    assert len(modules) == 32
+    assert len(modules) == 33
     letters = sorted((m["letter"] for m in modules.values()),
                      key=lambda L: (len(L), L))
     assert letters == (list("ABCDEFGH")
                        + ["I", "J", "K", "L", "M", "N", "O", "P", "Q", "R",
                           "S", "T", "U", "V", "W", "X"]
-                       + ["Y", "Z", "AA", "AB", "AC", "AD", "AE", "AF"])
+                       + ["Y", "Z", "AA", "AB", "AC", "AD", "AE", "AF", "AG"])
 
 
 def test_host_assignment_matches_architecture():
@@ -28,15 +28,16 @@ def test_host_assignment_matches_architecture():
     assert github == {"discovery_agent", "enrichment_agent", "audit_verifier_agent",
                       "strategy_pivot_agent", "objection_handler_agent", "retention_agent",
                       "meta_orchestrator", "micro_audit_proof_agent", "retainer_report_agent",
-                      "stealth_former", "message_optimizer", "email_infra_audit",
-                      "tech_stack_detector", "service_readiness", "free_captcha_solver",
+                      "message_optimizer", "email_infra_audit",
+                      "tech_stack_detector", "service_readiness",
                       "financial_loss_engine", "hash_tokenizer", "tactic_router",
                       "slot_gate"}
     assert oracle == {"onboarding_agent", "delivery_runner", "watchdog_quota_agent",
                       "linkedin_router", "contract_pack", "github_orchestrator",
                       "multi_service_runner", "forget_guard", "proof_card",
                       "queue_fuel_guard", "anti_spam_cadence", "interaction_tracker",
-                      "delivery_worker"}
+                      "delivery_worker", "stealth_former",
+                      "free_captcha_solver", "free_captcha_worker"}
 
 
 def test_every_module_has_entrypoint_and_runner_binding():
@@ -67,6 +68,7 @@ def test_oracle_units_exist():
                  "nirvana-delivery.service", "nirvana-delivery.timer",
                  "nirvana-deliveryworker.service", "nirvana-deliveryworker.timer",
                  "nirvana-linkedin.service", "nirvana-linkedin.timer",
+                 "nirvana-captcha.service", "nirvana-captcha.timer",
                  "nirvana_oracle_install.sh"):
         assert (ROOT / "oracle" / name).exists(), name
 

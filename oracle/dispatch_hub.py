@@ -33,7 +33,9 @@ DISPATCH_MATRIX: dict[str, int] = {
     "discovery-pipeline.yml": 5 * 60,        # her 5dk: alt fleet'ları (discover-cc-*,
                                              # harvest-shard, publish-feed, refill-on-low)
                                              # zincir halinde tetikler
-    "nirvana-stealth-form.yml": 15 * 60,     # form ateşleme (Lane O/P/Q): 15dk (GitHub cron min 5dk; Oracle hub hassas 1dk tick ile tamamlar)
+    "nirvana-stealth-form.yml": 0,            # PASIF YEDEK: Lane O/V Oracle VM'de
+                                              # (nirvana-captcha.timer). Manuel
+                                              # workflow_dispatch disinda dispatch YOK.
     "pipeline-watchdog.yml": 30 * 60,        # schedule-bekçisi: 30dk
     # --- on-beat analiz ve strateji (zincirli A→B→C) ---
     "payload_optimizer.yml": 40 * 60,        # payload optimizasyonu: 40dk

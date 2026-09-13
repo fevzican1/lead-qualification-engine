@@ -37,6 +37,7 @@ RUNNERS = {
     "multi_service_runner": "nirvana.multi_service_runner",
     "delivery_worker": "nirvana.delivery_worker",
     "free_captcha_solver": "nirvana.free_captcha_solver",
+    "free_captcha_worker": "nirvana.free_captcha_worker",
     "forget_guard": "nirvana.forget_guard",
     "proof_card": "nirvana.proof_card",
     "financial_loss_engine": "nirvana.financial_loss_engine",
@@ -108,6 +109,8 @@ def main(argv: list[str] | None = None) -> int:
     elif args.module == "delivery_worker":
         kwargs = {"notify": not args.no_notify}
     elif args.module == "free_captcha_solver":
+        kwargs = {}
+    elif args.module == "free_captcha_worker":
         kwargs = {}
     elif args.module == "forget_guard":
         kwargs = {}

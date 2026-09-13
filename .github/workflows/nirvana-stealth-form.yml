@@ -1,7 +1,9 @@
-name: "Nirvana Stealth Form (Lane O/P/Q)"
+name: "Nirvana Stealth Form (Lane O/P/Q — Oracle'a taşındı, pasif yedek)"
+
+# Lane O + Lane V artik Oracle VM'de (systemd: nirvana-captcha.timer + form serisi).
+# Bu workflow SADECE manuel workflow_dispatch ile tetiklenir (yerel test / acil yedek);
+# zamanlanmis cron KALDIRILDI — Oracle kotasi + cift calisma riski yok.
 on:
-  schedule:
-    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       targets:
@@ -24,8 +26,9 @@ jobs:
           python-version: "3.12"
       - name: Install deps
         run: pip install -q httpx pyyaml
-      - name: Stealth form submit (Lane O)
+      - name: Stealth form submit (Lane O — MANUEL YEDEK, Oracle birincil)
         run: |
+          echo "NOT: Birincil form serisi Oracle VM'dedir (captcha_queue + max 2 worker). Bu kosu manuel yedektir."
           if [ -n "${{ github.event.inputs.targets }}" ]; then
             python -m nirvana.runner stealth_former --urls "${{ github.event.inputs.targets }}"
           else

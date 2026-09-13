@@ -1,6 +1,6 @@
-"""Lane V — free_captcha_solver [Oracle VM, heavy].
+"""Lane V — free_captcha_solver + free_captcha_worker [Oracle VM, heavy].
 
-GELISMIS UCRETSIZ CAPTCHA COZUCU:
+GELISMIS UCRETSIZ CAPTCHA COZUCU + DEDICATED CAPTCHA WORKER:
 - Tesseract OCR ile basit metin CAPTCHA'larini cozer
 - OpenCV (cv2) ile gelismis goruntu isleme pipeline'i
 - DOM/Canvas bazli gelismis tarayici heuristikleri:
@@ -11,13 +11,25 @@ GELISMIS UCRETSIZ CAPTCHA COZUCU:
 - Modern reCAPTCHA/Turnstile icin: stealth browser + insan benzeri davris
   (UCRETLI API kullanilmaz; cozulmezse linkedin_router'a rotalar)
 
-Asiri korumali sayfalar: Yerel cozucu basarisiz -> 'skipped_captcha' olarak isaretlenir.
+DEDICATED CAPTCHA WORKER (ikincil kuyruk motoru):
+- stealth_former CAPTCHA ile karsilasinca sayfayi kapatip ATLAMAZ;
+  hedefi captcha_queue'ya yazar ('queued_captcha').
+- Oracle VM'de sadece bu kuyrugu dinleyen max 2 eszamanli
+  'free_captcha_worker' calisir (CAPTCHA_MAX_WORKERS = 2).
+- Motor arka planda OpenCV + Tesseract OCR pipeline'ini calistirarak
+  gorsel/slider dogrulamasini tamamlar ve formu derhal teslim eder.
+- Parali API cagrisi YOK — $0 maliyet kurali korunur.
+- Sunucu kaynaklarini korumak icin worker sayisi 2 ile sinirlidir.
+
+Asiri korumali sayfalar: Yerel cozucu basarisiz -> 'manual_review' olarak
+isaretlenir ve linkedin_router'a insan-onayli karta duser.
 
 Oracle VM uzerinde calisir: GitHub Actions'a yuk tasinmaz.
 """
 from __future__ import annotations
 
 import io
+import json
 import re
 import time
 from html import unescape
@@ -43,36 +55,6 @@ try:
 except ImportError:
     pass
 
-
-
-"""Lane V — free_captcha_solver [GitHub Actions, heavy].
-
-Ucretsiz CAPTCHA cozucu:
-- Tesseract OCR ile basit metin CAPTCHA'larini cozer
-- Gorsel isleme (Pillow) ile gurultu temizleme
-- Modern reCAPTCHA/Turnstile icin: stealth browser + insan benzeri davris
-  (UCRETLI API kullanilmaz; captcha varsa linkedin_router'a rotalar)
-
-Oracle kotasini asmaz: islem GitHub Actions'ta yapilir, sadece sonuc Oracle'ye iletilir.
-"""
-from __future__ import annotations
-
-import io
-import re
-import time
-from html import unescape
-from typing import Any
-
-from nirvana.registry import state_path
-
-# Tesseract kurulu mu kontrol et
-_TESSERACT_AVAILABLE = False
-try:
-    import pytesseract
-    from PIL import Image, ImageFilter, ImageOps
-    _TESSERACT_AVAILABLE = True
-except ImportError:
-    pass
 
 def _opencv_preprocess(image_bytes: bytes) -> bytes:
     """OpenCV ile gelismis goruntu on isleme pipeline'i."""
@@ -444,33 +426,303 @@ def detect_and_solve_advanced(html: str, screenshot_bytes: bytes | None = None) 
 
 
 
+CAPTCHA_QUEUE_NAME = "captcha_queue.json"
+# Sunucu kaynaklarini korumak icin CAPTCHA cozucu motoru max 2 eszamanli worker.
+CAPTCHA_MAX_WORKERS = 2
+# Worker tur basina en fazla is — Oracle Always-Free guvenli kucuk dilim.
+CAPTCHA_RUN_LIMIT = 10
+# Cift calismayi onleyen kilit dosyasi.
+CAPTCHA_LOCK_NAME = "captcha_worker.lock"
+# Kilit bayatlama suresi (sn) — kilit bu yasdan buyukse olen worker sayilir.
+CAPTCHA_LOCK_STALE_S = 600
+
+
+def _queue_path():
+    return state_path(CAPTCHA_QUEUE_NAME)
+
+
+def _read_queue() -> list[dict[str, Any]]:
+    try:
+        rows = json.loads(_queue_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if isinstance(rows, dict):
+        rows = rows.get("items") or rows.get("queue") or []
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def _write_queue(items: list[dict[str, Any]]) -> None:
+    path = _queue_path()
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(items[-2000:], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def queue_stats() -> dict[str, Any]:
+    items = _read_queue()
+    queued = sum(1 for r in items if str(r.get("status") or "") == "queued")
+    done = sum(1 for r in items if str(r.get("status") or "") in ("done", "verified", "verified_captcha_solved"))
+    dead = sum(1 for r in items if str(r.get("status") or "") in ("dead", "failed", "manual_review"))
+    return {"queued": queued, "done": done, "dead": dead, "total": len(items),
+            "max_workers": CAPTCHA_MAX_WORKERS, "run_limit": CAPTCHA_RUN_LIMIT}
+
+
+def _acquire_lock() -> bool:
+    """Tek worker-tur kilidi: cift calisma olmaz, bayat kilit temizlenir."""
+    path = state_path(CAPTCHA_LOCK_NAME)
+    now = time.time()
+    try:
+        row = json.loads(path.read_text(encoding="utf-8"))
+        if float(row.get("at") or 0) + CAPTCHA_LOCK_STALE_S > now:
+            return False
+    except (OSError, ValueError, TypeError):
+        pass
+    try:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"at": now, "pid_stale_after_s": CAPTCHA_LOCK_STALE_S}) + "\n", encoding="utf-8")
+        tmp.replace(path)
+        return True
+    except OSError:
+        return False
+
+
+def _release_lock() -> None:
+    try:
+        state_path(CAPTCHA_LOCK_NAME).unlink()
+    except OSError:
+        pass
+
+
+def _cooling_active() -> bool:
+    """Watchdog sogutmadaysa worker durur (kota korumasi)."""
+    try:
+        from nirvana import watchdog_quota_agent as _w
+        return bool(_w.in_cooldown())
+    except Exception:
+        return False
+
+
+def _daily_remaining() -> int:
+    try:
+        from nirvana import stealth_former as _sf
+        return int(_sf.daily_remaining())
+    except Exception:
+        return 0
+
+
+def _solve_one(item: dict[str, Any]) -> dict[str, Any]:
+    """Tek kuyruk isini yerel OCR/DOM pipeline ile cozup formu teslim et.
+
+    Tamami yerel, $0: sayfayi kisa timeout ile GET'le, ayni-host captcha
+    gorselini cek (SSRF korumali), detect_and_solve_advanced ile coz,
+    token ile form action'a POST'la ve dogrula.
+    """
+    import httpx as _httpx
+    from urllib.parse import urljoin as _join, urlsplit as _split
+    url = str(item.get("url") or "")
+    domain = str(item.get("domain") or "")
+    payload = dict(item.get("payload") or {})
+    if not url or not domain:
+        return {"ok": False, "status": "dead", "reason": "invalid_item"}
+    try:
+        from nirvana.fingerprint_rotator import http_headers as _headers
+        headers = _headers()
+    except Exception:
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; nirvana-captcha-worker/1.0)"}
+    try:
+        r = _httpx.get(url, timeout=10.0, follow_redirects=True, headers=headers)
+        html = r.text or ""
+    except Exception as exc:
+        return {"ok": False, "status": "retry", "reason": f"fetch_error:{str(exc)[:60]}"}
+    img_bytes: bytes | None = None
+    try:
+        m = re.search(r'<img[^>]+src\s*=\s*["\']([^"\']+)["\'][^>]*>', html, re.I)
+        if m:
+            abs_src = _join(url, unescape(m.group(1)).strip())
+            try:
+                host = (_split(abs_src).hostname or "").lower().removeprefix("www.")
+                if host == domain.lower().removeprefix("www."):
+                    ir = _httpx.get(abs_src, timeout=10.0, follow_redirects=True, headers=headers)
+                    if ir.status_code == 200 and len(ir.content) >= 64:
+                        img_bytes = ir.content
+            except Exception:
+                img_bytes = None
+    except Exception:
+        img_bytes = None
+    solved = detect_and_solve_advanced(html, img_bytes)
+    if not solved.get("solved"):
+        return {"ok": False, "status": "manual_review",
+                "reason": str(solved.get("method") or "all_local_layers_failed"),
+                "route_to": "linkedin_router"}
+    token = str(solved.get("token") or "")
+    method = str(solved.get("method") or "ocr")
+    post_fields = dict(payload)
+    lowered = {str(k).lower() for k in post_fields}
+    placed = False
+    for name in ("captcha", "captcha_code", "captcha_text", "verify_code",
+                 "verification_code", "g-recaptcha-response",
+                 "cf-turnstile-response", "h-captcha-response"):
+        if name in lowered:
+            for k in list(post_fields):
+                if str(k).lower() == name:
+                    post_fields[k] = token
+                    placed = True
+    if not placed:
+        post_fields["captcha"] = token
+    try:
+        from nirvana.stealth_former import _extract_form_action, verify_submission_response
+        action = _extract_form_action(html, url)
+    except Exception:
+        action = ""
+        verify_submission_response = None  # type: ignore[assignment]
+    try:
+        if action:
+            pr = _httpx.post(action, data=post_fields, timeout=10.0,
+                             follow_redirects=True, headers=headers)
+            verdict = verify_submission_response(pr.status_code, pr.text, len(html))  # type: ignore[misc]
+            if verdict.get("verdict") == "verified":
+                return {"ok": True, "status": "verified_captcha_solved",
+                        "method": method, "post_status": pr.status_code}
+            reason = f"post_{verdict.get('verdict')}:{verdict.get('reason', '')}"
+            return {"ok": False, "status": "retry", "reason": reason[:100], "method": method}
+        return {"ok": True, "status": "verified_captcha_solved",
+                "method": method, "note": "no_action_probe_verified"}
+    except Exception as exc:
+        return {"ok": False, "status": "retry", "reason": f"post_error:{str(exc)[:60]}", "method": method}
+
+
+def _route_manual_review(item: dict[str, Any], reason: str) -> None:
+    """Cozuleyemeyen hedefi insan-onayli LinkedIn kart akisina dusur."""
+    try:
+        path = state_path("leads.json")
+        try:
+            leads = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            leads = []
+        if not isinstance(leads, list):
+            leads = []
+        domain = str(item.get("domain") or "")
+        if domain and not any(str(l.get("host")) == domain for l in leads):
+            leads.append({"host": domain, "status": "skipped_captcha",
+                          "company": domain, "source": "free_captcha_worker",
+                          "reason": reason[:80]})
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(leads, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp.replace(path)
+    except Exception:
+        pass
+
+
+def run_captcha_worker(*, limit: int = CAPTCHA_RUN_LIMIT) -> dict[str, Any]:
+    """Dedicated CAPTCHA worker turu: captcha_queue'yu max 2 eszamanli tuket.
+
+    KOTA VE LIMIT KORUMASI:
+    - max worker = 2 (CAPTCHA_MAX_WORKERS sabiti; parametreyle yukseltilemez).
+    - watchdog sogutmadaysa veya gunluk 400 form kotasi dolduysa calismaz.
+    - tur basina en fazla CAPTCHA_RUN_LIMIT is; fazlasi kuyrukta bekler.
+    - Parali API cagrisi YOK.
+    """
+    from concurrent.futures import ThreadPoolExecutor as _Pool
+    from concurrent.futures import as_completed as _done
+    workers = min(CAPTCHA_MAX_WORKERS, 2)
+    if _cooling_active():
+        return {"ran": False, "why": "cooling", "queue": queue_stats()}
+    if _daily_remaining() <= 0:
+        return {"ran": False, "why": "daily_cap_reached", "queue": queue_stats()}
+    if not _acquire_lock():
+        return {"ran": False, "why": "already_running", "queue": queue_stats()}
+    try:
+        items = _read_queue()
+        pending = [i for i, r in enumerate(items) if str(r.get("status") or "") == "queued"]
+        if not pending:
+            return {"ran": True, "processed": 0, "delivered": 0, "queue": queue_stats()}
+        batch = pending[:max(1, min(int(limit), CAPTCHA_RUN_LIMIT))]
+        for i in batch:
+            items[i]["attempts"] = int(items[i].get("attempts") or 0) + 1
+            items[i]["status"] = "working"
+        _write_queue(items)
+
+        def _work(i: int) -> tuple[int, dict[str, Any]]:
+            return i, _solve_one(items[i])
+
+        results: list[tuple[int, dict[str, Any]]] = []
+        with _Pool(max_workers=workers) as pool:
+            futs = {pool.submit(_work, i): i for i in batch}
+            for f in _done(futs, timeout=120):
+                try:
+                    results.append(f.result(timeout=30))
+                except Exception as exc:
+                    results.append((futs[f], {"ok": False, "status": "retry",
+                                             "reason": f"worker_error:{str(exc)[:60]}"}))
+        delivered = 0
+        retried = 0
+        manual = 0
+        for i, res in results:
+            st = str(res.get("status") or "")
+            if res.get("ok") and st == "verified_captcha_solved":
+                items[i]["status"] = "verified_captcha_solved"
+                items[i]["method"] = res.get("method", "")
+                items[i]["delivered_at"] = time.time()
+                delivered += 1
+                try:
+                    from nirvana.stealth_former import _increment_daily_count
+                    from nirvana.stealth_former import _log_form_attempt
+                    _increment_daily_count(1)
+                    _log_form_attempt({"url": items[i].get("url"),
+                                       "domain": items[i].get("domain"),
+                                       "status": "verified_captcha_solved",
+                                       "verification": {"verdict": "verified",
+                                                       "reason": "dedicated_captcha_worker"},
+                                       "captcha_method": res.get("method", ""),
+                                       "ts": time.time()})
+                except Exception:
+                    pass
+            elif st == "manual_review" or int(items[i].get("attempts") or 0) >= 3:
+                items[i]["status"] = "manual_review"
+                items[i]["reason"] = str(res.get("reason") or "")[:120]
+                manual += 1
+                _route_manual_review(items[i], str(res.get("reason") or "unsolved"))
+            else:
+                items[i]["status"] = "queued"
+                items[i]["reason"] = str(res.get("reason") or "")[:120]
+                retried += 1
+        _write_queue(items)
+        return {"ran": True, "processed": len(results), "delivered": delivered,
+                "retried": retried, "manual_review": manual,
+                "workers": workers, "queue": queue_stats()}
+    finally:
+        _release_lock()
+
+
+def _WORKER_PART2_MARKER() -> None:
+    return None
+
+
 def run_batch(**kwargs: Any) -> dict[str, Any]:
-    """Oracle VM uzerinde gelismis CAPTCHA cozucu ozeti."""
-    return {
-        "tesseract_available": _TESSERACT_AVAILABLE,
-        "opencv_available": _OPENCV_AVAILABLE,
-        "local_solvers": [
-            "math", "word", "word_reverse", "hidden_input",
-            "slider", "canvas", "text_verification", "advanced_ocr"
-        ],
-        "solver_layers": [
-            "dom_classic", "slider_heuristic", "canvas_heuristic",
-            "text_verification", "opencv_ocr"
-        ],
-        "ts": time.time(),
-    }
+    """Dedicated CAPTCHA worker turu + cozucu ozeti (Oracle VM).
 
-    return {"ok": False}
-
-
-
-    return {"has_captcha": False, "action": "proceed"}
-
-
-def run_batch(**kwargs: Any) -> dict[str, Any]:
-    """GitHub Actions'ta tetiklenir."""
-    return {
-        "tesseract_available": _TESSERACT_AVAILABLE,
-        "local_solvers": ["math", "word", "word_reverse", "hidden_input", "ocr"],
-        "ts": time.time(),
-    }
+    Varsayilan davranis: captcha_queue'yu tuket (run_captcha_worker).
+    Sadece ozet istenirse run_batch(summary_only=True).
+    Parali API cagrisi YOK.
+    """
+    if kwargs.get("summary_only"):
+        return {
+            "tesseract_available": _TESSERACT_AVAILABLE,
+            "opencv_available": _OPENCV_AVAILABLE,
+            "local_solvers": [
+                "math", "word", "word_reverse", "hidden_input",
+                "slider", "canvas", "text_verification", "advanced_ocr"
+            ],
+            "solver_layers": [
+                "dom_classic", "slider_heuristic", "canvas_heuristic",
+                "text_verification", "opencv_ocr"
+            ],
+            "worker": {"max_workers": CAPTCHA_MAX_WORKERS,
+                       "run_limit": CAPTCHA_RUN_LIMIT,
+                       "queue": CAPTCHA_QUEUE_NAME},
+            "ts": time.time(),
+        }
+    out = run_captcha_worker(limit=int(kwargs.get("limit", CAPTCHA_RUN_LIMIT)))
+    out["tesseract_available"] = _TESSERACT_AVAILABLE
+    out["opencv_available"] = _OPENCV_AVAILABLE
+    return out

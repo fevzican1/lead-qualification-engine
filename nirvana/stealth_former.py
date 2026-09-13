@@ -14,6 +14,9 @@ Ozellikler:
 - WORKER KATLAMA: ThreadPoolExecutor ile 6-8 eszamanli worker
 - FAIL-FAST TIMEOUT: Sayfa yukleme/form/submit max 10 saniye
 - GELISMIS YEREL CAPTCHA: OpenCV + pytesseract + DOM/Canvas heuristikleri (UCRETSIZ)
+- DEDICATED CAPTCHA KUYRUGU: CAPTCHA'li hedef kapatilip atlanmaz; captcha_queue'ya
+  yazilir. Oracle VM'deki ayri 'free_captcha_worker' servisi (max 2 eszamanli)
+  bu kuyrugu tuketir, yerel OCR pipeline ile cozup formu teslim eder.
 
 Form doldurma ve CAPTCHA cozme yuku Oracle VM uzerinde kaliyor (GitHub Actions'a tasinmiyor).
 Gunluk kota: 400 form gonderimi. Pacing: domain basina max 2, batch'te max 20.
@@ -37,8 +40,15 @@ FORM_LOG = "stealth_form_log.json"
 DAILY_CAP = 400
 PACING = {"per_domain": 2, "per_run": 20}
 
-# WORKER KATLAMA: 6-8 eszamanli worker
+# WORKER KATLAMA: 6-8 eszamanli worker (ana form seridi)
 MAX_WORKERS = 7
+
+# DEDICATED CAPTCHA WORKER: Oracle VM'de captcha_queue'yu dinleyen ayri motor.
+# Sunucu kaynaklarini korumak icin max 2 eszamanli worker (kota/guvenlik sabiti).
+CAPTCHA_MAX_WORKERS = 2
+CAPTCHA_QUEUE_NAME = "captcha_queue.json"
+# Kuyruk sagligi: bekleyen is bu esigi asarsa watchdog/owner uyarisi uretilir.
+CAPTCHA_QUEUE_WARN_DEPTH = 300
 
 # FAIL-FAST TIMEOUT: Maksimum 10 saniye (tum asamalar)
 FAIL_FAST_TIMEOUT = 10.0  # seconds
@@ -61,56 +71,6 @@ WAF_MARKERS = [
     "spam detected", "your submission was blocked", "security check",
     "captcha required", "rate limit", "please verify you are human",
 ]
-
-
-
-
-"""Lane O — stealth_former [GitHub Actions, heavy].
-
-Kapsam: anti-detection headless browser + CAPTCHA tespiti + akilli rotalama.
-CAPTCHA cozumu: free_captcha_solver (Tesseract OCR) ile basit metin CAPTCHA'lari.
-Modern engeller: stealth browser + insan benzeri davranis; cozulmezse rotalama.
-
-Ozellikler:
-- DOM ve HTTP yanit dogrulama: 200 OK, AJAX JSON, DOM basari isareti
-- Content-length anomalisi tespiti (sessiz yutma suphesi)
-- Honeypot tespiti (gizli alanlar bos birakilir)
-- Insan simulasyonu jitter (mouse/key gecikmeleri)
-- Kanarya testi (50 gonderimde bir IP/shadowban tespiti)
-- Cift kanalli teslimat (form + e-posta)
-
-Gunluk kota: 400 form gonderimi. Pacing: domain basina max 2, batch'te max 20.
-"""
-from __future__ import annotations
-
-import json
-import re
-import time
-from typing import Any
-
-import httpx
-
-from nirvana.registry import state_path
-
-FORM_LOG = "stealth_form_log.json"
-DAILY_CAP = 400
-PACING = {"per_domain": 2, "per_run": 20}
-
-CAPTCHA_MARKERS = ("g-recaptcha", "cf-turnstile", "h-captcha", "data-sitekey")
-
-SUCCESS_MARKERS = [
-    "mesajınız alındı", "mesajınız alindi", "thank you", "message received",
-    "successfully submitted", "we will be in touch", "iletildi", "teşekkür",
-    "teşekkürler", "thanks for contacting", "başarıyla", "form submitted",
-]
-SUCCESS_JSON_KEYS = {"status", "result", "success", "code"}
-
-WAF_MARKERS = [
-    "access denied", "forbidden", "blocked", "cloudflare", "akismet",
-    "spam detected", "your submission was blocked", "security check",
-    "captcha required", "rate limit", "please verify you are human",
-]
-
 
 def verify_submission_response(status_code: int, body: str, expected_len: int | None = None) -> dict[str, Any]:
     """1. DOM & HTTP yanıt doğrulama.
@@ -232,11 +192,15 @@ def submit_form(url: str, payload: dict[str, str]) -> dict[str, Any]:
     FAIL-FAST: Tum timeout'lar max 10 saniye.
     GELISMIS CAPTCHA: OpenCV + pytesseract + DOM/Canvas heuristikleri (UCRETSIZ).
 
+    DEDICATED CAPTCHA KUYRUGU: CAPTCHA cozulemezse sayfa kapatilip atlanmaz;
+    hedef captcha_queue'ya yazilir ve ayri free_captcha_worker (max 2) tarafindan
+    yerel OCR pipeline ile islenir. Parali API cagrisi YOK ($0).
+
     Statuler:
     - verified / verified_captcha_solved -> gercekten dogrulandi
     - WAF_REJECT -> engel veya sessiz yutma suphesi
-    - captcha_detected -> rotalanir
-    - skipped_captcha -> yerel cozucu basarisiz, asiri korumali sayfa
+    - queued_captcha -> captcha_queue'ya yazildi (dedicated worker isleyecek)
+    - skipped_captcha -> (legacy) yerel cozucu basarisiz, asiri korumali sayfa
     - unverified / error -> PASSED sayilmaz, logda ayri tutur
     """
     result = {"url": url, "domain": _domain(url), "status": "pending", "ts": time.time()}
@@ -259,11 +223,13 @@ def submit_form(url: str, payload: dict[str, str]) -> dict[str, Any]:
                     return result
             except Exception:
                 pass
-            # GELISMIS YEREL CAPTCHA BASARISIZ: Asiri korumali sayfa -> skipped_captcha
-            result["status"] = "skipped_captcha"
-            result["route_to"] = "linkedin_router"
-            result["captcha_skipped_reason"] = "advanced_local_solver_failed"
+            # DEDICATED WORKER KUYRUGU: atlamak YOK — captcha_queue'ya yaz.
+            queued = enqueue_captcha_target(url, payload, reason="stealth_inline_unsolved")
             _mark_captcha(_domain(url))
+            result["status"] = "queued_captcha"
+            result["route_to"] = "captcha_queue"
+            result["captcha_queue"] = queued
+            result["captcha_skipped_reason"] = "routed_to_dedicated_captcha_worker"
             _log_form_attempt(dict(result))
             return result
         # 3. Honeypot: gizli alanlar doldurulmaz (payload'dan çıkarılır).
@@ -308,85 +274,6 @@ def submit_form(url: str, payload: dict[str, str]) -> dict[str, Any]:
         _log_form_attempt(dict(result))
     return result
 
-
-
-
-
-def submit_form(url: str, payload: dict[str, str]) -> dict[str, Any]:
-    """Form gonderimi: kesif GET -> (varsa) POST -> DOM/HTTP dogrulama.
-
-    Statuler:
-    - verified / verified_captcha_solved -> gercekten dogrulandi
-    - WAF_REJECT -> engel veya sessiz yutma suphesi
-    - captcha_detected -> rotalanir
-    - unverified / error -> PASSED sayilmaz, logda ayri tutulur
-    """
-    result = {"url": url, "domain": _domain(url), "status": "pending", "ts": time.time()}
-    try:
-        from nirvana.fingerprint_rotator import http_headers as _rotate_headers
-        headers = _rotate_headers()
-        r = httpx.get(url, timeout=12, follow_redirects=True, headers=headers)
-        html = r.text
-        expected_len = len(html or "")
-        if detect_captcha(html):
-            try:
-                from nirvana.free_captcha_solver import detect_and_solve
-                solve_result = detect_and_solve(html)
-                if solve_result.get("solved"):
-                    result["status"] = "verified_captcha_solved"
-                    result["verification"] = {"verdict": "verified", "reason": "captcha_solved_probe"}
-                    result["captcha_method"] = solve_result.get("method", "ocr")
-                    _log_form_attempt(dict(result))
-                    _maybe_fire_canary()
-                    return result
-            except Exception:
-                pass
-            result["status"] = "captcha_detected"
-            result["route_to"] = "linkedin_router"
-            _mark_captcha(_domain(url))
-            _log_form_attempt(dict(result))
-            return result
-        # 3. Honeypot: gizli alanlar doldurulmaz (payload'dan çıkarılır).
-        try:
-            hidden = {h.get("name") for h in detect_honeypot_fields(html) if h.get("name")}
-        except Exception:
-            hidden = set()
-        clean_payload = {k: v for k, v in (payload or {}).items() if k not in hidden}
-        result["honeypot_skipped"] = sorted(hidden & set((payload or {}).keys()))
-        # Form action varsa gerçek POST dene; yoksa keşif sayfasını doğrula.
-        post_verdict: dict[str, Any] | None = None
-        action = _extract_form_action(html, url)
-        if action and clean_payload:
-            try:
-                pr = httpx.post(action, data=clean_payload, timeout=15, follow_redirects=True,
-                                headers=_rotate_headers())
-                post_verdict = verify_submission_response(pr.status_code, pr.text, expected_len)
-                result["post_status_code"] = pr.status_code
-            except Exception as e:
-                result["post_error"] = str(e)[:120]
-        if post_verdict is None:
-            post_verdict = verify_submission_response(r.status_code, html, expected_len)
-        result["verification"] = post_verdict
-        verdict = post_verdict.get("verdict", "unverified")
-        if verdict == "verified":
-            result["status"] = "verified"
-            # 4. Çift kanal: doğrulanmış gönderimde paralel e-posta (hedef adres varsa).
-            to_addr = (payload or {}).get("target_email", "")
-            if to_addr:
-                result["dual_delivery"] = _fire_dual_delivery(to_addr, clean_payload, url)
-        elif verdict == "WAF_REJECT":
-            result["status"] = "WAF_REJECT"
-            result["waf_reason"] = post_verdict.get("reason", "")
-        else:
-            result["status"] = "unverified"
-            result["unverified_reason"] = post_verdict.get("reason", "")
-        _log_form_attempt(dict(result))
-        _maybe_fire_canary()
-    except httpx.HTTPError as e:
-        result["status"] = "error"
-        result["error"] = str(e)[:120]
-        _log_form_attempt(dict(result))
-    return result
 
 
 def _extract_form_action(html: str, base_url: str) -> str:
@@ -464,6 +351,70 @@ def _fire_dual_delivery(to_addr: str, payload: dict[str, str], url: str) -> dict
         return {"sent": False, "error": str(e)[:100]}
 
 
+def _captcha_queue_path():
+    return state_path(CAPTCHA_QUEUE_NAME)
+
+
+def _read_captcha_queue() -> list[dict[str, Any]]:
+    try:
+        rows = json.loads(_captcha_queue_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if isinstance(rows, dict):
+        rows = rows.get("items") or rows.get("queue") or []
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def _write_captcha_queue(items: list[dict[str, Any]]) -> None:
+    path = _captcha_queue_path()
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(items[-2000:], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def enqueue_captcha_target(url: str, payload: dict[str, str] | None = None, *,
+                           reason: str = "captcha_detected",
+                           tactic: str = "", hook: str = "") -> dict[str, Any]:
+    """CAPTCHA'li hedefi ayri kuyruga yaz (dedicated worker tuketecek).
+
+    Ayni URL kuyrukta bekliyorsa tekrar eklenmez (domain-bazli dedup).
+    Sayfa kapatilip atlanmaz — basarisiz form hanesine dusmez.
+    """
+    from nirvana import urlutil
+    clean_url = urlutil.safe_url(url)
+    domain = urlutil.clean_domain(url)
+    if not clean_url or not domain:
+        return {"ok": False, "reason": "invalid_url"}
+    items = _read_captcha_queue()
+    for row in items:
+        if (str(row.get("url") or "") == clean_url
+                and str(row.get("status") or "") == "queued"):
+            return {"ok": True, "deduped": True, "queue_depth": len(items)}
+    items.append({
+        "url": clean_url,
+        "domain": domain,
+        "payload": dict(payload or {}),
+        "reason": reason,
+        "tactic": tactic,
+        "hook": hook,
+        "status": "queued",
+        "attempts": 0,
+        "enqueued_at": time.time(),
+    })
+    _write_captcha_queue(items)
+    return {"ok": True, "deduped": False, "queue_depth": len(items)}
+
+
+def captcha_queue_depth() -> dict[str, Any]:
+    items = _read_captcha_queue()
+    queued = sum(1 for r in items if str(r.get("status") or "") == "queued")
+    done = sum(1 for r in items if str(r.get("status") or "") in ("done", "delivered", "verified", "verified_captcha_solved"))
+    dead = sum(1 for r in items if str(r.get("status") or "") in ("dead", "failed", "manual_review"))
+    return {"queued": queued, "done": done, "dead": dead, "total": len(items),
+            "warn": queued >= CAPTCHA_QUEUE_WARN_DEPTH,
+            "warn_depth": CAPTCHA_QUEUE_WARN_DEPTH}
+
+
 def _mark_captcha(domain: str) -> None:
     path = state_path("leads.json")
     try:
@@ -533,7 +484,7 @@ def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]
 
     # WORKER KATLAMA: ThreadPoolExecutor ile eszamanli gonderim
     results: list[dict[str, Any]] = []
-    skipped_captcha = 0
+    queued_captcha = 0
 
     def _process_target(url: str, d: str) -> dict[str, Any]:
         hook = (tactic_hooks.get(d.lower(), {}) or {}).get("hook", "")
@@ -555,8 +506,8 @@ def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]
             try:
                 result = future.result(timeout=FAIL_FAST_TIMEOUT + 5)
                 results.append(result)
-                if result.get("status") == "skipped_captcha":
-                    skipped_captcha += 1
+                if result.get("status") == "queued_captcha":
+                    queued_captcha += 1
             except Exception as e:
                 url, d = future_to_url[future]
                 results.append({"url": url, "domain": d, "status": "error",
@@ -564,86 +515,23 @@ def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]
 
     submitted = sum(1 for r in results if r["status"] in ("verified", "verified_captcha_solved"))
     captcha_solved = sum(1 for r in results if r["status"] == "verified_captcha_solved")
-    captcha_routed = sum(1 for r in results if r["status"] == "captcha_detected")
+    captcha_routed = sum(1 for r in results if r["status"] in ("captcha_detected", "queued_captcha"))
+    queued_detail = captcha_queue_depth()
     waf_rejected = sum(1 for r in results if r["status"] == "WAF_REJECT")
     unverified = sum(1 for r in results if r["status"] == "unverified")
     errors = sum(1 for r in results if r["status"] == "error")
     _increment_daily_count(submitted)
     return {"processed": len(results), "submitted": submitted,
             "captcha_solved": captcha_solved, "captcha_routed": captcha_routed,
-            "skipped_captcha": skipped_captcha,
+            "queued_captcha": queued_captcha,
+            "captcha_queue": queued_detail,
             "waf_rejected": waf_rejected, "unverified": unverified, "errors": errors,
             "tactic_hooked": sum(1 for r in results if r.get("tactic")),
             "workers_used": min(MAX_WORKERS, len(candidates)),
+            "captcha_workers_max": CAPTCHA_MAX_WORKERS,
             "daily_remaining": daily_remaining(), "results": results}
 
 
-
-
-def run_batch(*, urls: list[str] | None = None, **kwargs: Any) -> dict[str, Any]:
-    """Matris kancasiyla 400/gun kapasite: her hedef Taktik'e gore kanca alir."""
-    targets = urls or []
-    # Taktik Matrisi'nden kanca yukle (varsa) + routed URL'leri hedefe ekle.
-    from nirvana import urlutil
-    tactic_hooks: dict[str, dict[str, Any]] = {}
-    try:
-        tdata = json.loads(state_path("tactic_matrix.json").read_text(encoding="utf-8"))
-        for t in (tdata.get("routed") or []):
-            d = urlutil.clean_domain(t.get("domain") or t.get("url"))
-            tactic_hooks[d] = {"tactic": t.get("tactic"), "hook": t.get("hook", "")}
-            u = urlutil.safe_url(t.get("url") or d)
-            if d and u and targets.count(u) == 0:
-                targets.append(u)
-    except (OSError, ValueError):
-        pass
-    # Ayrica pending kuyrugunu da isle (URL'ler normalize)
-    try:
-        pending = json.loads(state_path("tactic_matrix_pending.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        pending = []
-    for p in pending:
-        d = urlutil.clean_domain(p.get("domain") or p.get("url"))
-        u = urlutil.safe_url(p.get("url") or d)
-        if d and u and targets.count(u) == 0:
-            targets.append(u)
-
-    results: list[dict[str, Any]] = []
-    per_domain_count: dict[str, int] = {}
-    remaining = daily_remaining()
-    if remaining <= 0:
-        return {"processed": 0, "reason": "daily_cap_reached", "cap": DAILY_CAP}
-    max_to_process = min(remaining, PACING["per_run"])
-    for raw_url in targets[:max_to_process]:
-        url = urlutil.safe_url(raw_url)
-        d = _domain(url)
-        if not d or not url:
-            results.append({"url": raw_url, "domain": d, "status": "error",
-                            "error": "invalid_url", "ts": time.time()})
-            continue
-        if per_domain_count.get(d, 0) >= PACING["per_domain"]:
-            continue
-        hook = (tactic_hooks.get(d.lower(), {}) or {}).get("hook", "")
-        result = submit_form(url, {})
-        if hook:
-            result["tactic_hook"] = hook
-            result["tactic"] = (tactic_hooks.get(d.lower(), {}) or {}).get("tactic", "?")
-        results.append(result)
-        per_domain_count[d] = per_domain_count.get(d, 0) + 1
-        # Sabit bekleme yok: Gauss jitter ile insan ritmi.
-        from nirvana.fingerprint_rotator import inter_submit_delay_ms
-        time.sleep(inter_submit_delay_ms() / 1000.0)
-    submitted = sum(1 for r in results if r["status"] in ("verified", "verified_captcha_solved"))
-    captcha_solved = sum(1 for r in results if r["status"] == "verified_captcha_solved")
-    captcha_routed = sum(1 for r in results if r["status"] == "captcha_detected")
-    waf_rejected = sum(1 for r in results if r["status"] == "WAF_REJECT")
-    unverified = sum(1 for r in results if r["status"] == "unverified")
-    errors = sum(1 for r in results if r["status"] == "error")
-    _increment_daily_count(submitted)
-    return {"processed": len(results), "submitted": submitted,
-            "captcha_solved": captcha_solved, "captcha_routed": captcha_routed,
-            "waf_rejected": waf_rejected, "unverified": unverified, "errors": errors,
-            "tactic_hooked": sum(1 for r in results if r.get("tactic")),
-            "daily_remaining": daily_remaining(), "results": results}
 
 
 def live_stats() -> dict[str, Any]:

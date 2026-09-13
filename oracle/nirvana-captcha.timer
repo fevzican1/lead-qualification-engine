@@ -1,0 +1,12 @@
+[Unit]
+Description=Nirvana Lane V schedule — dedicated CAPTCHA worker every 10 minutes
+
+[Timer]
+OnCalendar=*:0/10
+Persistent=true
+AccuracySec=30s
+RandomizedDelaySec=45
+Unit=nirvana-captcha.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=Nirvana Lane O+V — stealth form sweep + dedicated CAPTCHA worker (Oracle VM, quota-safe)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=devsolve
+WorkingDirectory=/opt/devsolve
+EnvironmentFile=/opt/devsolve/.env
+# Tek tur: once ana seri (CAPTCHA'yi captcha_queue'ya yazar), sonra dedicated worker (max 2) tuketir.
+ExecStart=/bin/bash -lc '/opt/devsolve/.venv/bin/python -m nirvana.runner stealth_former && /opt/devsolve/.venv/bin/python -m nirvana.runner free_captcha_worker'
+Nice=10
+IOSchedulingClass=idle
+CPUQuota=60%
+MemoryMax=1G
+TimeoutStartSec=900
+

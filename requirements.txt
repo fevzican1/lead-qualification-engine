@@ -4,4 +4,10 @@ python-dotenv>=1.0.1,<2
 httpx>=0.27.0,<1
 pillow>=10.0.0,<13
 PyYAML>=6.0,<7
+# Dedicated CAPTCHA worker (Oracle VM, $0): yerel OCR pipeline icin opsiyonel.
+# Kurulum betigi apt ile tesseract + opencv'yi kurar; yoksa DOM cozucu calisir.
+# pip tarafi hafif tutulur: pillow zaten var; agir cv2/pytesseract Oracle'da apt/pip ile eklenir.
+# opencv-python-headless>=4.8  # Oracle VM'de: sudo apt install python3-opencv tesseract-ocr (onerilen)
+# pytesseract>=0.3.10          # Oracle VM'de: pip install pytesseract (tesseract-ocr ile birlikte)
+
 
