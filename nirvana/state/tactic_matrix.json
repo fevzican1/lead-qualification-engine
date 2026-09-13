@@ -1,27 +1,20 @@
 {
-  "updated_at": "2026-09-13T06:53:42Z",
+  "updated_at": "2026-09-13T11:40:32Z",
   "routed": [
     {
       "domain": "bitkisatisi.com.tr",
       "company": "bitkisatisi.com.tr",
       "url": "https://bitkisatisi.com.tr/iletisim",
-      "tactic": "C",
-      "hook": "bitkisatisi.com.tr — Altyapi Guvenlik ve Performans Bildirimi. HTTP/header altyapinizda kritik koruma eksikleri tespit edildi (rapor numarali). Altyapi Guvenlik Karti ve duzeltme yol haritasi bu sohbette.",
+      "tactic": "A",
+      "hook": "bitkisatisi.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1240 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
       "evidence": {
-        "tactic": "C",
+        "tactic": "A",
         "bottle_neck": "performance",
-        "evidence_metric": 1173,
-        "delay_band_pct": "2-5",
+        "evidence_metric": 1240,
+        "delay_band_pct": "5-8",
         "reason": {
-          "missing_headers": [
-            "content-security-policy",
-            "strict-transport-security",
-            "x-content-type-options",
-            "x-frame-options",
-            "referrer-policy"
-          ],
-          "header_count": 11,
-          "has_csp": false
+          "latency_ms": 1240,
+          "threshold_ms": 1200
         },
         "missing_security_headers": [
           "content-security-policy",
@@ -31,7 +24,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1173,
+      "measured_ms": 1240,
       "routed_by": "tactic_router"
     },
     {
@@ -43,7 +36,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 440,
+        "evidence_metric": 462,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -57,7 +50,7 @@
           "permissions-policy"
         ]
       },
-      "measured_ms": 440,
+      "measured_ms": 462,
       "routed_by": "tactic_router"
     },
     {
@@ -69,7 +62,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 139,
+        "evidence_metric": 179,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -80,7 +73,7 @@
           "permissions-policy"
         ]
       },
-      "measured_ms": 139,
+      "measured_ms": 179,
       "routed_by": "tactic_router"
     },
     {
@@ -92,7 +85,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 173,
+        "evidence_metric": 260,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "WooCommerce",
@@ -106,7 +99,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 173,
+      "measured_ms": 260,
       "routed_by": "tactic_router"
     },
     {
@@ -114,14 +107,14 @@
       "company": "bizce.com.tr",
       "url": "https://bizce.com.tr/en/iletisim",
       "tactic": "A",
-      "hook": "bizce.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1553 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
+      "hook": "bizce.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1879 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "performance",
-        "evidence_metric": 1553,
+        "evidence_metric": 1879,
         "delay_band_pct": "5-8",
         "reason": {
-          "latency_ms": 1553,
+          "latency_ms": 1879,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -132,7 +125,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1553,
+      "measured_ms": 1879,
       "routed_by": "tactic_router"
     },
     {
@@ -144,7 +137,7 @@
       "evidence": {
         "tactic": "C",
         "bottle_neck": "performance",
-        "evidence_metric": 126,
+        "evidence_metric": 175,
         "delay_band_pct": "2-5",
         "reason": {
           "missing_headers": [
@@ -165,7 +158,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 126,
+      "measured_ms": 175,
       "routed_by": "tactic_router"
     },
     {
@@ -177,7 +170,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 1008,
+        "evidence_metric": 1191,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -190,7 +183,7 @@
           "permissions-policy"
         ]
       },
-      "measured_ms": 1008,
+      "measured_ms": 1191,
       "routed_by": "tactic_router"
     },
     {
@@ -198,14 +191,14 @@
       "company": "bizimbahcecorlu.com.tr",
       "url": "https://www.bizimbahcecorlu.com.tr/iletisim",
       "tactic": "A",
-      "hook": "bizimbahcecorlu.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 4899 ms darbogaz kaydedildi; bu deger %10-12 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
+      "hook": "bizimbahcecorlu.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 2623 ms darbogaz kaydedildi; bu deger %8-10 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "Magento",
-        "evidence_metric": 4899,
-        "delay_band_pct": "10-12",
+        "evidence_metric": 2623,
+        "delay_band_pct": "8-10",
         "reason": {
-          "latency_ms": 4899,
+          "latency_ms": 2623,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -216,7 +209,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 4899,
+      "measured_ms": 2623,
       "routed_by": "tactic_router"
     },
     {
@@ -224,14 +217,14 @@
       "company": "bizimkitapci.com.tr",
       "url": "https://www.bizimkitapci.com.tr/iletisim",
       "tactic": "A",
-      "hook": "bizimkitapci.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1443 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
+      "hook": "bizimkitapci.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1527 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "Magento",
-        "evidence_metric": 1443,
+        "evidence_metric": 1527,
         "delay_band_pct": "5-8",
         "reason": {
-          "latency_ms": 1443,
+          "latency_ms": 1527,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -242,7 +235,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1443,
+      "measured_ms": 1527,
       "routed_by": "tactic_router"
     },
     {
@@ -254,7 +247,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 696,
+        "evidence_metric": 724,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "WooCommerce",
@@ -268,7 +261,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 696,
+      "measured_ms": 724,
       "routed_by": "tactic_router"
     },
     {
@@ -280,7 +273,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 769,
+        "evidence_metric": 850,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "WooCommerce",
@@ -294,7 +287,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 769,
+      "measured_ms": 850,
       "routed_by": "tactic_router"
     },
     {
@@ -306,7 +299,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 128,
+        "evidence_metric": 190,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "WooCommerce",
@@ -314,7 +307,7 @@
         },
         "missing_security_headers": []
       },
-      "measured_ms": 128,
+      "measured_ms": 190,
       "routed_by": "tactic_router"
     },
     {
@@ -322,14 +315,14 @@
       "company": "bizimsu.com.tr",
       "url": "https://bizimsu.com.tr/iletisim",
       "tactic": "A",
-      "hook": "bizimsu.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1267 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
+      "hook": "bizimsu.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1858 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "performance",
-        "evidence_metric": 1267,
+        "evidence_metric": 1858,
         "delay_band_pct": "5-8",
         "reason": {
-          "latency_ms": 1267,
+          "latency_ms": 1858,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -340,7 +333,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1267,
+      "measured_ms": 1858,
       "routed_by": "tactic_router"
     },
     {
@@ -352,7 +345,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 333,
+        "evidence_metric": 689,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -366,7 +359,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 333,
+      "measured_ms": 689,
       "routed_by": "tactic_router"
     },
     {
@@ -378,7 +371,7 @@
       "evidence": {
         "tactic": "C",
         "bottle_neck": "performance",
-        "evidence_metric": 274,
+        "evidence_metric": 356,
         "delay_band_pct": "2-5",
         "reason": {
           "missing_headers": [
@@ -399,23 +392,23 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 274,
+      "measured_ms": 356,
       "routed_by": "tactic_router"
     },
     {
       "domain": "blackspade.com.tr",
       "company": "blackspade.com.tr",
       "url": "https://www.blackspade.com.tr/iletisim",
-      "tactic": "B",
-      "hook": "blackspade.com.tr — Altyapi Guvenlik ve Performans Bildirimi. T-Soft altyapinizdaki checkout/event akisinda kopukluk sinyali olculdu (%2-5 sepet kaybi risk bandi). Checkout karti ve kapanis plani bu sohbette.",
+      "tactic": "A",
+      "hook": "blackspade.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1334 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
       "evidence": {
-        "tactic": "B",
+        "tactic": "A",
         "bottle_neck": "T-Soft",
-        "evidence_metric": 994,
-        "delay_band_pct": "2-5",
+        "evidence_metric": 1334,
+        "delay_band_pct": "5-8",
         "reason": {
-          "platform": "T-Soft",
-          "checkout_signal": true
+          "latency_ms": 1334,
+          "threshold_ms": 1200
         },
         "missing_security_headers": [
           "strict-transport-security",
@@ -424,7 +417,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 994,
+      "measured_ms": 1334,
       "routed_by": "tactic_router"
     },
     {
@@ -432,21 +425,21 @@
       "company": "blickle.com.tr",
       "url": "https://www.blickle.com.tr/iletisim",
       "tactic": "A",
-      "hook": "blickle.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1699 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
+      "hook": "blickle.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 3630 ms darbogaz kaydedildi; bu deger %10-12 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "performance",
-        "evidence_metric": 1699,
-        "delay_band_pct": "5-8",
+        "evidence_metric": 3630,
+        "delay_band_pct": "10-12",
         "reason": {
-          "latency_ms": 1699,
+          "latency_ms": 3630,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
           "permissions-policy"
         ]
       },
-      "measured_ms": 1699,
+      "measured_ms": 3630,
       "routed_by": "tactic_router"
     },
     {
@@ -454,14 +447,14 @@
       "company": "blink.com.tr",
       "url": "https://www.blink.com.tr/tr/iletisim",
       "tactic": "A",
-      "hook": "blink.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 5592 ms darbogaz kaydedildi; bu deger %10-12 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
+      "hook": "blink.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 2045 ms darbogaz kaydedildi; bu deger %8-10 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "Magento",
-        "evidence_metric": 5592,
-        "delay_band_pct": "10-12",
+        "evidence_metric": 2045,
+        "delay_band_pct": "8-10",
         "reason": {
-          "latency_ms": 5592,
+          "latency_ms": 2045,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -472,7 +465,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 5592,
+      "measured_ms": 2045,
       "routed_by": "tactic_router"
     },
     {
@@ -484,7 +477,7 @@
       "evidence": {
         "tactic": "C",
         "bottle_neck": "performance",
-        "evidence_metric": 873,
+        "evidence_metric": 1147,
         "delay_band_pct": "2-5",
         "reason": {
           "missing_headers": [
@@ -505,149 +498,19 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 873,
+      "measured_ms": 1147,
       "routed_by": "tactic_router"
     },
     {
       "domain": "bloomvalley.com.tr",
       "company": "bloomvalley.com.tr",
       "url": "https://bloomvalley.com.tr/iletisim",
-      "tactic": "A",
-      "hook": "bloomvalley.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1489 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
-      "evidence": {
-        "tactic": "A",
-        "bottle_neck": "Magento",
-        "evidence_metric": 1489,
-        "delay_band_pct": "5-8",
-        "reason": {
-          "latency_ms": 1489,
-          "threshold_ms": 1200
-        },
-        "missing_security_headers": [
-          "content-security-policy",
-          "strict-transport-security",
-          "x-content-type-options",
-          "x-frame-options",
-          "referrer-policy"
-        ]
-      },
-      "measured_ms": 1489,
-      "routed_by": "tactic_router"
-    },
-    {
-      "domain": "blowmak.com.tr",
-      "company": "blowmak.com.tr",
-      "url": "https://blowmak.com.tr/iletisim",
-      "tactic": "A",
-      "hook": "blowmak.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1772 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
-      "evidence": {
-        "tactic": "A",
-        "bottle_neck": "WooCommerce",
-        "evidence_metric": 1772,
-        "delay_band_pct": "5-8",
-        "reason": {
-          "latency_ms": 1772,
-          "threshold_ms": 1200
-        },
-        "missing_security_headers": [
-          "content-security-policy",
-          "strict-transport-security",
-          "x-content-type-options",
-          "x-frame-options",
-          "referrer-policy"
-        ]
-      },
-      "measured_ms": 1772,
-      "routed_by": "tactic_router"
-    },
-    {
-      "domain": "bluepet.com.tr",
-      "company": "bluepet.com.tr",
-      "url": "https://www.bluepet.com.tr/iletisim",
-      "tactic": "A",
-      "hook": "bluepet.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1337 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
-      "evidence": {
-        "tactic": "A",
-        "bottle_neck": "Magento",
-        "evidence_metric": 1337,
-        "delay_band_pct": "5-8",
-        "reason": {
-          "latency_ms": 1337,
-          "threshold_ms": 1200
-        },
-        "missing_security_headers": [
-          "content-security-policy",
-          "strict-transport-security",
-          "x-content-type-options",
-          "x-frame-options",
-          "referrer-policy"
-        ]
-      },
-      "measured_ms": 1337,
-      "routed_by": "tactic_router"
-    },
-    {
-      "domain": "bogaziciteknikservis.com.tr",
-      "company": "bogaziciteknikservis.com.tr",
-      "url": "https://www.bogaziciteknikservis.com.tr/iletisim",
-      "tactic": "A",
-      "hook": "bogaziciteknikservis.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1649 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
-      "evidence": {
-        "tactic": "A",
-        "bottle_neck": "Magento",
-        "evidence_metric": 1649,
-        "delay_band_pct": "5-8",
-        "reason": {
-          "latency_ms": 1649,
-          "threshold_ms": 1200
-        },
-        "missing_security_headers": [
-          "content-security-policy",
-          "strict-transport-security",
-          "x-content-type-options",
-          "x-frame-options",
-          "referrer-policy"
-        ]
-      },
-      "measured_ms": 1649,
-      "routed_by": "tactic_router"
-    },
-    {
-      "domain": "bolgem.com.tr",
-      "company": "bolgem.com.tr",
-      "url": "https://www.bolgem.com.tr/en/iletisim",
-      "tactic": "A",
-      "hook": "bolgem.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1340 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
-      "evidence": {
-        "tactic": "A",
-        "bottle_neck": "Magento",
-        "evidence_metric": 1340,
-        "delay_band_pct": "5-8",
-        "reason": {
-          "latency_ms": 1340,
-          "threshold_ms": 1200
-        },
-        "missing_security_headers": [
-          "content-security-policy",
-          "strict-transport-security",
-          "x-content-type-options",
-          "x-frame-options",
-          "referrer-policy"
-        ]
-      },
-      "measured_ms": 1340,
-      "routed_by": "tactic_router"
-    },
-    {
-      "domain": "bolgemuhendislik.com.tr",
-      "company": "bolgemuhendislik.com.tr",
-      "url": "https://bolgemuhendislik.com.tr/iletisim",
       "tactic": "B",
-      "hook": "bolgemuhendislik.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Magento altyapinizdaki checkout/event akisinda kopukluk sinyali olculdu (%2-5 sepet kaybi risk bandi). Checkout karti ve kapanis plani bu sohbette.",
+      "hook": "bloomvalley.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Magento altyapinizdaki checkout/event akisinda kopukluk sinyali olculdu (%2-5 sepet kaybi risk bandi). Checkout karti ve kapanis plani bu sohbette.",
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 1144,
+        "evidence_metric": 355,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -661,7 +524,137 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1144,
+      "measured_ms": 355,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "blowmak.com.tr",
+      "company": "blowmak.com.tr",
+      "url": "https://blowmak.com.tr/iletisim",
+      "tactic": "A",
+      "hook": "blowmak.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 2048 ms darbogaz kaydedildi; bu deger %8-10 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
+      "evidence": {
+        "tactic": "A",
+        "bottle_neck": "WooCommerce",
+        "evidence_metric": 2048,
+        "delay_band_pct": "8-10",
+        "reason": {
+          "latency_ms": 2048,
+          "threshold_ms": 1200
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 2048,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bluepet.com.tr",
+      "company": "bluepet.com.tr",
+      "url": "https://www.bluepet.com.tr/iletisim",
+      "tactic": "A",
+      "hook": "bluepet.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1434 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
+      "evidence": {
+        "tactic": "A",
+        "bottle_neck": "Magento",
+        "evidence_metric": 1434,
+        "delay_band_pct": "5-8",
+        "reason": {
+          "latency_ms": 1434,
+          "threshold_ms": 1200
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 1434,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bogaziciteknikservis.com.tr",
+      "company": "bogaziciteknikservis.com.tr",
+      "url": "https://www.bogaziciteknikservis.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "bogaziciteknikservis.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Magento altyapinizdaki checkout/event akisinda kopukluk sinyali olculdu (%2-5 sepet kaybi risk bandi). Checkout karti ve kapanis plani bu sohbette.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "Magento",
+        "evidence_metric": 645,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "Magento",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 645,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bolgem.com.tr",
+      "company": "bolgem.com.tr",
+      "url": "https://www.bolgem.com.tr/en/iletisim",
+      "tactic": "A",
+      "hook": "bolgem.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Sitenizin yanit suresinde olctugumuz 1307 ms darbogaz kaydedildi; bu deger %5-8 hiz kaybi bandina karsilik geliyor. Sayisal gecikme karti ve kapanis adimlari bu sohbette.",
+      "evidence": {
+        "tactic": "A",
+        "bottle_neck": "Magento",
+        "evidence_metric": 1307,
+        "delay_band_pct": "5-8",
+        "reason": {
+          "latency_ms": 1307,
+          "threshold_ms": 1200
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 1307,
+      "routed_by": "tactic_router"
+    },
+    {
+      "domain": "bolgemuhendislik.com.tr",
+      "company": "bolgemuhendislik.com.tr",
+      "url": "https://bolgemuhendislik.com.tr/iletisim",
+      "tactic": "B",
+      "hook": "bolgemuhendislik.com.tr — Altyapi Guvenlik ve Performans Bildirimi. Magento altyapinizdaki checkout/event akisinda kopukluk sinyali olculdu (%2-5 sepet kaybi risk bandi). Checkout karti ve kapanis plani bu sohbette.",
+      "evidence": {
+        "tactic": "B",
+        "bottle_neck": "Magento",
+        "evidence_metric": 1071,
+        "delay_band_pct": "2-5",
+        "reason": {
+          "platform": "Magento",
+          "checkout_signal": true
+        },
+        "missing_security_headers": [
+          "content-security-policy",
+          "strict-transport-security",
+          "x-content-type-options",
+          "x-frame-options",
+          "referrer-policy"
+        ]
+      },
+      "measured_ms": 1071,
       "routed_by": "tactic_router"
     },
     {
@@ -673,7 +666,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 804,
+        "evidence_metric": 872,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "WooCommerce",
@@ -687,7 +680,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 804,
+      "measured_ms": 872,
       "routed_by": "tactic_router"
     },
     {
@@ -699,7 +692,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 275,
+        "evidence_metric": 355,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -713,7 +706,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 275,
+      "measured_ms": 355,
       "routed_by": "tactic_router"
     }
   ]
