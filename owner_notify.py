@@ -133,7 +133,9 @@ def lead_digest() -> str:
     return "\n".join(lines)
 
 
-def send(text: str, *, chat_id: int | None = None) -> bool:
+def send(text: str, *, chat_id: int | None = None, high_priority: bool = False) -> bool:
+    """Send owner notification. high_priority=True disables silent notification
+    so the owner's phone alerts even in Do-Not-Disturb mode."""
     target = chat_id if chat_id is not None else load_notify_chat_id()
     token = (config.TELEGRAM_NOTIFY_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN or "").strip()
     if not target or not token:
@@ -147,7 +149,11 @@ def send(text: str, *, chat_id: int | None = None) -> bool:
         try:
             response = httpx.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": target, "text": body[:3500]},
+                json={
+                    "chat_id": target,
+                    "text": body[:3500],
+                    "disable_notification": not high_priority,
+                },
                 timeout=30.0,
             )
             response.raise_for_status()
