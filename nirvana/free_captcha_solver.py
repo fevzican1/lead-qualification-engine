@@ -269,6 +269,9 @@ def detect_and_solve(html: str, screenshot_bytes: bytes | None = None) -> dict[s
         if result["ok"]:
             return {"has_captcha": True, "solved": True, "token": result["text"], "method": "ocr"}
 
+    # CAPTCHA yok — form normal akışa devam eder
+    return {"has_captcha": False, "action": "proceed"}
+
 
 
 # --- GELISMIS HEURISTIK COZUCILER (UCRETSIZ, YEREL) ---------------------------------------
