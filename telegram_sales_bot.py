@@ -95,16 +95,29 @@ _DECLINE_RE = re.compile(
     re.I,
 )
 
-# DeepSeek Handoff: müşteri patron/yetkili/insan isterse
+# DeepSeek Handoff: mužteri patron/yetkili/insan/yönetici isterse
+# Türkçe karakterler önce normalize edilir (_tr_norm), böylece ö/ü/ş/ğ/ç
+# varyantlarının tamamı ASCII regex ile yakalanir.
+_tr_ascii = str.maketrans("öüıışğçÖÜİŞĞÇ", "ouuisgcOUISGC")
+
+
+def _tr_norm(text: str) -> str:
+    return (text or "").translate(_tr_ascii)
+
+
 _HANDOFF_RE = re.compile(
-    r"patron(?:unuz)?la?\s*(?:görüş|gorus|konuş|konus)\s*(?:mek|mak|istiyorum|istiyoruz)|"
-    r"imza\s*sahibi(?:yle)?\s*(?:görüş|gorus|konuş|konus)|"
-    r"yetkili\s*(?:biri|kişi|kisi)?\s*(?:var\s*mı|ile\s*(?:görüş|gorus|konuş|konus))|"
-    r"seninle\s*(?:görüş|gorus|konuş|konus)\s*(?:mek|mak|istiyorum|istiyoruz)|"
-    r"owner|founder|boss|ceo|cmo|cto|human\s*(?:agent|representative)|"
-    r"talk\s+to\s+(?:a\s+)?(?:human|person|someone|the\s+(?:owner|founder|boss|ceo))|"
-    r"speak\s+(?:to|with)\s+(?:a\s+)?(?:human|person|someone|the\s+(?:owner|founder|boss))|"
-    r"real\s+(?:human|person)|insan\s*(?:temsilci|asistan)?",
+    r"(?:patron|sahip|kurucu|yonetici|imza sahibi|imza sahibiyle)\w*\s*(?:ile\s*)?"
+    r"(?:gorusmek|konusmak|gorusebilir|konusabilir|gorus|konus)"
+    r"\s*(?:istiyorum|istiyoruz|mumkun mu|muyum|miyim|mu|mi)?|"
+    r"\b(?:owner|founder|boss|ceo|cmo|cto|manager|human)\b|"
+    r"(?:seninle|bana)\s*(?:gorusmek|konusmak|gorusebilir|konusabilir|gorus|konus)"
+    r"\s*(?:istiyorum|istiyoruz|mumkun mu|muyum|miyim|mu|mi)?|"
+    r"yetkili\s*(?:biri|kisi)?\s*(?:var\s*mi|ile\s*(?:gorusmek|konusmak|gorusebilir|konusabilir|gorus|konus))|"
+    r"(?:insanla|insan ile|insan temsilci|insan asistan)\s*(?:gorus|konus|gorusebilir|konusabilir)|"
+    r"talk\s+to\s+(?:a\s+)?(?:human|person|someone|the\s+(?:owner|founder|boss|ceo|manager))|"
+    r"speak\s+(?:to|with)\s+(?:a\s+)?(?:human|person|someone|the\s+(?:owner|founder|boss|ceo|manager))|"
+    r"real\s+(?:human|person)|"
+    r"\bhuman\s*(?:agent|representative|person)?\b",
     re.I,
 )
 
@@ -960,7 +973,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # DeepSeek Handoff: müşteri patron/yetkili isterse bot durur, owner'a bildir
-    if _HANDOFF_RE.search(user_text):
+    if _HANDOFF_RE.search(_tr_norm(user_text)):
         who = str((_briefs.get(chat_id) or {}).get("company") or (_briefs.get(chat_id) or {}).get("host") or "—")
         user = _username(update) or "yok"
         handle = f"@{user}" if user != "yok" else "yok"
@@ -971,6 +984,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"💬 Son Mesajı: \"{user_text[:300]}\""
         )
         telegram_sessions.set_takeover(chat_id, True)
+        turkish = _conv_lang(user_text, chat_id)
+        ack = ("Talep alındı. Sorumlu mühendis arkadaşım bu sohbete dönüş yapacak; "
+               "bu arada kapsam ya da rapor detayı için yazmaya devam edebilirsiniz."
+               if turkish else
+               "Request received. Our responsible engineer will reply in this chat; "
+               "meanwhile feel free to keep asking about scope or the report findings.")
+        await update.message.reply_text(ack)
         return
 
     await _hot_ping(chat_id, update, user_text)
