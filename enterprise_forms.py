@@ -83,24 +83,28 @@ def submit(page: Any, lead: dict[str, Any]) -> dict[str, Any]:
     result = dict(lead)
     result["status"] = "skipped_no_open_form"
     deadline = time.monotonic() + 30
-    def left_ms():
+    def left_ms() -> int:
         left = int((deadline - time.monotonic()) * 1000)
         if left <= 0:
+            raise TimeoutError("enterprise site deadline")
+        return left
+    try:
         # FAIL-FAST: Max 10 saniye timeout (takilan/yanit vermeyen sitelerde vakit kaybetme)
         page.set_default_timeout(5000)
         page.goto(lead["url"], wait_until="domcontentloaded", timeout=10_000)
-
-            raise TimeoutError("enterprise site deadline")
-        page.locator("form input[type='email']").first.wait_for(state="visible", timeout=min(8000, left_ms()))
-
-        return left
-    try:
-        page.set_default_timeout(1500)
-        page.goto(lead["url"], wait_until="domcontentloaded", timeout=min(12000, left_ms()))
         if page.url.split("#")[0] != lead["url"].split("#")[0]:
             return result  # changed destination needs a new GitHub scan
         page.locator("form input[type='email']").first.wait_for(state="visible", timeout=min(9000, left_ms()))
         selected = application_form(page)
+        if not selected:
+            # Adım 2/3 rescue: modal triggers + iframe/shadow probe once, then re-apply.
+            try:
+                from form_submitter import _rescue_open_form
+
+                if _rescue_open_form(page, result, lead, page.url, 10_000):
+                    selected = application_form(page)
+            except Exception:  # noqa: BLE001
+                pass
         if not selected:
             return result
         form, evidence = selected
@@ -129,13 +133,6 @@ def submit(page: Any, lead: dict[str, Any]) -> dict[str, Any]:
         with page.expect_response(lambda r: r.request.method == "POST" and r.url.split("#")[0] == action,
                                   timeout=min(10_000, left_ms())) as pending:
             form.locator("button[type='submit'], input[type='submit']").click(timeout=min(10_000, left_ms()))
-
-        # Single native click; a timeout after click is ambiguous and NEVER auto-retried.
-        result["status"] = "skipped_submit_failed"
-        action = evidence["form_action"].split("#")[0]
-        with page.expect_response(lambda r: r.request.method == "POST" and r.url.split("#")[0] == action,
-                                  timeout=min(5000, left_ms())) as pending:
-            form.locator("button[type='submit'], input[type='submit']").click(timeout=min(2000, left_ms()))
         response = pending.value
         if 200 <= response.status < 300:
             body = page.locator("body").inner_text(timeout=min(1500, left_ms()))

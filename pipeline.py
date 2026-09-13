@@ -58,6 +58,8 @@ DONE_STATUSES = {
     "skipped_submit_failed",
     "skipped_unreachable",
     "skipped_enterprise",
+    # Contact address extracted for the e-mail worker; form lane is done.
+    "mailto_extracted",
 }
 
 

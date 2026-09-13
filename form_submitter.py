@@ -278,6 +278,146 @@ def _site_budget(lead: dict[str, Any] | None = None) -> float:
     return max(1.0, min(30.0, float(getattr(config, "SITE_TIMEOUT_SECONDS", 30) or 30)))
 
 
+_CLICK_TRIGGER_JS = """
+() => {
+  const RE = /(contact|get in touch|teklif|iletişim|bize ulaşın|bize ulas|send message|book a call|demo|write to us|teklif al|mesaj bırak)/i;
+  const els = document.querySelectorAll('button, a, div[role="button"], .btn, .modal-trigger, [aria-haspopup="dialog"], [data-toggle="modal"]');
+  const hits = [];
+  for (const e of els) {
+    const t = (e.innerText || e.getAttribute('aria-label') || e.getAttribute('title') || '').trim();
+    if (t && RE.test(t) && e.offsetParent !== null) hits.push(e);
+    if (hits.length >= 12) break;
+  }
+  for (const e of hits) { try { e.click(); } catch (err) {} }
+  return hits.length;
+}
+"""
+
+_WIDGET_FRAME_SEL = (
+    "iframe[src*='hsforms'], iframe[src*='typeform'], iframe[src*='jotform'], "
+    "iframe[src*='calendly'], iframe[src*='docs.google.com/forms'], "
+    "iframe[src*='forms.gle'], iframe[src*='wufoo'], iframe[src*='formspree'], "
+    "iframe[src*='marketo'], iframe[src*='cognitoforms'], iframe[src*='web3forms']"
+)
+
+
+def _click_trigger_open(page: Any, wait_ms: int | None = None) -> bool:
+    """Adım 2 — modal/pop-up click trigger engine (≤ TRIGGER_WAIT_MS budget)."""
+    wait_ms = int(wait_ms or getattr(config, "TRIGGER_WAIT_MS", 1500) or 1500)
+    try:
+        clicked = int(page.evaluate(_CLICK_TRIGGER_JS) or 0)
+    except Exception:  # noqa: BLE001
+        return False
+    if not clicked:
+        return False
+    selector = f"form input[type='email'], form textarea, {_WIDGET_FRAME_SEL}"
+    try:
+        page.wait_for_selector(selector, timeout=wait_ms)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _frame_or_shadow_form_present(page: Any) -> bool:
+    """Adım 3 — widget iframes + shadow DOM piercing form probe."""
+    try:
+        if page.locator(_WIDGET_FRAME_SEL).count() > 0:
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        for frame in page.frames:
+            try:
+                if frame.locator("form input[type='email'], form textarea").count() > 0:
+                    return True
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        if page.evaluate(
+            "() => { const walk = (r) => {"
+            " if (r.querySelector && r.querySelector('form, input[type=email], textarea')) return true;"
+            " const roots = r.querySelectorAll ? Array.from(r.querySelectorAll('*')) : [];"
+            " for (const e of roots) { if (e.shadowRoot && walk(e.shadowRoot)) return true; }"
+            " return false; };"
+            " return walk(document); }"
+        ):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+def _rescue_open_form(
+    page: Any,
+    result: dict[str, Any],
+    lead: dict[str, Any],
+    form_url: str,
+    cap_ms: int,
+) -> str | None:
+    """Return the form URL to continue with, or None (skip / handoff set)."""
+    # Adım 2 — click modal triggers in the already-open tab (no new RAM).
+    if _click_trigger_open(page) and (page_has_open_form(page) or _frame_or_shadow_form_present(page)):
+        result.setdefault("rescued", "modal_trigger")
+        return form_url
+    if _frame_or_shadow_form_present(page):
+        result.setdefault("rescued", "frame_or_shadow")
+        return form_url
+    # Adım 1/4/5 — lightweight httpx scan (never touches the submit quota).
+    try:
+        import form_extractor
+
+        scan = form_extractor.scan_domain_light(str(lead.get("url") or form_url))
+        match = form_extractor.ScanMatch.from_analysis(
+            scan, str(lead.get("url") or form_url)
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("form rescue scan failed for %s", lead.get("url"))
+        return None
+    if match.mode == "mailto" and getattr(config, "MAILTO_HANDOFF", True):
+        result["status"] = "mailto_extracted"
+        result["contact_emails"] = match.mailtos
+        result.pop("error", None)
+        logger.info("mailto_extracted handoff %s -> %s", lead.get("url"), match.mailtos)
+        return None
+    if match.mode == "ajax" and getattr(config, "AJAX_POST_ENABLED", True) and match.endpoints:
+        try:
+            import form_extractor
+
+            values = _sender_values(
+                str(lead.get("value_proposition") or ""), str(lead.get("form_subject") or "")
+            )
+            endpoint = match.endpoints[0]
+            payload = form_extractor.merge_payload(
+                form_extractor.extract_hidden_payload(scan.get("html") or "", endpoint), values
+            )
+            status_code = form_extractor.post_synthetic(endpoint, payload)
+            logger.info("AJAX synthetic POST %s -> %s", endpoint, status_code)
+            if 200 <= status_code < 300:
+                result["status"] = "submitted_unconfirmed"
+                result["submitted_url"] = endpoint
+                result["submitted_kind"] = "ajax_endpoint"
+                result.pop("error", None)
+                return None
+        except Exception:  # noqa: BLE001
+            logger.exception("ajax rescue failed for %s", lead.get("url"))
+    if match.mode in {"direct", "widget", "shadow"} and match.candidate_url:
+        cand = match.candidate_url
+        if cand.rstrip("/") == form_url.rstrip("/"):
+            return None
+        try:
+            goto_page(page, cand, cap_ms)
+        except Exception:  # noqa: BLE001
+            return None
+        dismiss_cookie_banner(page)
+        if _click_trigger_open(page) or page_has_open_form(page) or _frame_or_shadow_form_present(page):
+            result["contact_form"] = {"found": True, "page_url": cand, "rescued": "depth2"}
+            result["final_url"] = cand
+            return cand
+    return None
+
+
 def _submit_with_page(
     page: Page,
     lead: dict[str, Any],
@@ -333,13 +473,8 @@ def _submit_with_page(
     try:
         if fast:
             logger.info("Fast-fail %.0fs window for %s", budget, lead.get("url"))
-        # FAIL-FAST: Max 10 saniye timeout (takilan/yainit vermeyen sitelerde vakit kaybetme)
+        # FAIL-FAST: Max 10 saniye timeout (takilan/yanit vermeyen sitelerde vakit kaybetme)
         cap_ms = max(4_000, min(int(budget * 1000), 10_000))
-        try:
-            page.set_default_timeout(cap_ms)
-            page.set_default_navigation_timeout(cap_ms)
-
-        cap_ms = max(4_000, min(int(budget * 1000), 25_000))
         try:
             page.set_default_timeout(cap_ms)
             page.set_default_navigation_timeout(cap_ms)
@@ -353,10 +488,18 @@ def _submit_with_page(
         if not page_has_open_form(
             page, timeout_ms=ent_ms if ent_ms else None
         ):
-            result["status"] = "skipped_no_open_form"
-            result["error"] = "DOM fingerprint: no form/email in 2s"
-            logger.info("Fingerprint miss on submit %s — next site", lead.get("url"))
-            return result
+            # Adım 1/2/3/4/5 — rescue before the skip verdict (Oracle $0 guard):
+            # modal triggers → iframe/shadow scan → httpx depth-2 → ajax/mailto.
+            rescued_url = _rescue_open_form(page, result, lead, form_url, cap_ms)
+            if rescued_url:
+                form_url = rescued_url
+            elif result.get("status") == "mailto_extracted":
+                return result
+            else:
+                result["status"] = "skipped_no_open_form"
+                result["error"] = "DOM fingerprint: no form/email in 2s"
+                logger.info("Fingerprint miss on submit %s — next site", lead.get("url"))
+                return result
         _wait_widgets(page)
         if captcha_present(page):
             result["status"] = "skipped_captcha"
@@ -525,8 +668,6 @@ def _scopes(page: Page):
     for frame in widgets:
         yield frame
     yield page
-        el.scroll_into_view_if_needed(timeout=3000)
-        el.click(timeout=3000)
 
     for frame in others:
         yield frame

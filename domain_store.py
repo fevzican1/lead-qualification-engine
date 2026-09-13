@@ -161,6 +161,10 @@ TERMINAL = {
     "skipped_submit_failed",
     "skipped_unreachable",
     "skipped_unauthorized",
+    # No fillable form; a contact address was extracted and handed to the
+    # e-mail worker (leads.json carries contact_emails). Never re-queued for
+    # the form lane, never counted against the submit quota.
+    "mailto_extracted",
 }
 
 DEAD_QUEUE = {
@@ -169,6 +173,7 @@ DEAD_QUEUE = {
     "skipped_no_open_form",
     "skipped_unreachable",
     "skipped_enterprise",
+    "mailto_extracted",
 }
 RETRYABLE_NO_SEND = frozenset({"skipped_unreachable"})
 # Starvation recycle: single-visit "no form" verdicts are often transient

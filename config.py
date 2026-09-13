@@ -203,6 +203,20 @@ READY_QUEUE_FLOOR: int = _get_int("READY_QUEUE_FLOOR", 50)
 READY_QUEUE_TARGET: int = _get_int("READY_QUEUE_TARGET", 100)
 EASY_SCORE_MIN: int = _get_int("EASY_SCORE_MIN", 55)
 DOM_FINGERPRINT_MS: int = _get_int("DOM_FINGERPRINT_MS", 2_000)
+# --- Multi-depth contact scan & form-rescue engine (Oracle $0 resource guard) ---
+# Total per-domain search/scan budget; any search phase over this is aborted on
+# its own (Resource Guard). This scanning NEVER consumes the daily/hourly submit
+# quota — only submitted_confirmed/submitted_unconfirmed do (pacing/knowledge).
+SCAN_DEPTH: int = _get_int("SCAN_DEPTH", 2)
+SCAN_BUDGET_SECONDS: float = _get_float("SCAN_BUDGET_SECONDS", 8.0)
+# Max wait after a modal/pop-up trigger click before deciding no form opened.
+TRIGGER_WAIT_MS: int = _get_int("TRIGGER_WAIT_MS", 1_500)
+# Allow synthetic POST to the site's own AJAX/action endpoint when no visible
+# form is renderable (lightweight-first: httpx, no browser engine for the POST).
+AJAX_POST_ENABLED: bool = _get_bool("AJAX_POST_ENABLED", True)
+# Hand contacts found only as mailto:/bare email to a mailto_extracted status
+# instead of skipping them as skipped_no_open_form (email worker picks them up).
+MAILTO_HANDOFF: bool = _get_bool("MAILTO_HANDOFF", True)
 PIPELINE_TIMEOUT_SECONDS: int = _get_int("PIPELINE_TIMEOUT_SECONDS", 30)
 DEFER_MINUTES: int = _get_int("DEFER_MINUTES", 20)
 HTTP_RESERVE_FOR_PIPELINE: int = _get_int("HTTP_RESERVE_FOR_PIPELINE", 20)
