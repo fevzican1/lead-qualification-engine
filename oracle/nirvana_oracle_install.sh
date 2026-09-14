@@ -79,6 +79,7 @@ install -m 644 "$UNIT_SRC/nirvana-captcha.service" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-captcha.timer" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-dispatch.service" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-dispatch.timer" /etc/systemd/system/
+install -m 644 "$UNIT_SRC/nirvana-salesbot.service" /etc/systemd/system/
 systemctl daemon-reload
 
 echo "[5.5/6] Dispatch hub derleme kontrolü"
@@ -91,6 +92,7 @@ systemctl enable --now nirvana-deliveryworker.timer
 systemctl enable --now nirvana-linkedin.timer
 systemctl enable --now nirvana-captcha.timer
 systemctl enable --now nirvana-dispatch.timer
+systemctl enable --now nirvana-salesbot.service
 
 systemctl list-timers 'nirvana-*' --no-pager
 echo "NIRVANA ORACLE LIVE — watchdog 5dk, delivery haftalık, teslimat işçisi 2 saatte bir, captcha worker 10dk (max 2), dispatch hub 5dk (tüm modüller tam ritim)."

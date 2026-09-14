@@ -32,6 +32,8 @@ import config
 import bounded_agents
 import knowledge
 import ollama_client
+import heartbeat
+import task_queue
 import optout
 import owner_notify
 import proof_card
@@ -308,7 +310,10 @@ def _identity_prompt_line() -> str:
     url = str(getattr(config, "OWNER_LINKEDIN_URL", "") or "").strip()
     return (f"\nBehind this system is a real, verifiable human engineer: {url}. "
             "You may share this when trust matters; never claim to be a human typing live — "
-            "you are an assistant backed by that engineer."
+            "you are an assistant backed by that engineer. "
+            "When asked who you are, never say bot/AI/yapay zeka/otomatik: "
+            "you are the founder's technical sales and operations assistant "
+            "(kurucunun teknik satış ve operasyon asistanı)."
             if url else "")
 
 
@@ -326,7 +331,7 @@ def _complete(messages: list[dict[str, str]]) -> str:
         messages,
         temperature=0.4,
         max_tokens=380,
-        timeout=180.0,
+        timeout=75.0,
     )
     try:
         from nirvana import semantic_cache
@@ -360,9 +365,9 @@ def _not_owner_hint() -> str:
 
 def _cold_intro(*, turkish: bool) -> str:
     if config.ENTERPRISE_MODE:
-        return ("DevSolve AI destekli kontratlı hizmet asistanı. Henüz sisteminizi incelemedik. "
+        return ("DevSolve teknik ekip asistanıyım. Henüz sisteminizi incelemedik. "
                 "Hangi entegrasyon veya otomasyon işi için destek arıyorsunuz?" if turkish else
-                "DevSolve AI-assisted contractor intake assistant. We have not inspected your system. "
+                "DevSolve technical team assistant. We have not inspected your system. "
                 "Which integration or automation deliverable are you looking for?")
     if turkish:
         return (
@@ -1173,6 +1178,21 @@ def _offline_reply(user_text: str, row: dict[str, Any] | None) -> tuple[str, boo
             return auto, False
     except Exception:
         logger.exception("nirvana objection handler failed")
+    # Canlı bilgi tabanı: model kapalıyken bile bilgi soruları boş kalmaz.
+    try:
+        hits = knowledge.assistant_context()
+        if hits and re.search(
+            r"ne\s*biliyorsun|ne\s*yap[ıi]yorsunuz|hakk[ıi]nda|neler\s*yap[ıi]yorsunuz|"
+            r"what\s+do\s+you\s+(?:know|do)|tell\s+me\s+about|your\s+services|entegrasyon",
+            _tr_norm(user_text), re.I,
+        ):
+            first = ("Bilgi tabanımız güncel ve canlı besleniyor. Uzmanlık alanlarımız:\n"
+                     if turkish else "Our knowledge base is live-fed. Our expertise map:\n")
+            tail = ("\nSizin altyapınız hangisi, en çok nerede takılıyorsunuz?"
+                    if turkish else "\nWhich stack are you on, and where are you stuck?")
+            return (first + "\n".join(hits.splitlines()[:14]) + tail), False
+    except Exception:
+        logger.exception("assistant_context fallback failed")
     buy = _wants_to_buy(user_text)
     try:
         from nirvana import slot_gate
@@ -1249,9 +1269,28 @@ async def _followup_loop(application: Application) -> None:
         await asyncio.sleep(300)
 
 
+async def _heartbeat_loop(application: Application) -> None:
+    """Self-healing: systemd WATCHDOG=1 + kalıcı kuyruk aktarıcısı (10 sn ritim)."""
+    heartbeat.ready()
+    while True:
+        heartbeat.pulse("salesbot")
+        try:
+            relay = task_queue.run_due(
+                "telegram_notify", owner_notify.deliver_queued_notify, limit=10,
+            )
+            if relay.get("done"):
+                logger.info("Queued notify relay: %s", relay)
+        except Exception:
+            logger.exception("Queued notify relay failed")
+        await asyncio.sleep(10)
+
+
 async def _post_init(application: Application) -> None:
     application.bot_data["followup_task"] = asyncio.create_task(
         _followup_loop(application), name="tg-followup"
+    )
+    application.bot_data["heartbeat_task"] = asyncio.create_task(
+        _heartbeat_loop(application), name="tg-heartbeat"
     )
 
 
@@ -1268,11 +1307,11 @@ def main() -> None:
     application = (
         Application.builder()
         .token(config.TELEGRAM_BOT_TOKEN)
-        .connect_timeout(20.0)
-        .read_timeout(30.0)
-        .write_timeout(30.0)
-        .pool_timeout(20.0)
-        .get_updates_connect_timeout(20.0)
+        .connect_timeout(5.0)
+        .read_timeout(10.0)
+        .write_timeout(10.0)
+        .pool_timeout(5.0)
+        .get_updates_connect_timeout(5.0)
         .get_updates_read_timeout(40.0)
         .get_updates_pool_timeout(20.0)
         .post_init(_post_init)

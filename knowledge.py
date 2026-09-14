@@ -202,6 +202,37 @@ def live_playbook() -> dict[str, dict[str, str]]:
     return _playbook
 
 
+def assistant_context(*, limit: int = 24) -> str:
+    """Canlı bilgi tabanı — tüm dış kaynak overlay'lerinden tek kompakt blok.
+
+    knowledge/b2b.json + knowledge/catalog.json + knowledge_state.json her döngüde
+    mtime ile sıcak yüklenir; bu blok Telegram system prompt'una enjekte edilir.
+    Böylece model "ne biliyorsun" tarzı hiçbir soruda boş/sıkışık cevap vermez:
+    bilgi model ağırlığında değil, dosya tabanlı RAG katmanında (maliyet $0).
+    """
+    reload_overlays()
+    book = live_playbook()
+    rows = [
+        f"- {name}: tr={row.get('tr', '')} | en={row.get('en', '')}"
+        for name, row in list(book.items())[:limit]
+    ]
+    state = load()
+    winning = [str(s) for s in (state.get("winning_stacks") or [])]
+    catalog = [u for u in _catalog_extra if u]
+    parts = []
+    if rows:
+        parts.append("Platform/sorun haritası (bizim uzmanlık alanlarımız):\n" + "\n".join(rows))
+    if winning:
+        parts.append("Kapanan işlere göre öne çıkan altyapılar: " + ", ".join(winning[:10]))
+    if catalog:
+        parts.append("Entegrasyon kataloğu referansları: " + ", ".join(catalog[:10]))
+    parts.append(
+        "Hizmet kapsamı: e-ticaret/CRM/ERP entegrasyonu, ödeme webhook onarımı, "
+        "stok-sipariş senkronizasyonu, n8n/REST otomasyon, form-iletim akışı denetimi."
+    )
+    return "\n".join(parts)
+
+
 def oracle_lock() -> dict[str, Any]:
     reload_overlays()
     return _oracle
@@ -429,6 +460,7 @@ def telegram_system_prompt(*, brief: str = "") -> str:
                      if owner_linkedin else
                      f"\n[IDENTITY] Merhaba, ben {lab} Dijital Satış ve Altyapı Ekibi Asistanıyım.")
     inbound = (brief or "").strip() or "No form handoff. They typed in cold."
+    live_block = assistant_context()
     price_rule = (
         "FİYAT SIRASI (KESİN): 'Fiyat ne kadar?' sorulduğunda rakamı ilk cümlede ASLA yazma. "
         "Sırayla işle: (1) DEĞER — ölçtüğümüz darboğazın kapatılmasının ne kazandıracağını söyle; "
@@ -470,6 +502,10 @@ Sen {lab} adlı otomatik teknik inceleme servisinin tarafsız değerlendirme ara
 
 [İNCELEME ÇERÇEVESİ]
 Değerlendirme; halka açık W3C form/veri iletim yönergeleri, OWASP veri aktarım prensipleri ve Google Lighthouse/PageSpeed sayfa performansı kıstasları gibi açık standart referanslarına dayandırılır. Bu, resmi bir uygunluk sertifikası veya sertifikasyon denetimi DEĞİLDİR; yalnızca herkese açık teknik sinyallerin ön incelemesidir. "Sertifikalı uyumsuzsunuz", "resmi denetim raporu" gibi sınırı aşan ifadeler kullanma.
+
+[CANLI BİLGİ TABANI — DIŞ KAYNAK RAG, HER DÖNGÜDE GÜNCEL]
+Aşağıdaki veri dış kaynak dosyalarından otomatik yüklenir. Müşteri hangi platform, entegrasyon, sorun veya 'ne biliyorsun / what do you know / hakkında' tarzında sorarsa sorsun: cevabını ÖNCE bu veriyle, kısa ve mühendis diliyle ver. Bilgin yoksa genel güncel mühendislik bilgisiyle somut yanıt ver; ASLA boş cevap verme, konuyu kapamaya çalışma, "bilmiyorum" deyip bırakma — cevabı tek net kapsam sorusuyla bitir.
+{live_block}
 
 [GİRDİ VERİSİ — HANDOFF BRIEF]
 {inbound}

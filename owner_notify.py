@@ -133,36 +133,86 @@ def lead_digest() -> str:
     return "\n".join(lines)
 
 
+def _post_message(target: int, body: str, *, silent: bool) -> bool:
+    token = (config.TELEGRAM_NOTIFY_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN or "").strip()
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    response = httpx.post(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        json={
+            "chat_id": target,
+            "text": body[:3500],
+            "disable_notification": silent,
+        },
+        timeout=10.0,
+    )
+    response.raise_for_status()
+    return True
+
+
+def deliver_queued_notify(task: dict[str, Any]) -> bool:
+    """task_queue işçisi: kuyruktaki bildirimi tek denemede gönder (şalter kontrollü)."""
+    import circuit_breaker
+
+    payload = task.get("payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = {"text": str(payload)}
+    if not circuit_breaker.allow("telegram_notify"):
+        return False
+    target = payload.get("chat_id") or load_notify_chat_id()
+    if not target:
+        return True  # hedef yok — görev anlamsız, ack'le
+    try:
+        _post_message(int(target), str(payload.get("text") or ""),
+                      silent=not bool(payload.get("high_priority")))
+        circuit_breaker.record("telegram_notify", True)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        circuit_breaker.record("telegram_notify", False)
+        logger.warning("Queued notify #%s failed: %s", task.get("id"), exc)
+        return False
+
+
 def send(text: str, *, chat_id: int | None = None, high_priority: bool = False) -> bool:
     """Send owner notification. high_priority=True disables silent notification
-    so the owner's phone alerts even in Do-Not-Disturb mode."""
+    so the owner's phone alerts even in Do-Not-Disturb mode.
+
+    Dayanıklılık: Telegram API şalteri açıksa veya tüm denemeler başarısızsa
+    bildirim KAYBOLMAZ — task_queue'ya yazılır, hat dönüşünce otomatik iletilir.
+    """
+    import circuit_breaker
+    import task_queue
+
     target = chat_id if chat_id is not None else load_notify_chat_id()
     token = (config.TELEGRAM_NOTIFY_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN or "").strip()
     if not target or not token:
         logger.info("Ops notify skipped (no TELEGRAM_NOTIFY_CHAT_ID / OWNER chat in .env)")
         return False
     body = f"[DevSolve Ops]\n{text}" if not text.startswith("[DevSolve") else text
-    last_exc: Exception | None = None
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    if not circuit_breaker.allow("telegram_notify"):
+        task_queue.enqueue("telegram_notify",
+                           {"chat_id": int(target), "text": body,
+                            "high_priority": bool(high_priority)},
+                           max_attempts=8, delay_s=45)
+        logger.warning("Telegram notify circuit open — queued instead")
+        return False
     for attempt in range(1, 4):
         try:
-            response = httpx.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={
-                    "chat_id": target,
-                    "text": body[:3500],
-                    "disable_notification": not high_priority,
-                },
-                timeout=30.0,
-            )
-            response.raise_for_status()
+            _post_message(int(target), body, silent=not high_priority)
+            circuit_breaker.record("telegram_notify", True)
             return True
         except Exception as exc:  # noqa: BLE001
-            last_exc = exc
             logger.warning("Owner Telegram notify attempt %s failed: %s", attempt, exc)
             time.sleep(2 * attempt)
-            logger.error("Owner Telegram notify failed after retries: %s", last_exc)
+    circuit_breaker.record("telegram_notify", False)
+    task_queue.enqueue("telegram_notify",
+                       {"chat_id": int(target), "text": body,
+                        "high_priority": bool(high_priority)},
+                       max_attempts=8, delay_s=60)
+    logger.error("Owner Telegram notify failed after retries — queued for relay")
     return False
 
 

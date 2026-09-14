@@ -1,0 +1,20 @@
+[Unit]
+Description=DevSolve Telegram Sales Bot (self-healing, WatchdogSec)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+WorkingDirectory=/opt/devsolve
+ExecStart=/opt/devsolve/.venv/bin/python /opt/devsolve/telegram_sales_bot.py
+Restart=always
+RestartSec=1
+WatchdogSec=30s
+KillSignal=SIGTERM
+TimeoutStopSec=15
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/devsolve/.playwright
+# WATCHDOG=1 sinyali 30 sn gelmezse systemd SIGABRT ile öldürüp
+# 1 sn içinde tertemiz bellekle yeniden başlatır (MTTR ~2s, A→%99.99).
+
+[Install]
+WantedBy=multi-user.target

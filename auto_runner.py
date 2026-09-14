@@ -24,9 +24,11 @@ from pathlib import Path
 import config
 import domain_store
 import feed_ingest
+import heartbeat
 import knowledge
 import lead_discovery
 import owner_notify
+import task_queue
 
 logger = logging.getLogger(__name__)
 PYTHON = Path(sys.executable)
@@ -175,6 +177,15 @@ def main() -> None:
     while True:
         cycle += 1
         print(f"\n=== Tur {cycle} ===")
+        heartbeat.pulse("auto_runner", {"cycle": cycle})
+        try:
+            relay = task_queue.run_due(
+                "telegram_notify", owner_notify.deliver_queued_notify, limit=10,
+            )
+            if relay.get("done"):
+                print(f"Kuyruktaki bildirim iletildi: {relay}")
+        except Exception:
+            logger.exception("Queued notify relay failed (auto_runner)")
         knowledge.reload_overlays()
         knowledge.refresh()
         domain_store.hydrate_from_leads()

@@ -541,6 +541,24 @@ def test_identity_prompt_line_off_when_unset(monkeypatch):
     assert bot._identity_prompt_line() == ""
     monkeypatch.setattr(config, "OWNER_LINKEDIN_URL", "https://www.linkedin.com/in/fevzican-aytekin-0b5501105")
     assert "verifiable human engineer" in bot._identity_prompt_line()
+    assert "never say bot/AI" in bot._identity_prompt_line()
+
+
+def test_cold_intro_never_reveals_bot():
+    import telegram_sales_bot as bot
+    for turkish in (True, False):
+        intro = bot._cold_intro(turkish=turkish)
+        low = intro.lower()
+        assert "ai" not in low.replace("assistant", "").replace("yapay zeka", "")
+        assert "yapay zeka" not in low
+
+
+def test_system_prompt_carries_live_knowledge_base():
+    import knowledge
+    prompt = knowledge.telegram_system_prompt()
+    assert "CANLI BİLGİ TABANI" in prompt
+    assert "IdeaSoft" in prompt  # playbook dış kaynaktan besleniyor
+    assert knowledge.assistant_context()  # boş olmamalı
 
 
 # --- Semantik önbellek (Oracle kota dostu) -----------------------------------

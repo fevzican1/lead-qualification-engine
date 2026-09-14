@@ -21,6 +21,15 @@ logger = logging.getLogger(__name__)
 PATH = config.ROOT / "pacing_state.json"
 MAX_PER_PROVIDER_HOUR = 3
 MIN_GAP_SECONDS = 18.0
+# Rapor (rapor.md §4): sağlayıcıya göre saatlik üst sınırlar — $0 risk.
+PROVIDER_HOURLY_CAPS: dict[str, int] = {
+    "formspree": 3,      # 20 req/min/form, 6 req/min/IP
+    "web3forms": 5,      # 20 req/s; hızlı seride 1 saatlik IP bloğu
+    "basin": 2,          # silent drop / captcha yönlendirmesi
+    "staticforms": 5,
+    "getform": 3,
+    "formcarry": 3,
+}
 
 PROVIDERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("hubspot", ("hsforms.com", "hubspot.com", "hs-scripts.com")),
@@ -113,8 +122,9 @@ def can_submit(lead: dict[str, Any]) -> tuple[bool, str]:
     hour_ago = now - timedelta(hours=1)
     recent = _recent(data.get("submits") or [], since=hour_ago)
     same = [row for row in recent if str(row.get("provider") or "") == provider]
-    if len(same) >= MAX_PER_PROVIDER_HOUR:
-        logger.info("Pace: provider %s already %s this hour — skip", provider, len(same))
+    cap = PROVIDER_HOURLY_CAPS.get(provider, MAX_PER_PROVIDER_HOUR)
+    if len(same) >= cap:
+        logger.info("Pace: provider %s already %s this hour (cap %s) — skip", provider, len(same), cap)
         return False, f"provider_hour:{provider}"
     return True, provider
 
