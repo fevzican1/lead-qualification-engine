@@ -47,6 +47,10 @@ RUNNERS = {
     "interaction_tracker": "nirvana.interaction_tracker",
     "tactic_router": "nirvana.tactic_router",
     "slot_gate": "nirvana.slot_gate",
+    "update_architecture": "nirvana.update_architecture",
+    "data_sync": "nirvana.data_sync",
+    "knowledge_updater": "nirvana.knowledge_updater",
+    "supply_guard": "nirvana.supply_guard",
 }
 
 
@@ -118,7 +122,9 @@ def main(argv: list[str] | None = None) -> int:
         kwargs = {}
     elif args.module in {"financial_loss_engine", "hash_tokenizer",
                          "queue_fuel_guard", "anti_spam_cadence",
-                         "interaction_tracker", "tactic_router", "slot_gate"}:
+                         "interaction_tracker", "tactic_router", "slot_gate",
+                         "update_architecture", "data_sync",
+                         "knowledge_updater", "supply_guard"}:
         kwargs = {}
     else:
         kwargs = {}

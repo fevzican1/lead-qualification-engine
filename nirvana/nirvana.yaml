@@ -240,3 +240,31 @@ nirvana:
       entrypoint: "python -m nirvana.runner slot_gate"
       description: "Yuksek otoriteli kapanis (Diagnostic Gate): G1 Karantina&Slot, G2 Sifir Sunucu Yuku, G3 24s Rezervasyon. 'Fiyat nedir?' -> kota ve kabul protokolu, satisci dili degil."
       heavy: false
+    update_architecture:
+      host: github
+      letter: AH
+      schedule: "manual"
+      entrypoint: "python -m nirvana.runner update_architecture"
+      description: "Guncelleme mimarisi omurgasi: Blue-Green/Canary/Rolling/Dark secici + A=MTBF/(MTBF+MTTR) + felc freni. Fail-closed, $0."
+      heavy: false
+    data_sync:
+      host: github
+      letter: AI
+      schedule: "manual"
+      entrypoint: "python -m nirvana.runner data_sync"
+      description: "Dagitik senkronizasyon: CDC append-only akis + Saga telafi zinciri. Ek DB yuku yok, $0."
+      heavy: false
+    knowledge_updater:
+      host: github
+      letter: AJ
+      schedule: "manual"
+      entrypoint: "python -m nirvana.runner knowledge_updater"
+      description: "RAG-first bilgi guncelleme: agirlik degismez, bilgi overlay'de guncellenir; unlearn=opt-out zinciri. $0."
+      heavy: false
+    supply_guard:
+      host: github
+      letter: AK
+      schedule: "manual"
+      entrypoint: "python -m nirvana.runner supply_guard"
+      description: "Tedarik zinciri guvenligi: SBOM uretimi + digest zinciri dogrulama, imzasiz dagitim YOK. $0."
+      heavy: false
