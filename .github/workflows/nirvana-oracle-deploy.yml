@@ -119,6 +119,33 @@ jobs:
             fi
           done
           sudo -n PAYONEER_LINK="${PAYONEER_LINK:-}" bash oracle/nirvana_oracle_install.sh
+          echo "=== [2b] Kurulum sonrasi retainer kotasi garantiye aliniyor (idempotent re-assert) ==="
+          # Install script eski .env degerlerini geri yazabilirsa diye 400/48/500
+          # hedefleri kurulumdan SONRA tekrar uygulanir — son durum her zaman yeni retainer.
+          for kv in \
+            "SMB_LANE_ENABLED|1" \
+            "ENTERPRISE_DAILY_CAP|40" \
+            "ENTERPRISE_HOURLY_CAP|4" \
+            "DAILY_SUBMIT_LIMIT|400" \
+            "HOURLY_SUBMIT_LIMIT|48" \
+            "HOURLY_SUBMIT_FLOOR|40" \
+            "DAILY_HTTP_PROBE_LIMIT|800" \
+            "HOURLY_HTTP_PROBE_LIMIT|40" \
+            "CHROMIUM_BATCH|40" \
+            "PIPELINE_SUBMIT_SLICE|24" \
+            "QUEUE_TARGET|500" \
+            "QUEUE_REFILL_BELOW|150" \
+            "QUEUE_MAX|2500" \
+            "FUEL_TARGET|500" \
+            "PIPELINE_TIMEOUT_SECONDS|180"; do
+            key="${kv%%|*}"; val="${kv#*|}"
+            if grep -q "^${key}=" .env; then
+              sed -i "s|^${key}=.*|${key}=${val}|" .env
+            else
+              printf '%s=%s\n' "${key}" "${val}" >> .env
+            fi
+          done
+          echo "kota teyidi: $(grep -E '^(DAILY_SUBMIT_LIMIT|HOURLY_SUBMIT_LIMIT|FUEL_TARGET|QUEUE_TARGET)=' .env | tr '\n' ' ')"
           echo "=== [3] Canlı doğrulama ==="
           .venv/bin/python - <<'PY'
           import config
