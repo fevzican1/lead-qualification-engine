@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "source": "external-tactics-bank",
+  "note": "GitHub Actions veya elle güncellenir; mtime ile sicak yuklenir. Gorev: musteriyi Telegram'a cekmek ve niyet yuksek oldugu AN satisi kapatmak.",
+  "tactics": [
+    {"stage": "curiosity", "weight": "2", "tr": "Sorunun ADINI söyle ama dozunu verme: 'ödeme callback'i sipariş kaydını kaçırıyor' demek yeter; hangi senaryoda, kaç TL'de olduğunu rapor kartında göster.", "en": "Name the bug, don't dose it: the finding title pulls; the report card holds the numbers."},
+    {"stage": "curiosity", "weight": "2", "tr": "Müşterinin platformunu KENDİ diliyle an: IdeaSoft/T-Soft/Shopify/WooCommerce ise bilinen kırılma noktasını bir cümleyle ver — 'bizim bu altyapıda standart tespitimiz var' hissi yarat.", "en": "Speak their platform's language: one known breaking point for their stack creates instant credibility."},
+    {"stage": "proof", "weight": "2", "tr": "Sayı üçlüsünü aynı cümlede ver: ölçülen değer + kayıp bandı + rapor numarası. Tek iddia dahi çıplak kalmasın.", "en": "The number triple: measured value + loss band + report id, in one sentence."},
+    {"stage": "value", "weight": "2", "tr": "Amorti çerçevesi: retainer tutarını sorunun aylık cirolarına böl — 'bu tespit ayda X kayıp üretiyor; kapsam tek teslimat + izleme' ile kendini amorti eden yatırım olarak konumla.", "en": "Payback framing: set the retainer against monthly loss — a self-amortizing investment, not a cost."},
+    {"stage": "urgency", "weight": "2", "tr": "Rezervasyon penceresi: izleme slotu sayısı sınırlı ve 24 saat geçerli; bu operasyonel bir gerçek, baskı dili kullanma.", "en": "Reservation window: limited slots, valid 24h — operational fact, zero pressure language."},
+    {"stage": "objection_price", "weight": "2", "tr": "İtirazı kabul et, sonra çevir: 'Sürecin maliyeti gerçek; kapatılmayan hata daha gerçek' — ardından kapsam tekilleştirme (tek teslimat + kabul ölçütü).", "en": "Accept then flip: the engagement has a cost; the open bug costs more — then narrow scope."},
+    {"stage": "objection_delay", "weight": "2", "tr": "Ertelenen karar = büyüyen kayıp: 'iki hafta sonra konuşalım' denirse kaybın 2 haftalık dilimini hatırlat ve mikro-adım öner (şart metnini burada göstereyim).", "en": "Deferred decision = compounding loss: recall the 2-week slice of loss, offer a micro-step."},
+    {"stage": "close", "weight": "2", "tr": "Anlık kapanış: yüksek niyette tek soru sorma — şart metnini göster, 'kabul ediyorum' kelimesinin sözleşme + doğrulanmış Payoneer talebi zincirini başlattığını söyle ve bekle.", "en": "Instant close at high intent: show terms, explain the accept-chain, stop talking."},
+    {"stage": "close", "weight": "2", "tr": "Risk sıfırlama: ödeme sonrası sıra — webhook teyidi, teslimat, kabul ölçütü — tek cümleyle; müşteriye 'ne olacağını tam biliyorum' hissi ver.", "en": "Risk reset: one sentence on the post-payment sequence gives full predictability."},
+    {"stage": "close", "weight": "3", "tr": "24 saat kuralı: net niyet anında rezervasyon sözü ver — 'kapsamı bugün rezerve ediyorum, 24 saat içinde şartlar masada' — karar penceresini kapat.", "en": "The 24h rule: on clear intent, reserve the scope today and close the decision window."}
+  ]
+}

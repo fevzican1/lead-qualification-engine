@@ -159,6 +159,14 @@ SMB_LANE_ENABLED: bool = _get("SMB_LANE_ENABLED", "1").strip() not in {"0", "fal
 
 # --- Product / outreach copy --------------------------------------------
 TELEGRAM_BOT_USERNAME: str = _get("TELEGRAM_BOT_USERNAME").lstrip("@")
+# Müşterinin sohbette gördüğü görünen ad: Telegram usernames '-bot' ile biter
+# (platform kuralı, değiştirilemez) ama chat başlığında GÖRÜNEN AD budur.
+# 'Bot' kelimesi ASLA geçmemeli. .env: BOT_DISPLAY_NAME=DevSolve Teknik Ekip
+BOT_DISPLAY_NAME: str = _get("BOT_DISPLAY_NAME", "DevSolve Teknik Ekip").strip() or "DevSolve Teknik Ekip"
+BOT_PUBLIC_DESCRIPTION: str = (
+    _get("BOT_PUBLIC_DESCRIPTION").strip()
+    or "DevSolve — teknik satış ve operasyon ekibi. Entegrasyon ve otomasyon kapsamı için yazın."
+)
 PRODUCT_NAME: str = _get("PRODUCT_NAME", "our platform")
 PRODUCT_DESCRIPTION: str = _get("PRODUCT_DESCRIPTION")
 ICP_DESCRIPTION: str = _get("ICP_DESCRIPTION") or _get("TARGET_ICP")

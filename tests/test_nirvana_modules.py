@@ -561,6 +561,14 @@ def test_system_prompt_carries_live_knowledge_base():
     assert knowledge.assistant_context()  # boş olmamalı
 
 
+def test_bot_public_identity_never_shows_bot():
+    """Müşterinin gördüğü görünen ad + profilde 'bot' kelimesi ASLA geçmemeli."""
+    import config as cfg
+    assert cfg.BOT_DISPLAY_NAME and "bot" not in cfg.BOT_DISPLAY_NAME.lower()
+    assert "yapay zeka" not in cfg.BOT_PUBLIC_DESCRIPTION.lower()
+    assert "bot" not in cfg.BOT_PUBLIC_DESCRIPTION.lower()
+
+
 # --- Semantik önbellek (Oracle kota dostu) -----------------------------------
 
 def test_semantic_cache_roundtrip_and_ttl(isolated_state, monkeypatch):

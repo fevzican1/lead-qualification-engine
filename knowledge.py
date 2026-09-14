@@ -27,6 +27,7 @@ ORACLE_PATH = DIR / "oracle.json"
 CONFIRMED_SUBMIT_STATUSES = frozenset({"submitted", "submitted_confirmed"})
 B2B_PATH = DIR / "b2b.json"
 CATALOG_PATH = DIR / "catalog.json"
+CONVERSION_PATH = DIR / "conversion.json"
 
 ORACLE_FREE = {
     "shape": "VM.Standard.A1.Flex",
@@ -100,6 +101,17 @@ PLAYBOOK: dict[str, dict[str, str]] = {
     },
 }
 
+# Dönüşüm taktikleri: knowledge/conversion.json overlay'i ile sıcak güncellenir.
+DEFAULT_TACTICS: list[dict[str, str]] = [
+    {"stage": "curiosity", "weight": "1", "tr": "İlk mesajda tam cevabı verme: tespitin başlığını söyle, detayı 'rapor kartında' sun, merakla tıklat.", "en": "Tease, don't dump: name the finding, offer the detail inside the report card."},
+    {"stage": "proof", "weight": "1", "tr": "Kanıt önce gelir: ölçülen değer + ciro riski + rapor numarası; iddia asla çıplak verilmez.", "en": "Evidence first: measured value + revenue risk + report id; never a bare claim."},
+    {"stage": "value", "weight": "1", "tr": "Kayıp çerçeveleme: sorunun aylık maliyetini göster, retainer'ı bu kaybın kesilmesi olarak konumlandır.", "en": "Loss framing: show monthly cost of the bug, position the retainer as stopping the bleed."},
+    {"stage": "urgency", "weight": "1", "tr": "Kontenjan aciliyeti: izleme slotu sınırlı, rezervasyon 24 saat geçerli — baskı değil, operasyonel gerçek.", "en": "Operational urgency: limited monitoring slots, 24h reservation window — facts, not pressure."},
+    {"stage": "objection_price", "weight": "1", "tr": "Fiyat itirazı: rakamı savunma; kaybın karşısında koy ve kapsam tekilleştir (tek teslimat + izleme).", "en": "Price objection: never defend the number; set it against the loss and narrow the scope."},
+    {"stage": "objection_delay", "weight": "1", "tr": "'Sonra düşünürüm': karar ertelendiğinde kayıp her ay büyür; küçük ilk adım (sözleşme şartlarını inceleme) öner.", "en": "Delay objection: the loss compounds monthly; offer a tiny next step (review the terms)."},
+    {"stage": "close", "weight": "1", "tr": "Tek net kapanış: tek soru, tek CTA; 'kabul ediyorum' yazınca sözleşme + Payoneer talebi zinciri çalışır.", "en": "One clean close: one question, one CTA; 'I accept' triggers contract + Payoneer chain."},
+]
+
 _cache: dict[str, Any] | None = None
 _cache_at = 0.0
 CACHE_SEC = 45.0
@@ -107,6 +119,7 @@ _overlay_mtimes: dict[str, float] = {}
 _playbook: dict[str, dict[str, str]] = dict(PLAYBOOK)
 _oracle: dict[str, Any] = dict(ORACLE_FREE)
 _catalog_extra: list[str] = []
+_tactics: list[dict[str, str]] = [dict(t) for t in DEFAULT_TACTICS]
 
 
 def _file_mtime(path: Path) -> float:
@@ -117,12 +130,13 @@ def _file_mtime(path: Path) -> float:
 
 
 def reload_overlays(*, force: bool = False) -> bool:
-    """Hot-load knowledge/oracle.json, b2b.json, and catalog.json when they change."""
-    global _playbook, _oracle, _catalog_extra, _overlay_mtimes, _cache, _cache_at
+    """Hot-load knowledge/oracle.json, b2b.json, catalog.json, conversion.json when they change."""
+    global _playbook, _oracle, _catalog_extra, _tactics, _overlay_mtimes, _cache, _cache_at
     stamps = {
         "oracle": _file_mtime(ORACLE_PATH),
         "b2b": _file_mtime(B2B_PATH),
         "catalog": _file_mtime(CATALOG_PATH),
+        "conversion": _file_mtime(CONVERSION_PATH),
     }
     if not force and stamps == _overlay_mtimes and _overlay_mtimes:
         return False
@@ -190,6 +204,25 @@ def reload_overlays(*, force: bool = False) -> bool:
         except Exception:
             logger.exception("catalog.json unreadable — using b2b.json catalog only")
 
+    _tactics = [dict(t) for t in DEFAULT_TACTICS]
+    if CONVERSION_PATH.exists():
+        try:
+            data = json.loads(CONVERSION_PATH.read_text(encoding="utf-8"))
+            rows = data.get("tactics") if isinstance(data, dict) else data
+            if isinstance(rows, list):
+                for row in rows:
+                    if (isinstance(row, dict) and row.get("stage")
+                            and (row.get("tr") or row.get("en"))):
+                        _tactics.append({
+                            "stage": str(row["stage"]),
+                            "weight": str(row.get("weight") or "1"),
+                            "tr": str(row.get("tr") or ""),
+                            "en": str(row.get("en") or ""),
+                        })
+            logger.info("Conversion overlay tactics=%s", len(_tactics))
+        except Exception:
+            logger.exception("conversion.json unreadable — built-in tactics")
+
     if changed:
         _cache = None
         _cache_at = 0.0
@@ -200,6 +233,12 @@ def reload_overlays(*, force: bool = False) -> bool:
 def live_playbook() -> dict[str, dict[str, str]]:
     reload_overlays()
     return _playbook
+
+
+def live_tactics() -> list[dict[str, str]]:
+    """Dönüşüm taktik bankası — knowledge/conversion.json overlay'i ile sıcak beslenir."""
+    reload_overlays()
+    return _tactics
 
 
 def assistant_context(*, limit: int = 24) -> str:

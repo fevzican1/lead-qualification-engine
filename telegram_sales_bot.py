@@ -1140,6 +1140,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         system_prompt = knowledge.telegram_system_prompt(brief=brief) + _identity_prompt_line()
     except Exception:
         system_prompt = knowledge.telegram_system_prompt(brief=brief)
+    try:
+        from nirvana.conversion_maximizer import close_block
+        system_prompt += close_block(user_text=user_text, brief=brief, chat_id=chat_id)
+    except Exception:
+        logger.exception("conversion close_block failed")
     messages = [
         {"role": "system", "content": system_prompt},
         *_histories[chat_id],
@@ -1156,6 +1161,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     finally:
         stop.set()
         pulse.cancel()
+
+    # Dil Bekçisi: bot sızıntısı + ücretsiz/indirim + imla — gönderim öncesi son kapı.
+    try:
+        from nirvana.language_auditor import audit
+        reply, audit_issues = audit(reply, turkish=_conv_lang(user_text, chat_id), user_text=user_text)
+        if audit_issues:
+            logger.info("Language audit chat %s: %s", chat_id, audit_issues)
+    except Exception:
+        logger.exception("language audit failed")
 
     # Payment is exclusively handled by the deterministic owner-verified path above.
 
@@ -1285,6 +1299,25 @@ async def _heartbeat_loop(application: Application) -> None:
         await asyncio.sleep(10)
 
 
+async def _apply_public_identity(application: Application) -> None:
+    """Bot olduğunu gizle: görünen ad + açıklamalarda 'bot' kelimesi ASLA görünmesin.
+
+    Telegram, kullanıcı adının '-bot' ile bitmesini zorunlu tutar (değiştirilemez);
+    ancak müşterinin sohbet başlığında ve profilde gördüğü görünen ad (set_my_name)
+    ve açıklamalar (set_my_description / set_my_short_description) buradan profesyonel
+    isme zorlanır — BotFather'da eski isim kalsa bile her açılışta düzeltilir.
+    """
+    bot = application.bot
+    display = config.BOT_DISPLAY_NAME
+    try:
+        await bot.set_my_name(display)
+        await bot.set_my_description(config.BOT_PUBLIC_DESCRIPTION)
+        await bot.set_my_short_description(config.BOT_PUBLIC_DESCRIPTION[:120])
+        logger.info("Public identity applied: name=%r (no bot reveal)", display)
+    except Exception:
+        logger.exception("Public identity apply failed — bot may still show old name")
+
+
 async def _post_init(application: Application) -> None:
     application.bot_data["followup_task"] = asyncio.create_task(
         _followup_loop(application), name="tg-followup"
@@ -1292,6 +1325,7 @@ async def _post_init(application: Application) -> None:
     application.bot_data["heartbeat_task"] = asyncio.create_task(
         _heartbeat_loop(application), name="tg-heartbeat"
     )
+    await _apply_public_identity(application)
 
 
 def main() -> None:
