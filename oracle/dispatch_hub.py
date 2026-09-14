@@ -39,22 +39,22 @@ DISPATCH_MATRIX: dict[str, int] = {
     "pipeline-watchdog.yml": 30 * 60,        # schedule-bekçisi: 30dk
     # --- on-beat analiz ve strateji (zincirli A→B→C) ---
     "payload_optimizer.yml": 40 * 60,        # payload optimizasyonu: 40dk
-    "enterprise-feed.yml": 6 * 3600,         # feed üretimi oracle sync: 6saat
-    "nirvana-heavy.yml": 6 * 3600,           # A→B→C zinciri: 6saat
+    "enterprise-feed.yml": 60 * 60,          # entegrasyon feed üretimi: 1 saat
+    "nirvana-heavy.yml": 2 * 3600,           # A→B→C zinciri: 2 saat
     # --- kanıt ve satış pivotu (günlük) ---
     "nirvana-proof.yml": 24 * 3600,          # kanıt kartı üretimi: günlük
     "nirvana-strategy.yml": 24 * 3600,       # strateji pivotu: günlük
     "nirvana-meta.yml": 24 * 3600,           # meta orkestratör: günlük
-    "oracle-diagnose.yml": 24 * 3600,        # oracle sağlık taraması: günlük
-    # --- discovery alt-fleet'ı (Oracle dispatch ile de tetiklenir;
-    #     discovery-pipeline içinde çağrılan zincir parçaları da
-    #     pasif kalmamak için burada listelenir) ---
-    "discover.yml": 6 * 3600,                # discover-cc-longtail fleet: 6saat
-    "discover-cc-eu.yml": 5 * 60,            # CDX EU shard fleet: 5dk ritim (zamana yayılmış)
-    "discover-cc-global.yml": 10 * 60,       # CDX global shard fleet: 10dk ritim
-    "discover-cc-platform.yml": 15 * 60,     # CDX platform shard fleet: 15dk ritim
-    "discover-cc-tr.yml": 20 * 60,           # CDX TR shard fleet: 20dk ritim
-    "discover-tranco-sitemap.yml": 6 * 3600, # tranco sitemap harvest: 6saat
+    "oracle-diagnose.yml": 12 * 3600,        # oracle sağlık taraması: 12 saat
+    # --- discovery alt-fleet'ı — STAGGERED: her CDX dilimi farklı ritimde ---
+    # Feed verimliliği için dilimleri sık ve birbirinden ayrık tetikleyin: biri
+    # 1dk, diğeri 2dk, 4dk, 5dk... böylece aynı anda yarışmayıp kuyruk 500+ kalır.
+    "discover.yml": 6 * 3600,                # discover-cc-longtail fleet: 6 saat
+    "discover-cc-eu.yml": 60,                # CDX EU shard fleet: 1dk ritim
+    "discover-cc-global.yml": 2 * 60,        # CDX global shard fleet: 2dk ritim
+    "discover-cc-platform.yml": 4 * 60,      # CDX platform shard fleet: 4dk ritim
+    "discover-cc-tr.yml": 5 * 60,            # CDX TR shard fleet: 5dk ritim
+    "discover-tranco-sitemap.yml": 8 * 3600, # tranco sitemap harvest: 8 saat
     "discovery-watchdog.yml": 5 * 60,        # discovery fleet tazelik bekçisi: 5dk
     # zincir parçaları (discovery-pipeline içinde çağrılan);
     # ayrıca pasif kalmamak için burada listelenir, min_gap boş

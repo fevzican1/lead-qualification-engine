@@ -54,6 +54,7 @@ DONE_STATUSES = {
     "skipped_captcha",
     "skipped_no_form",
     "skipped_no_open_form",
+    "skipped_no_telegram_link",
     "skipped_unsubscribed",
     "skipped_submit_failed",
     "skipped_unreachable",
@@ -664,11 +665,12 @@ def run_pipeline(args: argparse.Namespace) -> int:
 
 def _visit_budget(remain: int) -> int:
     """Cap each pipeline run so auto_runner cycles every ~5–10 minutes."""
-    slice_cap = int(getattr(config, "PIPELINE_SUBMIT_SLICE", 10) or 10)
+    slice_cap = int(getattr(config, "PIPELINE_SUBMIT_SLICE", 24) or 24)
     if remain <= 0:
         return 0
-    # Allow ~2× visits per target submit (CAPTCHA / no-form skips).
-    return min(slice_cap * 2, remain * 2, slice_cap + 8)
+    # Slice 24 + 16 headroom = up to 40 visits/run; at ~22% confirm rate this
+    # fills the 40/hour floor in ~2 runs while hourly/daily caps stay binding.
+    return min(slice_cap * 2, remain * 2, slice_cap + 16)
 
 
 def _run_browser_pipeline(
@@ -686,10 +688,10 @@ def _run_browser_pipeline(
     if submitting:
         _today_n, hour_n = knowledge.submit_counts(leads)
         remain = max(0, int(knowledge.hourly_cap()) - hour_n)
-        slice_cap = int(getattr(config, "PIPELINE_SUBMIT_SLICE", 10) or 10)
+        slice_cap = int(getattr(config, "PIPELINE_SUBMIT_SLICE", 24) or 24)
         jobs = jobs[: min(_visit_budget(remain), slice_cap * 2)]
     else:
-        jobs = jobs[: int(getattr(config, "CHROMIUM_BATCH", 32) or 32)]
+        jobs = jobs[: int(getattr(config, "CHROMIUM_BATCH", 40) or 40)]
     if not jobs:
         logger.info("No easy-score>=%s jobs this slice — Chromium skipped", min_easy)
         return []

@@ -853,13 +853,20 @@ def chromium_fuel_count(*, min_easy: int | None = None) -> int:
 
 
 def chromium_fuel_target() -> int:
-    """Minimum ready hosts before discovery urgency eases (~3 tries per hourly floor)."""
+    """Minimum ready hosts before discovery urgency eases.
+
+    Tank hedefi operatörün istediği 500 seviyesinde standartlaştırıldı:
+    floor*3 (saatlik ihtiyaç), QUEUE_REFILL_BELOW ve FUEL_TARGET'ın en büyüğü
+    alınır — böylece kuyruk 500'ün altına düştüğünde discovery hiç beklemeden
+    doldurma moduna geçer (refill-on-low / discovery-pipeline yakıt kontrolü).
+    """
     import knowledge
 
-    floor = int(getattr(config, "HOURLY_SUBMIT_FLOOR", 30) or 30)
+    floor = int(getattr(config, "HOURLY_SUBMIT_FLOOR", 40) or 40)
     floor = min(floor, int(knowledge.hourly_cap()))
-    refill = int(getattr(config, "QUEUE_REFILL_BELOW", 80) or 80)
-    return max(floor * 3, refill)
+    refill = int(getattr(config, "QUEUE_REFILL_BELOW", 150) or 150)
+    fuel_target = int(getattr(config, "FUEL_TARGET", 500) or 500)
+    return max(floor * 3, refill, fuel_target)
 
 
 def feed_eligible(url: str) -> bool:

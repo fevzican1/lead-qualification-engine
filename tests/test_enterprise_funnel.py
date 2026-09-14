@@ -286,7 +286,7 @@ def test_global_caps_cannot_expand_and_zero_stops(monkeypatch):
     monkeypatch.setattr(knowledge, "oracle_lock", lambda: {"daily_submit_limit": 900, "hourly_submit_limit": 900})
     monkeypatch.setattr(config, "DAILY_SUBMIT_LIMIT", 900)
     monkeypatch.setattr(config, "HOURLY_SUBMIT_LIMIT", 900)
-    assert (knowledge.daily_cap(), knowledge.hourly_cap()) == (400, 32)
+    assert (knowledge.daily_cap(), knowledge.hourly_cap()) == (400, 60)
     monkeypatch.setattr(config, "HOURLY_SUBMIT_LIMIT", 0)
     assert knowledge.hourly_cap() == 0
 

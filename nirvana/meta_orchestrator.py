@@ -101,13 +101,19 @@ def run_batch(*, outcomes_path: Any = None, notify: bool = True) -> dict[str, An
     weights = update_weights(current.get("lane_weights") or {"smb": 0.5, "enterprise": 0.5}, yields)
     recs = recommendations(outcomes, weights, strategy)
 
+    try:
+        import knowledge as _knowledge
+        _daily_hard = _knowledge.daily_cap()
+        _hourly_hard = _knowledge.hourly_cap()
+    except Exception:  # noqa: BLE001 — meta raporu asla cap belirleyici değildir
+        _daily_hard, _hourly_hard = 400, 60
     state = {
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "lane_weights": weights,
         "yields": yields,
         "captcha_share": captcha_share(outcomes),
         "recommendations": recs,
-        "hard_limits": {"daily": 400, "hourly": 32, "per_esp_hour": 3},
+        "hard_limits": {"daily": _daily_hard, "hourly": _hourly_hard, "per_esp_hour": 3},
     }
     tmp = meta_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

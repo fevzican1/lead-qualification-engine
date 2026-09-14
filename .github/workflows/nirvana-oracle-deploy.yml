@@ -26,6 +26,12 @@ jobs:
       # Oracle'dan tam 15dk'da bir workflow tetiklemek için Actions:write PAT
       # (secret yoksa boş geçilir — Oracle timer'ı Telegram uyarı modunda bekler).
       GH_DISPATCH_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
+      TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TG_BOT_USERNAME: ${{ secrets.TELEGRAM_BOT_USERNAME }}
+      TG_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+      TG_NOTIFY_BOT_TOKEN: ${{ secrets.TELEGRAM_NOTIFY_BOT_TOKEN }}
+      TG_NOTIFY_CHAT_ID: ${{ secrets.TELEGRAM_NOTIFY_CHAT_ID }}
+      ADMIN_CODE: ${{ secrets.ADMIN_CODE }}
     steps:
       - uses: actions/checkout@v4
       - name: SSH anahtarı hazırla
@@ -86,11 +92,32 @@ jobs:
           sed -i 's/\r$//' oracle/nirvana_oracle_install.sh
           chmod +x oracle/nirvana_oracle_install.sh
           echo "=== [2] Nirvana kurulum (link + systemd timer'lar) ==="
-          # Form akisi garanti: SMB seridi acik + enterprise cap ayarli (eski .env
-          # degerleri varsa guncellenir; kotalar 400/gun 32/saat aynen kalir).
-          grep -q '^SMB_LANE_ENABLED=' .env && sed -i 's|^SMB_LANE_ENABLED=.*|SMB_LANE_ENABLED=1|' .env || printf 'SMB_LANE_ENABLED=1\n' >> .env
-          grep -q '^ENTERPRISE_DAILY_CAP=' .env && sed -i 's|^ENTERPRISE_DAILY_CAP=.*|ENTERPRISE_DAILY_CAP=40|' .env || printf 'ENTERPRISE_DAILY_CAP=40\n' >> .env
-          grep -q '^ENTERPRISE_HOURLY_CAP=' .env && sed -i 's|^ENTERPRISE_HOURLY_CAP=.*|ENTERPRISE_HOURLY_CAP=4|' .env || printf 'ENTERPRISE_HOURLY_CAP=4\n' >> .env
+          # Form akisi garanti: SMB seridi acik + enterprise cap ayarli. 2026-09
+          # retainer hedefleri Oracle .env'ine yazilir (eski 32/300/16 degerleri
+          # override edilir): 400/gun, 48/saat, yakıt 500.
+          for kv in \
+            "SMB_LANE_ENABLED|1" \
+            "ENTERPRISE_DAILY_CAP|40" \
+            "ENTERPRISE_HOURLY_CAP|4" \
+            "DAILY_SUBMIT_LIMIT|400" \
+            "HOURLY_SUBMIT_LIMIT|48" \
+            "HOURLY_SUBMIT_FLOOR|40" \
+            "DAILY_HTTP_PROBE_LIMIT|800" \
+            "HOURLY_HTTP_PROBE_LIMIT|40" \
+            "CHROMIUM_BATCH|40" \
+            "PIPELINE_SUBMIT_SLICE|24" \
+            "QUEUE_TARGET|500" \
+            "QUEUE_REFILL_BELOW|150" \
+            "QUEUE_MAX|2500" \
+            "FUEL_TARGET|500" \
+            "PIPELINE_TIMEOUT_SECONDS|180"; do
+            key="${kv%%|*}"; val="${kv#*|}"
+            if grep -q "^${key}=" .env; then
+              sed -i "s|^${key}=.*|${key}=${val}|" .env
+            else
+              printf '%s=%s\n' "${key}" "${val}" >> .env
+            fi
+          done
           sudo -n PAYONEER_LINK="${PAYONEER_LINK:-}" bash oracle/nirvana_oracle_install.sh
           echo "=== [3] Canlı doğrulama ==="
           .venv/bin/python - <<'PY'

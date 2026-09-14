@@ -186,19 +186,23 @@ if FORM_DELAY_FAST_MAX_SECONDS >= 20:
 LEAD_BATCH_SIZE: int = _get_int("LEAD_BATCH_SIZE", 15)
 AUTO_RUNNER_SLEEP_SECONDS: int = _get_int("AUTO_RUNNER_SLEEP_SECONDS", 21_600)
 DAILY_SUBMIT_LIMIT: int = _get_int("DAILY_SUBMIT_LIMIT", 400)
-HOURLY_SUBMIT_LIMIT: int = _get_int("HOURLY_SUBMIT_LIMIT", 32)
-# Target floor inside the cap: keep the hour at 30+ posts, never above the cap.
-HOURLY_SUBMIT_FLOOR: int = _get_int("HOURLY_SUBMIT_FLOOR", 30)
-DAILY_HTTP_PROBE_LIMIT: int = _get_int("DAILY_HTTP_PROBE_LIMIT", 500)
-HOURLY_HTTP_PROBE_LIMIT: int = _get_int("HOURLY_HTTP_PROBE_LIMIT", 22)
-CHROMIUM_BATCH: int = _get_int("CHROMIUM_BATCH", 32)
-HTTP_PROBE_BATCH: int = _get_int("HTTP_PROBE_BATCH", 20)
-MAX_PIPELINE_PROBES: int = _get_int("MAX_PIPELINE_PROBES", 22)
+HOURLY_SUBMIT_LIMIT: int = _get_int("HOURLY_SUBMIT_LIMIT", 48)
+# Target floor inside the cap: keep the hour at 40+ posts, never above the cap.
+HOURLY_SUBMIT_FLOOR: int = _get_int("HOURLY_SUBMIT_FLOOR", 40)
+DAILY_HTTP_PROBE_LIMIT: int = _get_int("DAILY_HTTP_PROBE_LIMIT", 800)
+HOURLY_HTTP_PROBE_LIMIT: int = _get_int("HOURLY_HTTP_PROBE_LIMIT", 40)
+CHROMIUM_BATCH: int = _get_int("CHROMIUM_BATCH", 40)
+HTTP_PROBE_BATCH: int = _get_int("HTTP_PROBE_BATCH", 26)
+MAX_PIPELINE_PROBES: int = _get_int("MAX_PIPELINE_PROBES", 40)
 DISCOVERY_EVERY_SECONDS: int = _get_int("DISCOVERY_EVERY_SECONDS", 18_000)
-# 30 was a panic floor, not a fill target. Keep a real buffer so Chromium never starves.
-QUEUE_TARGET: int = _get_int("QUEUE_TARGET", 400)
-QUEUE_REFILL_BELOW: int = _get_int("QUEUE_REFILL_BELOW", 80)
-QUEUE_MAX: int = _get_int("QUEUE_MAX", 1500)
+# 30 was a panic floor, not a fill target. Keep the tank at 500 so the two lanes
+# together can reach the 400/day ceiling without ever starving discovery.
+QUEUE_TARGET: int = _get_int("QUEUE_TARGET", 500)
+QUEUE_REFILL_BELOW: int = _get_int("QUEUE_REFILL_BELOW", 150)
+QUEUE_MAX: int = _get_int("QUEUE_MAX", 2500)
+# Minimum ready-queue depth the fuel guard treats as a full tank. Below this the
+# Oracle dispatch hub fires an urgent fleet refill (CHROMIUM_FUEL -> 500+).
+FUEL_TARGET: int = _get_int("FUEL_TARGET", 500)
 READY_QUEUE_FLOOR: int = _get_int("READY_QUEUE_FLOOR", 50)
 READY_QUEUE_TARGET: int = _get_int("READY_QUEUE_TARGET", 100)
 EASY_SCORE_MIN: int = _get_int("EASY_SCORE_MIN", 55)
@@ -230,10 +234,10 @@ FEED_RAW_URL: str = _get(
 FEED_URL: str = _get("FEED_URL")
 FEED_GITHUB_TOKEN: str = _get("FEED_GITHUB_TOKEN")
 SITE_TIMEOUT_SECONDS: int = _get_int("SITE_TIMEOUT_SECONDS", 45)
-# Max hosts per pipeline --submit invocation (~5–15 min wall time). 16 → the
-# ~22% confirm rate yields ~5 confirmed posts per visit batch, which keeps the
-# hourly floor (30) reachable without pushing the hourly cap.
-PIPELINE_SUBMIT_SLICE: int = _get_int("PIPELINE_SUBMIT_SLICE", 16)
+# Max hosts per pipeline --submit invocation (~5–15 min wall time). 24 → with the
+# ~22% confirm rate, up to ~5-6 confirmed posts per visit batch — enough to fill
+# the 40/hour floor in fewer cycles while the per-provider pacing still protects.
+PIPELINE_SUBMIT_SLICE: int = _get_int("PIPELINE_SUBMIT_SLICE", 24)
 # Proof card delay after /start (seconds).
 PROOF_CARD_DELAY_SECONDS: int = _get_int("PROOF_CARD_DELAY_SECONDS", 45)
 # Second Chromium pass on a site that already failed: cut and move on.
@@ -271,6 +275,27 @@ def telegram_deeplink(start: str = "") -> str:
     if token:
         return f"https://t.me/{TELEGRAM_BOT_USERNAME}?start={token}"
     return f"https://t.me/{TELEGRAM_BOT_USERNAME}"
+
+
+def require_live_telegram_link(start: str = "") -> str:
+    """Fail-closed t.me link for real form sends.
+
+    Local invention yerine tek doğruluk kaynağı: Oracle .env / repo secret ile
+    çözülmüş TELEGRAM_BOT_USERNAME. Username boşsa ya da sadece metin
+    dönüyorsa RuntimeError — çağrıcı lead'i `skipped_no_telegram_link` olarak
+    işaretler ve yakıtı tıklanamaz bir formla yakmaz.
+    """
+    username = (TELEGRAM_BOT_USERNAME or "").strip().lstrip("@")
+    if not username:
+        raise RuntimeError(
+            "TELEGRAM_BOT_USERNAME eksik: t.me linki üretilemez. "
+            "Oracle /opt/devsolve/.env içine ya da repo secret'larına "
+            "(TELEGRAM_BOT_TOKEN + TELEGRAM_BOT_USERNAME) girin."
+        )
+    token = re.sub(r"[^A-Za-z0-9_-]", "", (start or "").strip())[:64] if start else ""
+    if token:
+        return f"https://t.me/{username}?start={token}"
+    return f"https://t.me/{username}"
 
 
 def ensure_telegram_username() -> str:

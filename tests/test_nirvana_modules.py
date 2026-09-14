@@ -403,11 +403,14 @@ def test_meta_weights_move_toward_winner_and_stay_bounded():
 
 def test_meta_run_batch_never_raises_limits(tmp_path):
     from nirvana import meta_orchestrator as mo
+    import knowledge
     src = tmp_path / "outcomes.json"
     src.write_text(json.dumps([{"lane": "smb", "converted": True}]), encoding="utf-8")
     result = mo.run_batch(outcomes_path=src, notify=False)
     saved = json.loads(state_path("meta_state.json").read_text(encoding="utf-8"))
-    assert saved["hard_limits"] == {"daily": 400, "hourly": 32, "per_esp_hour": 3}
+    assert saved["hard_limits"] == {"daily": knowledge.daily_cap(),
+                                    "hourly": knowledge.hourly_cap(),
+                                    "per_esp_hour": 3}
     assert any("kota yükseltilmez" in r for r in result["recommendations"])
 
 

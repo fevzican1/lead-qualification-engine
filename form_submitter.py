@@ -468,6 +468,25 @@ def _submit_with_page(
         import enterprise_forms
         return enterprise_forms.submit(page, lead)
 
+    # FORMLINK GUARD: t.me bağlantısı olmadan form gönderme. username boşsa
+    # mesaj gövdesine sadece "Telegram" kelimesi düşer — tıklanamaz → dönüş 0.
+    # Böyle bir form kuyruğu yakıtını boş yere yakar; fail-closed skip edilir.
+    try:
+        live_link = config.require_live_telegram_link(lead.get("telegram_start") or "")
+    except RuntimeError:
+        result["status"] = "skipped_no_telegram_link"
+        result["error"] = (
+            "Telegram bot identity eksik: TELEGRAM_BOT_USERNAME ayarlayın "
+            "(ya da bot token ile getMe çözümüne izin verin)."
+        )
+        logger.warning("Skipping submit for %s (no_telegram_link)", lead.get("url"))
+        return result
+    if "t.me/" not in live_link:
+        result["status"] = "skipped_no_telegram_link"
+        result["error"] = "Live Telegram link üretilemedi — boş mesajla firma yakma."
+        logger.warning("Skipping submit for %s (no_telegram_link)", lead.get("url"))
+        return result
+
     message = (lead.get("value_proposition") or "").strip()
     if not message:
         result["status"] = "skipped_no_pitch"

@@ -38,7 +38,7 @@ ORACLE_FREE = {
     "smtp": False,
     "public_ollama": False,
     "daily_submit_limit": 400,
-    "hourly_submit_limit": 32,
+    "hourly_submit_limit": 60,  # hard edge; effective cap = min(env, oracle.json, 60)
 }
 
 PLAYBOOK: dict[str, dict[str, str]] = {
@@ -215,13 +215,16 @@ def catalog_urls() -> list[str]:
 def daily_cap() -> int:
     env = int(config.DAILY_SUBMIT_LIMIT)
     file_cap = int(oracle_lock().get("daily_submit_limit") or env)
+    # 400/day is the hard contract the operator asked for; it never expands.
     return max(0, min(400, env, file_cap))
 
 
 def hourly_cap() -> int:
     env = int(getattr(config, "HOURLY_SUBMIT_LIMIT", 20))
     file_cap = int(oracle_lock().get("hourly_submit_limit") or env)
-    return max(0, min(32, env, file_cap))
+    # 60/hour hard edge lets 400/day fill in ~7 active hours while the
+    # per-provider pacing (3/h/provider) still keeps any ESP inbox clean.
+    return max(0, min(60, env, file_cap))
 
 
 def bottleneck_for(hints: list[str], *, turkish: bool) -> str:
