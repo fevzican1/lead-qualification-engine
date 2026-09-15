@@ -133,20 +133,21 @@ def lead_digest() -> str:
     sessions = [r for r in telegram_sessions._load().values() if isinstance(r, dict)]
     funnel = {key: sum(bool(r.get(key)) for r in sessions) for key in
               ("interest_reported", "contract_signed", "payment_reported", "payment_verified")}
+    # DİKKAT: listedeki ardışık string'ler Python'un implicit concatenation'ı ile
+    # TEK satıra birleşir. Bir bloğun ortasına yeni bir satır eklerken araya
+    # boşluk bırakmak "Kuyruk: ..." ile "Model: ..."ı yapıştırır. Özet bu yüzden
+    # tek bloktur; Funnel/Kuyruk satırları bir kez yazılır (sahibe giden özet
+    # mesajında tekrar ve yapışma olmaz).
     lines = [
         "DevSolve motor özeti (Oracle, Always Free)",
-        f"Funnel (başvuru ≠ kabul ≠ tahsilat): {funnel}",
-        "Kabul/dönüş oranı yalnızca doğrulanmış (verified) sonuçlarla ölçülür; "
-        "henüz yeterli veri birmediğinde kesin rakam paylaşılmaz.",
-        f"Kuyruk: {domain_store.queue_depth()}/{getattr(config, 'QUEUE_TARGET', 150)} "
-
         f"Model: {config.OLLAMA_MODEL}",
         f"Toplam lead: {len(data)}",
         f"Form gönderildi: {submitted}",
         f"Kurumsal uygun hedef: {len(enterprise_targets.load_all())}; "
         f"deneme gün/saat: {enterprise_apply.enterprise_counts()}",
         f"Funnel (başvuru ≠ kabul ≠ tahsilat): {funnel}",
-        "Kabul yüzdesi henüz doğrulanmış sonuçlarla ölçülmedi; otomatik teslimat işçisi yok.",
+        "Kabul/dönüş oranı yalnızca doğrulanmış (verified) sonuçlarla ölçülür; "
+        "henüz yeterli veri birmediğinde kesin rakam paylaşılmaz.",
         f"Kuyruk: {domain_store.queue_depth()}/{getattr(config, 'QUEUE_TARGET', 150)} "
         f"(max {getattr(config, 'QUEUE_MAX', 250)}) | hazır {domain_store.ready_pool_size()} "
         f"| HTTP {domain_store.http_budget_label()}",

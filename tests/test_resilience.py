@@ -122,3 +122,132 @@ def test_owner_notify_failure_queues_and_replays(isolated_state, monkeypatch):
     conn.close()
     relay = task_queue.run_due("telegram_notify", owner_notify.deliver_queued_notify)
     assert relay == {"done": 1, "failed": 0}
+
+
+class _Resp:
+    """Telegram yanıtı taklidi — sadece .json() kullanılır."""
+
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+
+    def json(self) -> dict:
+        return self._payload
+
+
+def test_mask_token_sizintisini_engeller(monkeypatch):
+    """Telegram hata metni URL içinde token taşır — log'a sızmamalı."""
+    import config
+    import owner_notify
+
+    monkeypatch.setattr(config, "TELEGRAM_NOTIFY_BOT_TOKEN", "123:AA-notify-secret")
+    monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", "456:BB-sales-secret")
+    leak = ("HTTPStatusError for url "
+            "https://api.telegram.org/bot123:AA-notify-secret/sendMessage")
+    masked = owner_notify._mask(leak)
+    assert "123:AA-notify-secret" not in masked
+    assert "456:BB-sales-secret" not in masked
+    assert "***" in masked
+
+
+def test_probe_delivery_hat_kapaliyken_false(isolated_state, monkeypatch):
+    """Token/hedef 'ayarlı' görünse bile hat KAPALI ise can_deliver=False döner.
+
+    Canlı vaka: notify token iptal (404) + owner chat bir bot hesabı (403).
+    Eski kod yalnızca \"ayarlı mı\" baktığı için deploy çıktısı 'kanal: True'
+    diyordu; lead bildirimleri ise sessizce kayboluyordu.
+    """
+    import config
+    import owner_notify
+
+    monkeypatch.setattr(owner_notify, "PATH", isolated_state / "owner.json")
+    monkeypatch.setattr(config, "TELEGRAM_NOTIFY_BOT_TOKEN", "gecersiz-notify-token")
+    monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", "gecerli-satis-token")
+    monkeypatch.setattr(config, "TELEGRAM_NOTIFY_CHAT_ID", "")
+    monkeypatch.setattr(config, "TELEGRAM_OWNER_CHAT_ID", "777")
+    # notify token iptal edilmiş (Telegram 404), satış tokeni geçerli:
+    monkeypatch.setattr(owner_notify, "_token_ok", lambda tok: tok == "gecerli-satis-token")
+
+    def _deny(url, **_kw):
+        assert "getChat" in url  # mesaj GÖNDERİLMEZ, yalnızca sorgu
+        return _Resp({"ok": False,
+                      "description": "Forbidden: the bot can't send messages to the bot"})
+
+    monkeypatch.setattr(owner_notify.httpx, "post", _deny)
+    probe = owner_notify.probe_delivery()
+    assert probe["notify_token_valid"] is False
+    assert probe["sales_token_valid"] is True
+    assert probe["token_used"] == "sales"
+    assert probe["target_reachable"] is False
+    assert probe["can_deliver"] is False  # \"kanal: True\" yanılsaması yok
+    assert "bot" in probe["target_detail"]
+
+
+def test_probe_delivery_hat_acikken_true(isolated_state, monkeypatch):
+    import config
+    import owner_notify
+
+    monkeypatch.setattr(owner_notify, "PATH", isolated_state / "owner.json")
+    monkeypatch.setattr(config, "TELEGRAM_NOTIFY_BOT_TOKEN", "gecerli-notify-token")
+    monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", "")
+    monkeypatch.setattr(config, "TELEGRAM_NOTIFY_CHAT_ID", "555")
+    monkeypatch.setattr(config, "TELEGRAM_OWNER_CHAT_ID", "")
+    monkeypatch.setattr(owner_notify, "_token_ok", lambda tok: bool(tok))
+    monkeypatch.setattr(owner_notify.httpx, "post",
+                        lambda url, **_kw: _Resp({"ok": True, "result": {"type": "private"}}))
+
+    probe = owner_notify.probe_delivery()
+    assert probe["notify_token_valid"] is True
+    assert probe["token_used"] == "notify"
+    assert probe["target_chat_id"] == 555
+    assert probe["can_deliver"] is True
+
+
+def test_lead_digest_satirlari_yapismaz_ve_tekrarlanmaz(isolated_state, monkeypatch):
+    """Özet mesajı: yapışan satır (implicit concat) ve tekrar eden blok olmamalı."""
+    import config
+    import domain_store
+    import enterprise_apply
+    import enterprise_targets
+    import knowledge
+    import owner_notify
+    import telegram_sessions
+
+    rows = [{"status": "submitted"}, {"status": "pending"}]
+    leads = isolated_state / "leads.json"
+    leads.write_text(json.dumps(rows), encoding="utf-8")
+    monkeypatch.setattr(config, "LEADS_PATH", leads)
+    monkeypatch.setattr(config, "OLLAMA_MODEL", "test-model")
+    monkeypatch.setattr(domain_store, "queue_depth", lambda: 7)
+    monkeypatch.setattr(domain_store, "ready_pool_size", lambda *a, **k: 3)
+    monkeypatch.setattr(domain_store, "http_budget_label", lambda: "gün 1/2 saat 1/2")
+    monkeypatch.setattr(enterprise_targets, "load_all", lambda *a, **k: [])
+    monkeypatch.setattr(enterprise_apply, "enterprise_counts", lambda *a, **k: (0, 0))
+    monkeypatch.setattr(telegram_sessions, "_load", lambda: {})
+
+    lines = owner_notify.lead_digest().split("\n")
+    body = [ln for ln in lines if ln]
+
+    # 1) Hiçbir satır ikinci kez yazılmaz (Funnel/Kuyruk bloğu iki kez yok).
+    assert len(body) == len(set(body)), f"özet tekrar eden satır içeriyor: {body}"
+
+    # 2) 'Model:' satırı 'Kuyruk:' satırına yapışmamalı (implicit concatenation).
+    assert sum(ln.startswith("Model: ") for ln in lines) == 1
+    assert not any("Kuyruk:" in ln and "Model:" in ln for ln in lines), f"yapışmış: {lines}"
+
+    # 3) Tek Funnel + tek Kuyruk satırı, bilgi kaybı olmadan.
+    funnel_lines = [ln for ln in lines if ln.startswith("Funnel (")]
+    kuyruk_lines = [ln for ln in lines if ln.startswith("Kuyruk: ")]
+    assert len(funnel_lines) == 1
+    assert len(kuyruk_lines) == 1
+    assert kuyruk_lines[0].startswith("Kuyruk: 7/")
+    assert "(max " in kuyruk_lines[0]
+    assert "hazır 3" in kuyruk_lines[0]
+    assert "HTTP gün 1/2 saat 1/2" in kuyruk_lines[0]
+
+    # 4) Rakamlar gerçek veriden gelir (uydurma/tekrar yok).
+    expected_submitted = sum(1 for r in rows
+                             if r["status"] in knowledge.CONFIRMED_SUBMIT_STATUSES)
+    assert "Toplam lead: 2" in lines
+    assert f"Form gönderildi: {expected_submitted}" in lines
+    assert "Model: test-model" in lines
+    assert any(ln.startswith("Durumlar: ") for ln in lines)
