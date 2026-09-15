@@ -40,6 +40,7 @@ import proof_card
 import telegram_handoff
 import telegram_sessions
 import payment_safety
+import flood_guard
 
 try:
     from nirvana.self_serve_close import TERMS_RE as _TERMS_RE
@@ -1319,6 +1320,9 @@ def _offline_reply(user_text: str, row: dict[str, Any] | None) -> tuple[str, boo
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Telegram error: %s", context.error, exc_info=context.error)
+    # Flood cezası aktifken kullanıcıya hata mesajı DENEME — döngüyü büyütür.
+    if flood_guard.remaining() > 5:
+        return
     # Sessiz ölüm olmasın: handler içinde patlarsa kullanıcıya da söyle.
     chat_id = None
     try:
@@ -1343,6 +1347,10 @@ async def _followup_loop(application: Application) -> None:
     await asyncio.sleep(45)
     while True:
         try:
+            if flood_guard.remaining() > 60:
+                # Flood cezası uzun: Telegram'a spam atma, sessiz bekle.
+                await asyncio.sleep(60)
+                continue
             owner_id = owner_notify.load_admin_chat_id()
             for row in telegram_sessions.due_followups():
                 try:
@@ -1356,6 +1364,8 @@ async def _followup_loop(application: Application) -> None:
                     continue
                 text = telegram_sessions.followup_text(row)
                 try:
+                    if not await flood_guard.acquire(chat_id):
+                        raise flood_guard.FloodBlocked(chat_id, flood_guard.remaining())
                     await application.bot.send_message(chat_id=chat_id, text=_display_text(text))
                 except Exception:
                     logger.warning("Follow-up failed for chat %s", chat_id, exc_info=True)
@@ -1407,6 +1417,8 @@ async def _apply_public_identity(application: Application) -> None:
 
 
 async def _post_init(application: Application) -> None:
+    # Telegram flood cezası bir daha yaşanmasın: tüm giden çağrılar kapıdan geçer.
+    flood_guard.install(application.bot)
     application.bot_data["followup_task"] = asyncio.create_task(
         _followup_loop(application), name="tg-followup"
     )
