@@ -32,6 +32,34 @@ def _parse_chat_id(raw: str) -> int | None:
         return None
 
 
+def _mask(text: Any) -> str:
+    """Log/journal'a bot tokenı sızmasın.
+
+    Telegram hata mesajları URL içinde tokenı taşır
+    (https://api.telegram.org/bot<TOKEN>/sendMessage) — maskelenmezse token
+    journald'ye ve CI loglarına düşer.
+    """
+    out = str(text)
+    for raw in (config.TELEGRAM_NOTIFY_BOT_TOKEN, config.TELEGRAM_BOT_TOKEN):
+        tok = (raw or "").strip()
+        if tok:
+            out = out.replace(tok, "***")
+    return out
+
+
+def _token_ok(token: str) -> bool:
+    """Token gerçekten geçerli mi? (Telegram geçersiz/iptal token'a 404 döner.)"""
+    tok = (token or "").strip()
+    if not tok:
+        return False
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    try:
+        resp = httpx.post(f"https://api.telegram.org/bot{tok}/getMe", timeout=15)
+        return bool(resp.json().get("ok"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def load_admin_chat_id() -> int | None:
     """Sales-bot admin (/reply, /status) — never a customer thread."""
     cid = _parse_chat_id(config.TELEGRAM_OWNER_CHAT_ID)
@@ -176,6 +204,46 @@ def deliver_queued_notify(task: dict[str, Any]) -> bool:
         return False
 
 
+def probe_delivery() -> dict[str, Any]:
+    """Bildirim hattının GERÇEK sağlığı (mesaj göndermeden ölçer).
+
+    Token'ın .env'de VAR olması yetmez: Telegram geçersiz/iptal token'a 404,
+    bot hesabına hedeflenmiş sohbete 403 döner. Bu yüzden "kanal: True"
+    yanılsaması oluşup lead bildirimleri sessizce kaybolabiliyordu.
+    getMe + getChat ile gerçek durum ölçülür (hiç mesaj gönderilmez).
+    """
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    notify_token = (config.TELEGRAM_NOTIFY_BOT_TOKEN or "").strip()
+    sales_token = (config.TELEGRAM_BOT_TOKEN or "").strip()
+    target = load_notify_chat_id()
+    notify_valid = _token_ok(notify_token)
+    sales_valid = _token_ok(sales_token)
+    token = notify_token if notify_valid else sales_token
+    result: dict[str, Any] = {
+        "notify_token_valid": notify_valid,
+        "sales_token_valid": sales_valid,
+        "token_used": "notify" if notify_valid else ("sales" if sales_valid else "yok"),
+        "target_chat_id": target,
+        "target_reachable": False,
+        "target_detail": "",
+        "can_deliver": False,
+    }
+    if not target or not token:
+        result["target_detail"] = "hedef chat veya geçerli token yok"
+        return result
+    try:
+        resp = httpx.post(f"https://api.telegram.org/bot{token}/getChat",
+                          json={"chat_id": int(target)}, timeout=20)
+        data = resp.json()
+        result["target_reachable"] = bool(data.get("ok"))
+        detail = str(data.get("description") or (data.get("result") or {}).get("type") or "")
+        result["target_detail"] = _mask(detail)
+    except Exception as exc:  # noqa: BLE001
+        result["target_detail"] = _mask(exc)
+    result["can_deliver"] = bool(result["target_reachable"] and (notify_valid or sales_valid))
+    return result
+
+
 def send(text: str, *, chat_id: int | None = None, high_priority: bool = False) -> bool:
     """Send owner notification. high_priority=True disables silent notification
     so the owner's phone alerts even in Do-Not-Disturb mode.
@@ -199,20 +267,27 @@ def send(text: str, *, chat_id: int | None = None, high_priority: bool = False) 
                            max_attempts=8, delay_s=45)
         logger.warning("Telegram notify circuit open — queued instead")
         return False
+    last_exc: Exception | None = None
     for attempt in range(1, 4):
         try:
             _post_message(int(target), body, silent=not high_priority)
             circuit_breaker.record("telegram_notify", True)
             return True
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Owner Telegram notify attempt %s failed: %s", attempt, exc)
+            last_exc = exc
+            logger.warning("Owner Telegram notify attempt %s failed: %s", attempt, _mask(exc))
             time.sleep(2 * attempt)
     circuit_breaker.record("telegram_notify", False)
     task_queue.enqueue("telegram_notify",
                        {"chat_id": int(target), "text": body,
                         "high_priority": bool(high_priority)},
                        max_attempts=8, delay_s=60)
-    logger.error("Owner Telegram notify failed after retries — queued for relay")
+    logger.error(
+        "Owner Telegram notify failed after retries — queued for relay. "
+        "Kontrol: TELEGRAM_NOTIFY_BOT_TOKEN gecerliligi (getMe) ve hedef chat "
+        "(bot hesabina isaret ediyorsa 403 doner). Son hata: %s",
+        _mask(last_exc) if last_exc else "bilinmiyor",
+    )
     return False
 
 

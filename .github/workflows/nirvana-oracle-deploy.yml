@@ -193,6 +193,25 @@ jobs:
           print("watchdog kota:", w.quota_snapshot())
           print("cooldown:", w.in_cooldown())
           PY
+          echo "=== [3b] Bildirim hatti gercek testi (mesaj gondermeden) ==="
+          .venv/bin/python - <<'PY'
+          import json
+          import owner_notify
+
+          probe = owner_notify.probe_delivery()
+          print("bildirim hatti:", json.dumps(probe, ensure_ascii=False))
+          if not probe.get("can_deliver"):
+              # Token/chat 'var' gorunup de 404/403 donerse lead bildirimleri
+              # sahibe ULASMIYOR; bunu deploy ciktisinda gorunur kiliyoruz.
+              print(
+                  "::warning::Telegram bildirim hatti KAPALI — lead bildirimleri sahibe ULASMIYOR. "
+                  f"notify_token_valid={probe.get('notify_token_valid')} "
+                  f"sales_token_valid={probe.get('sales_token_valid')} "
+                  f"hedef={probe.get('target_chat_id')} detay={probe.get('target_detail')}. "
+                  "Cozum: gecerli TELEGRAM_NOTIFY_BOT_TOKEN verin VEYA satis botuna /notifyme yazip "
+                  "gercek kullanici chat id'nizi kaydettirin (bot hesabina hedeflenen sohbet 403 verir)."
+              )
+          PY
           systemctl list-timers 'nirvana-*' --no-pager || sudo -n systemctl list-timers 'nirvana-*' --no-pager
           echo "dispatch timer durumu: $(systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || sudo -n systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || echo 'kurulamadı')"
           echo "=== [4] Satış botu + runner (self-healing) canlıya alma ==="
