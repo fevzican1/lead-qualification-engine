@@ -56,6 +56,21 @@ _briefs: dict[int, dict[str, Any]] = {}
 _payment_sent: set[int] = set()
 _proof_tasks: dict[int, asyncio.Task[Any]] = {}
 
+# Çoklu bot havuzu: username -> Application. Form linkleri config.next_bot_username()
+# ile round-robin dağıtılır; her sohbet SADECE kendi botuyla konuşur (sahiplik
+# sessions'da `bot_username` ile kayıtlı). Telegram bot başına flood limiti
+# olduğu için 3 bot = 3x kapasite, tek süreç = tek state (RAM düşük kalır).
+_APPS: dict[str, Application] = {}
+
+
+def _app_for_chat(chat_id: int, default: Application | None = None) -> Application | None:
+    """Sohbetin sahibi botu — oturum /start'ta kaydedilir, followup ve /reply oradan gider."""
+    username = str(telegram_sessions._row(chat_id).get("bot_username") or "")
+    app = _APPS.get(username)
+    if app is not None:
+        return app
+    return default
+
 _BUY_RE = re.compile(
     r"nasıl\s+satın\s*al|nasil\s+satin\s*al|satın\s*al[ıi]r[ıi]m|satın\s*almak\s+ist|"
     r"baslayabilir|başlayabilir|haydi\s+başla|hadi\s+başla|anlaştık|anlastik|"
@@ -561,6 +576,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     telegram_sessions.touch_start(
         chat_id, company=company, turkish=turkish, username=_username(update)
     )
+    # Bot sahipliği: bu sohbeti hangi bot aldıysa, followup + /reply o bottan gider.
+    telegram_sessions._put(
+        chat_id, bot_username=str(getattr(context.bot, "username", "") or "")
+    )
     # Teslimat işçisi (Lane AF): geri dönen müşteri hafızayla karşılanır —
     # geçmiş rapor numaraları, önceki sorunlar, ödeme teyidi hatırlanır.
     try:
@@ -876,7 +895,12 @@ async def cmd_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Kullanım: /reply CHATID metin")
         return
     try:
-        await context.bot.send_message(chat_id=target, text=body)
+        # Sahiplik: müşteriyi alan bot üzerinden gönder — çapraz bot 403 verir.
+        owner_app = _app_for_chat(target, context.application)
+        bot = owner_app.bot if owner_app is not None else context.bot
+        if not await flood_guard.acquire(target):
+            raise flood_guard.FloodBlocked(target, flood_guard.remaining())
+        await bot.send_message(chat_id=target, text=body)
     except Exception as exc:
         await update.message.reply_text(
             f"Gönderilemedi: {exc}".strip()[:400]
@@ -1364,9 +1388,13 @@ async def _followup_loop(application: Application) -> None:
                     continue
                 text = telegram_sessions.followup_text(row)
                 try:
+                    # Sahiplik: sohbeti alan bot gönderir; 3 bot havuzunda
+                    # her bot kendi limit havuzunu kullanır.
+                    owner_app = _app_for_chat(chat_id, application)
+                    owner_bot = owner_app.bot if owner_app is not None else application.bot
                     if not await flood_guard.acquire(chat_id):
                         raise flood_guard.FloodBlocked(chat_id, flood_guard.remaining())
-                    await application.bot.send_message(chat_id=chat_id, text=_display_text(text))
+                    await owner_bot.send_message(chat_id=chat_id, text=_display_text(text))
                 except Exception:
                     logger.warning("Follow-up failed for chat %s", chat_id, exc_info=True)
                     telegram_sessions.mark_followup(chat_id)
@@ -1416,31 +1444,29 @@ async def _apply_public_identity(application: Application) -> None:
         logger.exception("Public identity apply failed — bot may still show old name")
 
 
-async def _post_init(application: Application) -> None:
+async def _post_init(application: Application, *, primary: bool = True) -> None:
     # Telegram flood cezası bir daha yaşanmasın: tüm giden çağrılar kapıdan geçer.
+    # (flood_guard her bot için ayrı kurulur — her botun kendi limit havuzu var.)
     flood_guard.install(application.bot)
-    application.bot_data["followup_task"] = asyncio.create_task(
-        _followup_loop(application), name="tg-followup"
-    )
-    application.bot_data["heartbeat_task"] = asyncio.create_task(
-        _heartbeat_loop(application), name="tg-heartbeat"
-    )
+    if primary:
+        # Arka plan döngüleri yalnızca birincil uygulamada: 3 bot = 3 kopya
+        # followup/heartbeat olmasın, routing zaten _app_for_chat ile yapılır.
+        application.bot_data["followup_task"] = asyncio.create_task(
+            _followup_loop(application), name="tg-followup"
+        )
+        application.bot_data["heartbeat_task"] = asyncio.create_task(
+            _heartbeat_loop(application), name="tg-heartbeat"
+        )
     await _apply_public_identity(application)
 
 
-def main() -> None:
-    os.chdir(config.ROOT)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    ollama_client.ensure_model()
-    config.require_bot_keys()
-    config.ensure_telegram_username()
+def _build_application(token: str, *, primary: bool) -> Application:
+    async def _post(app: Application) -> None:
+        await _post_init(app, primary=primary)
+
     application = (
         Application.builder()
-        .token(config.TELEGRAM_BOT_TOKEN)
+        .token(token)
         .connect_timeout(5.0)
         .read_timeout(10.0)
         .write_timeout(10.0)
@@ -1448,7 +1474,7 @@ def main() -> None:
         .get_updates_connect_timeout(5.0)
         .get_updates_read_timeout(40.0)
         .get_updates_pool_timeout(20.0)
-        .post_init(_post_init)
+        .post_init(_post)
         .build()
     )
     application.add_handler(CommandHandler("start", start))
@@ -1467,15 +1493,100 @@ def main() -> None:
     application.add_handler(CommandHandler("resume", cmd_resume))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     application.add_error_handler(on_error)
-    logger.info("Telegram sales bot polling as @%s", config.TELEGRAM_BOT_USERNAME or "bot")
-    # systemd sends SIGTERM; PTB signal handlers break the loop on restart.
-    application.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True,
-        stop_signals=None,
-        timeout=30,
-        bootstrap_retries=8,
+    return application
+
+
+async def _serve(apps: list[Application]) -> None:
+    """Çoklu botu tek asyncio döngüsünde koştur: her bot kendi polling akışı.
+
+    PTB'nin run_polling'i tek uygulama içindir; burada initialize → post_init →
+    start → updater.start_polling adımları her uygulama için elle sıralanır.
+    SIGTERM (systemd) tüm poller'ları temiz kapatır.
+    """
+    import signal as _signal
+
+    loop = asyncio.get_running_loop()
+    stop = asyncio.Event()
+
+    def _request_stop(*_args: object) -> None:
+        loop.call_soon_threadsafe(stop.set)
+
+    for sig in (_signal.SIGTERM, _signal.SIGINT, getattr(_signal, "SIGBREAK", None)):
+        if sig is None:
+            continue
+        try:
+            loop.add_signal_handler(sig, _request_stop)
+        except NotImplementedError:  # Windows: add_signal_handler yok
+            try:
+                _signal.signal(sig, _request_stop)
+            except (ValueError, OSError):
+                pass
+
+    healthy: list[Application] = []
+    for app in apps:
+        try:
+            await app.initialize()
+        except Exception:
+            # Geçersiz/iptal token tüm süreci çökertmesin: o bot havuzdan düşer,
+            # kalan botlar çalışmaya devam eder.
+            logger.exception("bot initialize failed — havuzdan düşürüldü")
+            continue
+        uname = str(getattr(app.bot, "username", "") or "")
+        if uname:
+            _APPS[uname] = app
+        healthy.append(app)
+    apps = healthy
+    for index, app in enumerate(apps):
+        await _post_init(app, primary=(index == 0))
+    for app in apps:
+        await app.start()
+    for app in apps:
+        await app.updater.start_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+            timeout=30,
+            bootstrap_retries=8,
+        )
+    logger.info("Sales bot pool live: %d bot(s) — %s", len(apps), ", @".join(_APPS))
+    try:
+        await stop.wait()
+    finally:
+        for app in apps:
+            try:
+                await app.updater.stop()
+            except Exception:
+                logger.exception("updater stop failed")
+            try:
+                await app.stop()
+                await app.shutdown()
+            except Exception:
+                logger.exception("app stop/shutdown failed")
+
+
+def main() -> None:
+    os.chdir(config.ROOT)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    ollama_client.ensure_model()
+    config.require_bot_keys()
+    config.ensure_telegram_username()
+    pool = config.resolve_bot_pool()
+    tokens = config.bot_tokens()
+    if not pool:
+        pool = [config.TELEGRAM_BOT_USERNAME or "bot"]
+    apps = [
+        _build_application(token, primary=(index == 0))
+        for index, token in enumerate(tokens)
+    ]
+    logger.info(
+        "Telegram sales bot pool: %d application (%s) — birincil @%s",
+        len(apps), ", @".join(pool), pool[0],
+    )
+    # systemd sends SIGTERM; sinyal yönetimi _serve içinde (PTB stop_signals=None).
+    asyncio.run(_serve(apps))
 
 
 if __name__ == "__main__":

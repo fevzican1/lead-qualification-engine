@@ -80,6 +80,9 @@ def require(name: str) -> str:
 
 # --- Secrets / endpoints -------------------------------------------------
 TELEGRAM_BOT_TOKEN: str = _get("TELEGRAM_BOT_TOKEN")
+# Ek satış botları: Telegram bot başına flood limiti olduğu için yük dağıtımı
+# şart. "token1,token2,..." (virgülle ayrık); birincil token otomatik başa alınır.
+TELEGRAM_BOT_TOKENS: str = _get("TELEGRAM_BOT_TOKENS")
 PAYONEER_PAYMENT_URL: str = _get("PAYONEER_PAYMENT_URL")
 TELEGRAM_OWNER_CHAT_ID: str = _get("TELEGRAM_OWNER_CHAT_ID")
 # Owner self-service registration secret: /admin KOD (set out-of-band on Oracle).
@@ -293,7 +296,7 @@ def require_live_telegram_link(start: str = "") -> str:
     dönüyorsa RuntimeError — çağrıcı lead'i `skipped_no_telegram_link` olarak
     işaretler ve yakıtı tıklanamaz bir formla yakmaz.
     """
-    username = (TELEGRAM_BOT_USERNAME or "").strip().lstrip("@")
+    username = next_bot_username() or (TELEGRAM_BOT_USERNAME or "").strip().lstrip("@")
     if not username:
         raise RuntimeError(
             "TELEGRAM_BOT_USERNAME eksik: t.me linki üretilemez. "
@@ -373,6 +376,105 @@ def admin_required():
 def require_bot_keys() -> None:
     require("TELEGRAM_BOT_TOKEN")
     require("PAYONEER_PAYMENT_URL")
+
+
+def bot_tokens() -> list[str]:
+    """Tüm satış botu tokenleri — birincil önce, tekrarlar ayıklanır.
+
+    TELEGRAM_BOT_TOKENS "token1,token2,..." şeklinde verilir; birincil
+    TELEGRAM_BOT_TOKEN otomatik listenin başına eklenir.
+    """
+    tokens: list[str] = []
+    primary = (TELEGRAM_BOT_TOKEN or "").strip()
+    if primary:
+        tokens.append(primary)
+    for raw in (TELEGRAM_BOT_TOKENS or "").replace(";", ",").split(","):
+        tok = raw.strip()
+        if tok and tok not in tokens:
+            tokens.append(tok)
+    return tokens
+
+
+_BOT_POOL_LOCK: Any = None  # lazy threading.Lock (import döngüsünü önlemek için)
+_BOT_POOL_USERNAMES: list[str] = []
+_BOT_POOL_CURSOR: int = 0
+
+
+def _pool_lock() -> Any:
+    global _BOT_POOL_LOCK
+    if _BOT_POOL_LOCK is None:
+        import threading
+
+        _BOT_POOL_LOCK = threading.Lock()
+    return _BOT_POOL_LOCK
+
+
+def bot_pool_usernames() -> list[str]:
+    """Çözülmüş bot username havuzu (resolve_bot_pool sonrası; önceki [primary])."""
+    with _pool_lock():
+        pool = list(_BOT_POOL_USERNAMES)
+    if not pool and TELEGRAM_BOT_USERNAME:
+        pool = [TELEGRAM_BOT_USERNAME]
+    return pool
+
+
+def set_bot_pool(usernames: list[str]) -> None:
+    """Havuzu elle kur (testler ve getMe'siz devre için)."""
+    global _BOT_POOL_USERNAMES, _BOT_POOL_CURSOR
+    cleaned: list[str] = []
+    for name in usernames or []:
+        uname = str(name or "").strip().lstrip("@")
+        if uname and uname not in cleaned:
+            cleaned.append(uname)
+    with _pool_lock():
+        _BOT_POOL_USERNAMES = cleaned
+        _BOT_POOL_CURSOR = 0
+
+
+def resolve_bot_pool() -> list[str]:
+    """getMe ile tüm satış botlarının username'lerini çöz ve havuzu kur.
+
+    Tek bot akışını bozmaz: getMe başarısız olursa primary username ile
+    devam eder (fail-open), tokenler yine de ayrı Application olarak koşar.
+    """
+    import logging
+
+    import httpx
+
+    usernames: list[str] = []
+    primary = (TELEGRAM_BOT_USERNAME or "").strip().lstrip("@")
+    if primary:
+        usernames.append(primary)
+    for token in bot_tokens():
+        if not token or token == (TELEGRAM_BOT_TOKEN or "").strip():
+            continue  # primary zaten yukarıda (ya da getMe ile) çözüldü
+        try:
+            response = httpx.get(f"https://api.telegram.org/bot{token}/getMe", timeout=30.0)
+            response.raise_for_status()
+            uname = str((response.json().get("result") or {}).get("username") or "").lstrip("@")
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "getMe failed for a pool token — bot havuzdan düşer", exc_info=True
+            )
+            continue
+        if uname and uname not in usernames:
+            usernames.append(uname)
+    set_bot_pool(usernames)
+    return bot_pool_usernames()
+
+
+def next_bot_username() -> str:
+    """Form linki havuzu round-robin: yük Telegram bot limitleri arasında bölüşülür."""
+    global _BOT_POOL_CURSOR
+    with _pool_lock():
+        pool = list(_BOT_POOL_USERNAMES)
+        if not pool and TELEGRAM_BOT_USERNAME:
+            pool = [TELEGRAM_BOT_USERNAME]
+        if not pool:
+            return ""
+        name = pool[_BOT_POOL_CURSOR % len(pool)]
+        _BOT_POOL_CURSOR += 1
+        return name
 
 
 def sender_payload() -> dict[str, Optional[str]]:
