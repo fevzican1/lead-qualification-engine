@@ -38,6 +38,12 @@ jobs:
               -o ConnectTimeout=10 -o BatchMode=yes \
               "${USER}@${HOST}" "bash -s" <<'REMOTE'
           set -uo pipefail
+          echo "=== [0] coklu-bot havuzu probu ==="
+          grep -c "_serve" /opt/devsolve/telegram_sales_bot.py 2>/dev/null && echo "yeni kod VAR (_serve)" || echo "yeni kod YOK (_serve bulunamadi)"
+          grep -c "resolve_bot_pool" /opt/devsolve/config.py 2>/dev/null && echo "config havuz VAR" || echo "config havuz YOK"
+          grep -q "^TELEGRAM_BOT_TOKENS=" /opt/devsolve/.env && echo "ENV: TELEGRAM_BOT_TOKENS VAR ($(grep '^TELEGRAM_BOT_TOKENS=' /opt/devsolve/.env | tr ',' '\n' | wc -l) token)" || echo "ENV: TELEGRAM_BOT_TOKENS YOK"
+          journalctl -u nirvana-salesbot.service --since "-40 min" --no-pager 2>/dev/null | grep -i "pool\|application (" | tail -n 10 || echo "(pool log yok)"
+          echo
           echo "=== [1] nirvana unit'leri ==="
           systemctl list-units --all 'nirvana*' --no-pager || true
           echo
