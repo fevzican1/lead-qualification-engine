@@ -1,0 +1,57 @@
+name: oracle-debug-salesbot
+
+# Geçici teşhis: satış botu service durumunu + loglarını SSH ile çek,
+# sonra restart edip yeniden doğrula.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HOST: ${{ secrets.ORACLE_HOST }}
+      USER: ${{ secrets.ORACLE_USER }}
+      SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH anahtarı hazırla
+        run: |
+          set -euo pipefail
+          if [ -z "${HOST:-}" ] || [ -z "${USER:-}" ] || [ -z "${SSH_KEY:-}" ]; then
+            echo "::error::ORACLE_HOST / ORACLE_USER / ORACLE_SSH_KEY secret'ları tanımlı değil."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/oracle.key
+          chmod 600 ~/.ssh/oracle.key
+          ssh-keyscan -T 8 -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+      - name: Teşhis + restart
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/oracle.key \
+              -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+              -o ConnectTimeout=10 -o BatchMode=yes \
+              "${USER}@${HOST}" "bash -s" <<'REMOTE'
+          set -uo pipefail
+          echo "=== [1] nirvana unit'leri ==="
+          systemctl list-units --all 'nirvana*' --no-pager || true
+          echo
+          echo "=== [2] satış botu service durumu ==="
+          systemctl is-active nirvana-salesbot.service || true
+          systemctl status nirvana-salesbot.service --no-pager -l | head -n 30 || true
+          echo
+          echo "=== [3] satış botu son loglar ==="
+          journalctl -u nirvana-salesbot.service -n 80 --no-pager | tail -n 80 || true
+          echo
+          echo "=== [4] restart ==="
+          sudo systemctl restart nirvana-salesbot.service 2>&1 || systemctl restart nirvana-salesbot.service 2>&1 || true
+          sleep 6
+          echo "=== [5] restart sonrasi durum ==="
+          systemctl is-active nirvana-salesbot.service || true
+          journalctl -u nirvana-salesbot.service -n 15 --no-pager | tail -n 15 || true
+          REMOTE
