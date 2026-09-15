@@ -92,7 +92,14 @@ systemctl enable --now nirvana-deliveryworker.timer
 systemctl enable --now nirvana-linkedin.timer
 systemctl enable --now nirvana-captcha.timer
 systemctl enable --now nirvana-dispatch.timer
-systemctl enable --now nirvana-salesbot.service
+# Satis botu: Type=notify + WatchdogSec. Import zinciri eksikse (ornek:
+# heartbeat.py pakette yok) servis sessizce dusuyordu; artik acikca patlar.
+if ! systemctl enable --now nirvana-salesbot.service; then
+  echo "HATA: nirvana-salesbot.service baslamadi — satis botu CANLI DEGIL" >&2
+  systemctl --no-pager -l status nirvana-salesbot.service | head -30 || true
+  journalctl -u nirvana-salesbot.service -n 40 --no-pager -o cat || true
+  exit 1
+fi
 
 systemctl list-timers 'nirvana-*' --no-pager
 echo "NIRVANA ORACLE LIVE — watchdog 5dk, delivery haftalık, teslimat işçisi 2 saatte bir, captcha worker 10dk (max 2), dispatch hub 5dk (tüm modüller tam ritim)."

@@ -48,8 +48,22 @@ jobs:
       - name: Paketle (commit'lenmiş kod only — git archive)
         run: |
           set -euo pipefail
-          git archive -o /tmp/nirvana-deploy.tgz HEAD nirvana oracle knowledge requirements.txt config.py payment_safety.py telegram_sales_bot.py telegram_sessions.py telegram_handoff.py proof_card.py owner_notify.py
+          # TÜM üst-düzey .py modülleri paketlenir. Elle dosya saymak kırılgan:
+          # yeni bir import (heartbeat.py, task_queue.py, circuit_breaker.py)
+          # eklenince Oracle'da ModuleNotFoundError ile satış botu çöküyordu ve
+          # deploy yine "success" görünüyordu (sessiz ölüm). Modül kümesi artık
+          # depodan dinamik türetilir.
+          TOP_PY="$(git ls-tree -r --name-only HEAD | grep -E '^[^/]+\.py$' | tr '\n' ' ')"
+          git archive -o /tmp/nirvana-deploy.tgz HEAD $TOP_PY nirvana oracle knowledge requirements.txt .env.example
+          test -s /tmp/nirvana-deploy.tgz
           echo "paket: $(tar -tzf /tmp/nirvana-deploy.tgz | wc -l) dosya"
+          # Regresyon kapısı: botun/runner'ın import zinciri pakette olmalı.
+          for need in heartbeat.py task_queue.py circuit_breaker.py config.py knowledge.py \
+                      telegram_sales_bot.py auto_runner.py owner_notify.py payment_safety.py; do
+            tar -tzf /tmp/nirvana-deploy.tgz | grep -qE "(^|/)${need}$" \
+              || { echo "::error::${need} pakette yok — deploy iptal (ModuleNotFoundError riski)"; exit 1; }
+          done
+          echo "import zinciri pakette: OK"
       - name: Oracle'a yükle (scp)
         run: |
           set -euo pipefail
@@ -83,6 +97,21 @@ jobs:
               fi
               echo "wrote ${key}"
             fi
+          done
+          # Bot kimligi: musterinin sohbette gordugu gorunen ad + profil
+          # aciklamasi 'bot'/'yapay zeka' icermez. Degerler heredoc icinde
+          # literal yazilir (komut satiri kodlamasina takilmaz); boylece
+          # BotFather'daki eski isim ("MyCompany_sale_bot") ezilir.
+          for kv in \
+            "BOT_DISPLAY_NAME|DevSolve Teknik Ekip" \
+            "BOT_PUBLIC_DESCRIPTION|DevSolve — teknik satış ve operasyon ekibi. Entegrasyon ve otomasyon kapsamı için yazın."; do
+            key="${kv%%|*}"; val="${kv#*|}"
+            if grep -q "^${key}=" /opt/devsolve/.env; then
+              sed -i "s|^${key}=.*|${key}=${val}|" /opt/devsolve/.env
+            else
+              printf '%s=%s\n' "${key}" "${val}" >> /opt/devsolve/.env
+            fi
+            echo "wrote ${key}"
           done
           echo "=== [1] Paket açma (reviewed committed code, /opt/devsolve) ==="
           cd /opt/devsolve
@@ -163,12 +192,41 @@ jobs:
           PY
           systemctl list-timers 'nirvana-*' --no-pager || sudo -n systemctl list-timers 'nirvana-*' --no-pager
           echo "dispatch timer durumu: $(systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || sudo -n systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || echo 'kurulamadı')"
-          echo "=== [4] Satış botu + runner'ı yeni ayarlarla yeniden başlat ==="
-          if sudo -n systemctl restart devsolve-bot.service devsolve-runner.service 2>/dev/null; then
-            sleep 3
-            systemctl is-active devsolve-bot.service devsolve-runner.service
-          else
-            echo "devsolve-bot/devsolve-runner bulunamadı — atlandı"
+          echo "=== [4] Satış botu + runner (self-healing) canlıya alma ==="
+          # devsolve-bot.service eski kopyadır ve AYNI telegram_sales_bot.py'yi
+          # çalıştırır; ikisi aynı anda açılırsa Telegram getUpdates çakışır
+          # (Conflict: terminated by other getUpdates). Eski unit kapatılır;
+          # tek yetkili unit nirvana-salesbot.service (Type=notify + watchdog).
+          if systemctl list-unit-files devsolve-bot.service >/dev/null 2>&1; then
+            sudo -n systemctl stop devsolve-bot.service 2>/dev/null || true
+            sudo -n systemctl disable devsolve-bot.service 2>/dev/null || true
+            echo "devsolve-bot.service devre dışı — çift polling engellendi"
           fi
+          # Import kapısı: paket eksikse (ModuleNotFoundError) burada açıkça patlar.
+          .venv/bin/python - <<'PY'
+          import heartbeat, task_queue, circuit_breaker
+          print("modul kapisi: heartbeat + task_queue + circuit_breaker OK")
+          PY
+          sudo -n systemctl enable nirvana-salesbot.service 2>/dev/null || true
+          sudo -n systemctl reset-failed nirvana-salesbot.service 2>/dev/null || true
+          sudo -n systemctl restart nirvana-salesbot.service
+          sudo -n systemctl restart devsolve-runner.service 2>/dev/null || true
+          # Type=notify: READY=1 gelene kadar durum "activating" olur — bekle.
+          BOT_STATE=""
+          for _ in $(seq 1 30); do
+            # 'set -e' + komut ikamesi: is-active "activating" iken non-zero
+            # döner; '|| true' olmadan script burada sessizce ölür.
+            BOT_STATE="$(systemctl is-active nirvana-salesbot.service || true)"
+            if [ "${BOT_STATE}" = "active" ] || [ "${BOT_STATE}" = "failed" ]; then break; fi
+            sleep 2
+          done
+          echo "satis botu: ${BOT_STATE} | runner: $(systemctl is-active devsolve-runner.service)"
+          if [ "${BOT_STATE}" != "active" ]; then
+            echo "::error::nirvana-salesbot.service aktif degil — satis botu CANLI DEGIL"
+            systemctl --no-pager -l status nirvana-salesbot.service | head -30 || true
+            sudo -n journalctl -u nirvana-salesbot.service -n 40 --no-pager -o cat || true
+            exit 1
+          fi
+          sudo -n journalctl -u nirvana-salesbot.service -n 12 --no-pager -o cat || true
           echo "NIRVANA ORACLE LIVE"
           REMOTE
