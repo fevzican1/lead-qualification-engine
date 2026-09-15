@@ -213,8 +213,7 @@ def _remember(chat_id: int, role: str, content: str) -> None:
 
 
 def _is_owner(chat_id: int) -> bool:
-    known = owner_notify.load_admin_chat_id()
-    return known is not None and int(known) == int(chat_id)
+    return int(chat_id) in owner_notify.load_admin_chat_ids()
 
 
 def _customer_lang(update: Update) -> bool:
@@ -600,9 +599,6 @@ async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "ADMIN_CODE .env'de tanımlı değil — sistem yöneticisine başvur."
         )
         return
-    if owner_notify.load_admin_chat_id() is not None:
-        await update.message.reply_text("Operatör zaten kayıtlı; yeniden kayıt kapalı.")
-        return
     if not secrets.compare_digest(code, secret):
         await update.message.reply_text(
             "Kod hatalı. /admin KOD  →  KOD, operatöre ayrı kanaldan iletilen gizli dizi."
@@ -611,9 +607,71 @@ async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     owner_notify.save_chat_id(chat_id)
     logger.info("Owner chat %s registered via /admin code", chat_id)
     await update.message.reply_text(
-        "✅ Bu sohbet artık operatör. Özet: /notifyme   durum: /status\n"
-        "Sıcak lead ping buraya düşer; /reply CHATID metin ile müşteri sohbetine girersin."
+        "✅ Bu sohbet artık operatör. Özet + form verileri: /notifyme   durum: /status\n"
+        "Sıcak lead ping bildirim botunun ops chatine düşer; /reply CHATID metin ile "
+        "müşteri sohbetine girersin."
     )
+
+
+def _form_data_digest() -> str:
+    """Sıcak temaslar + form verileri — /notifyme eki (push yok, sahibi kendisi çeker).
+
+    Bildirim davranışı DEĞİŞMEZ: ping'ler eskisi gibi bildirim botuna gider.
+    Bu blok yalnızca operatör /notifyme yazdığında form bilgilerini görür:
+    form URL, platform, skor, rapor, son müşteri mesajı ve funnel durumu.
+    """
+    try:
+        sessions = telegram_sessions._load()
+    except Exception:
+        logger.exception("notifyme form digest: sessions okunamadi")
+        return ""
+    entries = [(str(cid), row) for cid, row in sessions.items()
+               if isinstance(row, dict) and row.get("started_at") and not row.get("declined")]
+    if not entries:
+        return ""
+    entries.sort(key=lambda e: str(e[1].get("last_at") or ""), reverse=True)
+    lines = ["", "SICAK TEMASLAR — form verileri (yalnızca sana, push değil):"]
+    shown = 0
+    for cid, row in entries:
+        if shown >= 8:
+            lines.append(f"… +{len(entries) - shown} sohbet daha — /reply CHATID ile bakabilirsin")
+            break
+        token = str(row.get("session_token") or "")
+        hand = (telegram_handoff.lookup(token) if token else None) or {}
+        lead = hand.get("lead_info") if isinstance(hand.get("lead_info"), dict) else {}
+        stack = hand.get("detected_stack") if isinstance(hand.get("detected_stack"), dict) else {}
+        company = str(row.get("company") or hand.get("company") or hand.get("host") or "—")
+        form_url = str(lead.get("form_page_url") or hand.get("url") or "—")
+        platform = str(stack.get("platform") or hand.get("platform") or "—")
+        score = str(lead.get("lead_score") or "—")
+        report = str(hand.get("report_id") or row.get("report_id") or "—")
+        last_user = " ".join(str(row.get("last_user") or "").split())
+        flags: list[str] = []
+        if row.get("payment_verified"):
+            flags.append("ödeme DOĞRULANDI ✅")
+        elif row.get("payment_reported"):
+            flags.append("ödeme bildirildi (teyit bekliyor)")
+        elif row.get("payment_sent"):
+            flags.append("ödeme linki gönderildi")
+        if row.get("contract_signed"):
+            flags.append("sözleşme imzalı")
+        if row.get("takeover"):
+            flags.append("insan devraldı")
+        if not flags:
+            flags.append("sıcak ping gönderildi" if row.get("hot_pinged")
+                         else ("warm ping gönderildi" if row.get("warm_pinged") else "yeni sohbet"))
+        badge = "🔥" if (row.get("hot_pinged") or row.get("warm_pinged")
+                         or flags[0].startswith(("ödeme", "sözleşme"))) else "•"
+        lines.append(
+            f"\n{badge} #{shown + 1} {company} | chat {cid} | @{row.get('username') or 'yok'}\n"
+            f"   Platform: {platform} | Skor: {score} | Rapor: {report}\n"
+            f"   Form: {form_url}\n"
+            + (f"   Son mesaj: {last_user[:120]}\n" if last_user else "")
+            + f"   Durum: {', '.join(flags)}\n"
+            f"   Sohbete gir: /reply {cid} merhaba, ben DevSolve tarafıyım…"
+        )
+        shown += 1
+    return "\n".join(lines)
 
 
 async def cmd_notifyme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -624,8 +682,9 @@ async def cmd_notifyme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     text = (
         "Özet aşağıda. *Pipeline / sıcak lead bildirimleri* müşteri sohbetlerine "
-        "gitmez — yalnızca .env'deki ops chat ID'sine gider.\n\n"
+        "gitmez — yalnızca .env'deki ops chat ID'sine (bildirim botun) gider.\n\n"
         + owner_notify.lead_digest()
+        + _form_data_digest()
     )
     try:
         await update.message.reply_text(text, parse_mode="Markdown")

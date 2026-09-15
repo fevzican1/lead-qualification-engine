@@ -60,18 +60,33 @@ def _token_ok(token: str) -> bool:
         return False
 
 
-def load_admin_chat_id() -> int | None:
-    """Sales-bot admin (/reply, /status) — never a customer thread."""
+def load_admin_chat_ids() -> set[int]:
+    """Tüm geçerli admin chat ID'leri.
+
+    TELEGRAM_OWNER_CHAT_ID .env'den gelir; ayrıca /admin KOD ile owner.json'a
+    kaydolan sohbet de patron sayılır. Böylece .env'deki ID yeni hesapla
+    uyuşmasa bile operatör kendini kaydedip /notifyme özetini çekebilir.
+    """
+    ids: set[int] = set()
     cid = _parse_chat_id(config.TELEGRAM_OWNER_CHAT_ID)
     if cid is not None:
-        return cid
+        ids.add(cid)
     if not PATH.exists():
-        return None
+        return ids
     try:
         data = json.loads(PATH.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return None
-    return _parse_chat_id(str(data.get("chat_id") or ""))
+        return ids
+    cid = _parse_chat_id(str(data.get("chat_id") or ""))
+    if cid is not None:
+        ids.add(cid)
+    return ids
+
+
+def load_admin_chat_id() -> int | None:
+    """Sales-bot admin (/reply, /status) — never a customer thread."""
+    ids = load_admin_chat_ids()
+    return next(iter(ids)) if ids else None
 
 
 def load_notify_chat_id() -> int | None:
