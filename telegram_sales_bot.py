@@ -680,12 +680,17 @@ async def cmd_notifyme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not _is_owner(update.effective_chat.id):
         await update.message.reply_text(_not_owner_hint())
         return
-    text = (
-        "Özet aşağıda. *Pipeline / sıcak lead bildirimleri* müşteri sohbetlerine "
-        "gitmez — yalnızca .env'deki ops chat ID'sine (bildirim botun) gider.\n\n"
-        + owner_notify.lead_digest()
-        + _form_data_digest()
-    )
+    try:
+        text = (
+            "Özet aşağıda. *Pipeline / sıcak lead bildirimleri* müşteri sohbetlerine "
+            "gitmez — yalnızca .env'deki ops chat ID'sine (bildirim botun) gider.\n\n"
+            + owner_notify.lead_digest()
+            + _form_data_digest()
+        )
+    except Exception as exc:
+        logger.exception("notifyme ozeti olusturulamadi")
+        await update.message.reply_text(f"⚠️ Özet oluşturulamadı: {exc}"[:400])
+        return
     try:
         await update.message.reply_text(text, parse_mode="Markdown")
     except BadRequest:
@@ -838,9 +843,15 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not _is_owner(update.effective_chat.id):
         await update.message.reply_text(_not_owner_hint())
         return
+    try:
+        digest = owner_notify.lead_digest()
+    except Exception as exc:
+        logger.exception("status ozeti olusturulamadi")
+        await update.message.reply_text(f"⚠️ Durum özeti oluşturulamadı: {exc}"[:400])
+        return
     await update.message.reply_text(
         f"Operatör sohbeti (chat_id={update.effective_chat.id}) tanınıyor.\n\n"
-        + owner_notify.lead_digest()
+        + digest
     )
 
 
@@ -1308,6 +1319,24 @@ def _offline_reply(user_text: str, row: dict[str, Any] | None) -> tuple[str, boo
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Telegram error: %s", context.error, exc_info=context.error)
+    # Sessiz ölüm olmasın: handler içinde patlarsa kullanıcıya da söyle.
+    chat_id = None
+    try:
+        upd = update
+        if isinstance(upd, Update) and upd.effective_chat is not None:
+            chat_id = upd.effective_chat.id
+    except Exception:
+        chat_id = None
+    if chat_id is None:
+        return
+    detail = str(context.error or "bilinmeyen hata")[:350]
+    try:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"⚠️ Komut işlenirken hata oluştu, loglandı:\n{detail}",
+        )
+    except Exception:
+        logger.exception("on_error: hata mesaji kullaniciya ulasirken patladi")
 
 
 async def _followup_loop(application: Application) -> None:
