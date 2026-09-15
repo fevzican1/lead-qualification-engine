@@ -56,11 +56,14 @@ jobs:
           TOP_PY="$(git ls-tree -r --name-only HEAD | grep -E '^[^/]+\.py$' | tr '\n' ' ')"
           git archive -o /tmp/nirvana-deploy.tgz HEAD $TOP_PY nirvana oracle knowledge requirements.txt .env.example
           test -s /tmp/nirvana-deploy.tgz
-          echo "paket: $(tar -tzf /tmp/nirvana-deploy.tgz | wc -l) dosya"
+          # Liste dosyaya yazılır: 'tar | grep -q' + pipefail birlikte yanlış
+          # sonuç verir (grep erken çıkınca tar SIGPIPE alıp "write error" der).
+          tar -tzf /tmp/nirvana-deploy.tgz > /tmp/nirvana-list.txt
+          echo "paket: $(wc -l < /tmp/nirvana-list.txt) dosya"
           # Regresyon kapısı: botun/runner'ın import zinciri pakette olmalı.
           for need in heartbeat.py task_queue.py circuit_breaker.py config.py knowledge.py \
                       telegram_sales_bot.py auto_runner.py owner_notify.py payment_safety.py; do
-            tar -tzf /tmp/nirvana-deploy.tgz | grep -qE "(^|/)${need}$" \
+            grep -qE "(^|/)${need}$" /tmp/nirvana-list.txt \
               || { echo "::error::${need} pakette yok — deploy iptal (ModuleNotFoundError riski)"; exit 1; }
           done
           echo "import zinciri pakette: OK"
