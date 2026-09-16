@@ -4,7 +4,8 @@ name: pipeline-watchdog
 # if discovery-pipeline has not run in 11+ minutes, dispatch it.
 on:
   schedule:
-    - cron: "7-59/15 * * * *"
+    # Saatte 1: fleet'lerin kendi cron'lari var; watchdog sadece 40+ dk sicarse mudahale eder.
+    - cron: "8 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -51,8 +52,8 @@ jobs:
           last_epoch=$(date -u -d "$last_iso" +%s)
           age=$(( now_epoch - last_epoch ))
           echo "discovery-pipeline last run ${age}s ago ($last_iso)"
-          if [ "$age" -gt 660 ]; then
-            echo "Stale (>11 min) — dispatching discovery-pipeline"
+          if [ "$age" -gt 2400 ]; then
+            echo "Stale (>40 min) — dispatching discovery-pipeline"
             gh workflow run discovery-pipeline.yml --ref "${GITHUB_REF_NAME}"
           else
             echo "Fresh enough — no dispatch"

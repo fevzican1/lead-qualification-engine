@@ -5,7 +5,8 @@ name: refill-on-low
 # Superseded by discovery-pipeline.yml (kept for manual dispatch).
 on:
   schedule:
-    - cron: "6,36 * * * *"
+    # Saatte 1 (dk 38 — tr fleet'inin :35 dakikasiyla cakismasin diye kaydirildi)
+    - cron: "38 * * * *"
   workflow_dispatch:
 
 permissions:

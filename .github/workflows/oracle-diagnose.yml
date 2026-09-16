@@ -4,7 +4,9 @@ name: oracle-diagnose
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # 15 dk'da bir ama fleet dakikalarina (5/10/15/20/25...) denk gelmesin diye
+    # kaydirildi: 04, 19, 34, 49
+    - cron: "4,19,34,49 * * * *"
   workflow_dispatch:
 
 permissions:

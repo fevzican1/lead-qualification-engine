@@ -5,7 +5,9 @@ name: discovery-watchdog
 # Superseded by discovery-pipeline.yml (kept for manual dispatch).
 on:
   schedule:
-    - cron: "9,39 * * * *"
+    # Saatte 1 — fleet'ler kendi cron'lariyla 15-60 dk araliklarla zaten donuyor.
+    # Sicaklik esigi 65 dk: 60 dk'lik en yavas fleet'i yanlis alarm yapmasin.
+    - cron: "21 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -53,7 +55,7 @@ jobs:
             last_epoch=$(date -u -d "$last_iso" +%s)
             age=$(( now_epoch - last_epoch ))
             echo "$workflow last run ${age}s ago ($last_iso)"
-            if [ "$age" -gt 2700 ]; then
+            if [ "$age" -gt 3900 ]; then
               stale=1
             fi
           done
@@ -65,7 +67,7 @@ jobs:
             publish_epoch=$(date -u -d "$publish_iso" +%s)
             publish_age=$(( now_epoch - publish_epoch ))
             echo "publish-feed last run ${publish_age}s ago"
-            if [ "$publish_age" -gt 2700 ]; then
+            if [ "$publish_age" -gt 3900 ]; then
               stale=1
             fi
           else
