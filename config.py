@@ -79,7 +79,20 @@ def require(name: str) -> str:
 
 
 # --- Secrets / endpoints -------------------------------------------------
-TELEGRAM_BOT_TOKEN: str = _get("TELEGRAM_BOT_TOKEN")
+# NOT: TELEGRAM_BOT_TOKEN tam "ID:SECRET" formatında tutulur; id'siz (":" öneksiz)
+# değer asla yazılmaz — Telegram o formu 404 ile reddeder. Bazen env'ye kısaltılmış
+# hali düşerse aşağıdaki normalizasyon ilk ':' öncesindeki bot kimliğiyle tamamlar.
+def _full_bot_token(raw: str) -> str:
+    tok = (raw or "").strip()
+    if not tok or ":" in tok:
+        return tok
+    primary_id = _get("TELEGRAM_OWNER_CHAT_ID")
+    if primary_id.isdigit():
+        return f"{primary_id}:{tok}"
+    return tok
+
+
+TELEGRAM_BOT_TOKEN: str = _full_bot_token(_get("TELEGRAM_BOT_TOKEN"))
 # Ek satış botları: Telegram bot başına flood limiti olduğu için yük dağıtımı
 # şart. "token1,token2,..." (virgülle ayrık); birincil token otomatik başa alınır.
 TELEGRAM_BOT_TOKENS: str = _get("TELEGRAM_BOT_TOKENS")
