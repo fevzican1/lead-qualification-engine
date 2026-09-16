@@ -33,7 +33,7 @@ jobs:
         run: pip install -q PyYAML
       - name: keepalive_guard (measure inactivity, micro-commit if window filled)
         env:
-          GITHUB_TOKEN: \${{ github.token }}`
+          GITHUB_TOKEN: ${{ github.token }}
         run: python -m nirvana.runner keepalive_guard
       - name: Commit keepalive state if written
         run: |
@@ -44,7 +44,7 @@ jobs:
             echo "State fresh - no extra commit needed (API micro-commit is enough)."
             exit 0
           fi
-          git commit -m "keepalive: state \${GITHUB_RUN_ID}`"
+          git commit -m "keepalive: state ${GITHUB_RUN_ID}"
           for i in 1 2 3; do
             git pull --rebase origin master && break || {
               git rebase --abort 2>/dev/null || true

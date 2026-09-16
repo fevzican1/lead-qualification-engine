@@ -7,7 +7,7 @@ on:
   schedule:
     # Saatte 1 — fleet'ler kendi cron'lariyla 15-60 dk araliklarla zaten donuyor.
     # Sicaklik esigi 65 dk: 60 dk'lik en yavas fleet'i yanlis alarm yapmasin.
-    - cron: "21 * * * *"
+    - cron: "21 */2 * * *"
   workflow_dispatch:
 
 permissions:

@@ -6,7 +6,7 @@ name: refill-on-low
 on:
   schedule:
     # Saatte 1 (dk 38 — tr fleet'inin :35 dakikasiyla cakismasin diye kaydirildi)
-    - cron: "38 * * * *"
+    - cron: "38 */2 * * *"
   workflow_dispatch:
 
 permissions:
