@@ -7,6 +7,12 @@ on:
     - cron: "5,45 * * * *"
   workflow_dispatch:
 
+# Ayni tetik ust uste bindiginde GitHub 1 running + 1 pending tutar;
+# fazlasi dusurulur -> Pending/Queued kilitlenmesi olmaz, is tamamlanir.
+concurrency:
+  group: discover-cc-longtail
+  cancel-in-progress: false
+
 permissions:
   contents: write
 

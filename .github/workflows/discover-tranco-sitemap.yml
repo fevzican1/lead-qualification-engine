@@ -5,6 +5,12 @@ on:
     - cron: "8 */3 * * *"
   workflow_dispatch:
 
+# Ayni tetik ust uste bindiginde GitHub 1 running + 1 pending tutar;
+# fazlasi dusurulur -> Pending/Queued kilitlenmesi olmaz, is tamamlanir.
+concurrency:
+  group: discover-tranco-sitemap
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
