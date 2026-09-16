@@ -2,7 +2,8 @@ name: discover-cc-global
 
 on:
   schedule:
-    - cron: "20,50 * * * *"
+    # 4 saatte bir (1h offset) — benzersiz dakika: :23
+    - cron: "23 1,5,9,13,17,21 * * *"
   workflow_dispatch:
 
 # Ayni tetik ust uste bindiginde GitHub 1 running + 1 pending tutar;

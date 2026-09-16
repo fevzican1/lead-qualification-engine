@@ -4,7 +4,8 @@ name: discover-cc-longtail
 # Fifty deterministic CDX shards rotate through new crawl slices every run.
 on:
   schedule:
-    - cron: "5,45 * * * *"
+    # 8 saatte bir — benzersiz dakika: :43
+    - cron: "43 1,9,17 * * *"
   workflow_dispatch:
 
 # Ayni tetik ust uste bindiginde GitHub 1 running + 1 pending tutar;

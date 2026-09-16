@@ -73,6 +73,40 @@ jobs:
           except Exception as e:
               print("leads.json:", e)
           PY
+          echo "=== HOT-LEAD / HANDOFF TANILAMA ==="
+          .venv/bin/python - <<'PY'
+          import json, os, httpx, config
+          # 1) owner.json (kayıtlı satış-botu operatör sohbeti)
+          try:
+              d = json.load(open("owner.json"))
+              print("owner.json chat_id:", d.get("chat_id"))
+          except Exception as e:
+              print("owner.json yok/hatali:", e)
+          # 2) env kimlikleri
+          for k in ("TELEGRAM_OWNER_CHAT_ID","TELEGRAM_ADMIN_ID","TELEGRAM_NOTIFY_CHAT_ID"):
+              v = str(getattr(config, k, "") or "")
+              print(k, "SET" if v.strip() else "BOS")
+          # 3) notify bot tokeni canli mi
+          tok = str(getattr(config, "TELEGRAM_NOTIFY_BOT_TOKEN", "") or "").strip()
+          if tok:
+              try:
+                  r = httpx.post(f"https://api.telegram.org/bot{tok}/getMe", timeout=10)
+                  print("notify getMe:", r.json().get("ok"), r.json().get("result",{}).get("username",""))
+              except Exception as e:
+                  print("notify getMe FAIL:", e)
+          else:
+              print("notify token BOS")
+          # 4) circuit breaker durumu
+          try:
+              import circuit_breaker
+              print("circuit:", getattr(circuit_breaker, "snapshot", lambda: "n/a")())
+          except Exception as e:
+              print("circuit_breaker:", e)
+          PY
+          echo "=== HANDOFF LOG (bot servisi, son 24h) ==="
+          journalctl -u devsolve-bot.service --since "-24h" --no-pager -o cat 2>/dev/null | grep -iE "handoff|CANLI|notify|owner" | tail -n 25 || echo "handoff log kaydi yok"
+          echo "=== INBOUND MESAJ SAYISI (bot, son 24h) ==="
+          journalctl -u devsolve-bot.service --since "-24h" --no-pager -o cat 2>/dev/null | grep -icE "chat_id|update" || echo "0"
           echo "=== RUNNER LOG (son 40) ==="
           tail -n 40 logs/runner.log 2>/dev/null || journalctl -u devsolve-runner.service -n 40 --no-pager -o cat 2>/dev/null || echo "log yok"
           echo "=== PIPELINE SON CIKIS ==="

@@ -2,7 +2,8 @@ name: discover-cc-eu
 
 on:
   schedule:
-    - cron: "15,40 * * * *"
+    # 4 saatte bir — diger fleet'lerle cakismayan benzersiz dakika: :14
+    - cron: "14 0,4,8,12,16,20 * * *"
   workflow_dispatch:
 
 # Ayni tetik ust uste bindiginde GitHub 1 running + 1 pending tutar;
