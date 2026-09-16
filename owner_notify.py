@@ -63,14 +63,17 @@ def _token_ok(token: str) -> bool:
 def load_admin_chat_ids() -> set[int]:
     """Tüm geçerli admin chat ID'leri.
 
-    TELEGRAM_OWNER_CHAT_ID .env'den gelir; ayrıca /admin KOD ile owner.json'a
-    kaydolan sohbet de patron sayılır. Böylece .env'deki ID yeni hesapla
-    uyuşmasa bile operatör kendini kaydedip /notifyme özetini çekebilir.
+    Kaynaklar: TELEGRAM_OWNER_CHAT_ID / TELEGRAM_ADMIN_ID (.env, GitHub Secret ->
+    Oracle .env) ve /admin KOD ya da /notifyme TOKEN ile owner.json'a kaydolan
+    sohbet. Böylece .env'deki ID yeni hesapla uyuşmasa bile operatör kendini
+    kaydedip /notifyme özetini çekebilir. Müşteri sohbetleri asla admin sayılmaz.
     """
     ids: set[int] = set()
-    cid = _parse_chat_id(config.TELEGRAM_OWNER_CHAT_ID)
-    if cid is not None:
-        ids.add(cid)
+    for raw in (config.TELEGRAM_OWNER_CHAT_ID,
+                str(getattr(config, "TELEGRAM_ADMIN_ID", "") or "")):
+        cid = _parse_chat_id(raw)
+        if cid is not None:
+            ids.add(cid)
     if not PATH.exists():
         return ids
     try:
@@ -83,10 +86,46 @@ def load_admin_chat_ids() -> set[int]:
     return ids
 
 
+def admin_token_ok(token: str) -> bool:
+    """Gizli eşleşme dizesi: TELEGRAM_ADMIN_TOKEN (GitHub Secret → Oracle .env).
+
+    Rapor: yönetici kimliği hem ID hem TOKEN ile doğrulanır. Token tanımlı
+    değilse hiçbir giriş kabul edilmez (fail-closed).
+    """
+    expected = str(getattr(config, "TELEGRAM_ADMIN_TOKEN", "") or "").strip()
+    given = str(token or "").strip()
+    if not expected or not given:
+        return False
+    import secrets as _secrets
+    return bool(_secrets.compare_digest(given, expected))
+
+
+def register_admin_chat(chat_id: int) -> int:
+    """Doğrulanmış sohbeti yönetici olarak kaydet (owner.json)."""
+    save_chat_id(int(chat_id))
+    logger.info("Admin chat %s registered (TELEGRAM_ADMIN_TOKEN dogrulamasi)", chat_id)
+    return int(chat_id)
+
+
 def load_admin_chat_id() -> int | None:
     """Sales-bot admin (/reply, /status) — never a customer thread."""
     ids = load_admin_chat_ids()
     return next(iter(ids)) if ids else None
+
+
+def load_registered_chat_id() -> int | None:
+    """/notifyme (veya /admin) ile KAYITLI satış-botu operatör sohbeti.
+
+    Env'deki ID eski/yeni hesap olabilir; butonlu bildirim kayıtlı sohbete gider
+    ki inline callback'i polling yapan satış botu işleyebilsin.
+    """
+    if not PATH.exists():
+        return None
+    try:
+        data = json.loads(PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return _parse_chat_id(str(data.get("chat_id") or ""))
 
 
 def load_notify_chat_id() -> int | None:
@@ -177,21 +216,97 @@ def lead_digest() -> str:
     return "\n".join(lines)
 
 
-def _post_message(target: int, body: str, *, silent: bool) -> bool:
+def _post_message(target: int, body: str, *, silent: bool,
+                  reply_markup: dict[str, Any] | None = None) -> bool:
     token = (config.TELEGRAM_NOTIFY_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN or "").strip()
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    payload: dict[str, Any] = {
+        "chat_id": target,
+        "text": body[:3500],
+        "disable_notification": silent,
+    }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     response = httpx.post(
         f"https://api.telegram.org/bot{token}/sendMessage",
-        json={
-            "chat_id": target,
-            "text": body[:3500],
-            "disable_notification": silent,
-        },
+        json=payload,
         timeout=10.0,
     )
     response.raise_for_status()
     return True
+
+
+# Rapor: canlı müşteri talebi bildirimi altında tek kurgulanmış buton.
+HANDOFF_BUTTON_TEXT = "💬 Sohbete Bağlan / Reply"
+
+
+def handoff_keyboard(target_chat_id: int) -> dict[str, Any]:
+    """Inline Keyboard: patron bastığı an sohbet ona devredilir."""
+    return {"inline_keyboard": [[{
+        "text": HANDOFF_BUTTON_TEXT,
+        "callback_data": f"handoff:{int(target_chat_id)}",
+    }]]}
+
+
+def handoff_route() -> dict[str, Any]:
+    """Butonlu bildirim rotası — callback'i POLLING yapan satış botuna düşmeli.
+
+    1) /notifyme ile kayıtlı satış-botu operatör sohbeti varsa: hedef o sohbet,
+       token satış botu tokeni (buton callback'ini aynı polling döngüsü alır).
+    2) Kayıtlı sohbet yoksa: ops kanalına butonsuz düz bildirim (haber yine gider;
+       /reply CHATID yedeği her zaman çalışır).
+    """
+    sales_token = (config.TELEGRAM_BOT_TOKEN or "").strip()
+    notify_token = (config.TELEGRAM_NOTIFY_BOT_TOKEN or "").strip()
+    registered = load_registered_chat_id()
+    if registered is not None and sales_token:
+        return {"chat_id": int(registered), "token": sales_token, "token_kind": "sales",
+                "button": True,
+                "reason": "kayitli satis-botu sohbeti (buton callback'i polling hattina duser)"}
+    notify_chat = load_notify_chat_id()
+    return {"chat_id": int(notify_chat) if notify_chat is not None else None,
+            "token": notify_token or sales_token,
+            "token_kind": "notify" if notify_token else "sales",
+            "button": False,
+            "reason": ("ops kanali — satis-botu sohbeti kayitli degil; operatör "
+                       "/notifyme <TELEGRAM_ADMIN_TOKEN> ile kaydolunca buton aktiflesir")}
+
+
+def send_handoff_alert(text: str, *, target_chat_id: int,
+                       chat_id: int | None = None,
+                       token: str | None = None,
+                       high_priority: bool = True) -> bool:
+    """🚨 Canlı müşteri talebi: bildirim + [💬 Sohbete Bağlan / Reply] butonu.
+
+    Buton gönderilemezse (ağ hatası / buton reddi) butonsuz düz bildirim denenir;
+    haber her koşulda patrona ulaşır. Rota handoff_route() ile seçilir.
+    """
+    import circuit_breaker
+
+    route = handoff_route()
+    destination = chat_id if chat_id is not None else route.get("chat_id")
+    use_token = token or str(route.get("token") or "")
+    if not destination or not use_token:
+        logger.warning("Handoff alert skipped (ops hedefi/token yok — /notifyme ile kayit ol)")
+        return False
+    body = text if text.startswith("[DevSolve") else f"[DevSolve Ops]\n{text}"
+    markup = handoff_keyboard(target_chat_id) if route.get("button") else None
+    try:
+        _post_message(int(destination), body, silent=not high_priority,
+                      reply_markup=markup, token=use_token)
+        circuit_breaker.record("telegram_notify", True)
+        return True
+    except Exception as exc:  # noqa: BLE001 — bildirim buton yüzünden kaybolmaz
+        logger.warning("Handoff alert failed (%s) — plain fallback", _mask(exc))
+        try:
+            _post_message(int(destination), body, silent=not high_priority, token=use_token)
+            circuit_breaker.record("telegram_notify", True)
+            return True
+        except Exception as exc2:  # noqa: BLE001
+            circuit_breaker.record("telegram_notify", False)
+            logger.error("Handoff alert failed: %s", _mask(exc2))
+            return False
 
 
 def deliver_queued_notify(task: dict[str, Any]) -> bool:

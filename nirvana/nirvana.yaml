@@ -267,4 +267,18 @@ nirvana:
       schedule: "manual"
       entrypoint: "python -m nirvana.runner supply_guard"
       description: "Tedarik zinciri guvenligi: SBOM uretimi + digest zinciri dogrulama, imzasiz dagitim YOK. $0."
+    keepalive_guard:
+      host: github
+      letter: AL
+      schedule: "0 6 * * *"
+      entrypoint: "python -m nirvana.runner keepalive_guard"
+      description: "GitHub Actions 60-gun pasiflesme kapisi: son depo etkinligini olcup pencere (20-40 gun) dolunca contents API ile mikro commit uretir. Token yoksa dry-run. $0."
+      heavy: false
+    idle_guard:
+      host: oracle
+      letter: AM
+      schedule: "*/10 * * * *"
+      entrypoint: "python -m nirvana.runner idle_guard"
+      description: "OCI Always-Free idle geri alim korumasi: CPU/bellek alt esigin (%20) altina duserse Nice=19 hafif sentetik yuk uretir; watchdog tavani (%85) korunur. Telegram bildirimi YOK."
+      heavy: false
       heavy: false

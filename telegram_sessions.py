@@ -205,6 +205,34 @@ def is_takeover(chat_id: int) -> bool:
     return bool(_row(chat_id).get("takeover"))
 
 
+def arm_reply(owner_chat_id: int, target_chat_id: int) -> None:
+    """Patron butona bastı: bundan sonraki mesajı doğrudan müşteriye gitsin.
+
+    Sahibin kendi sohbet satırında tutulur (patron satırının started_at'i yoktur;
+    bu yüzden takip/proof döngüleri bu satırı müşteri saymaz).
+    """
+    _put(int(owner_chat_id), reply_armed_to=int(target_chat_id))
+    set_takeover(int(target_chat_id), True)
+
+
+def armed_target(owner_chat_id: int) -> int | None:
+    """Sahip sohbeti hangi müşteriye bağlı? (yoksa None)"""
+    raw = _row(int(owner_chat_id)).get("reply_armed_to")
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def clear_armed(owner_chat_id: int) -> int | None:
+    """Bağlantıyı kapat; bağlı müşteri id'sini döndür (bot devralmayı bıraksın)."""
+    target = armed_target(owner_chat_id)
+    _put(int(owner_chat_id), reply_armed_to=None)
+    if target is not None:
+        set_takeover(target, False)
+    return target
+
+
 def clear(chat_id: int) -> None:
     data = _load()
     data.pop(str(int(chat_id)), None)

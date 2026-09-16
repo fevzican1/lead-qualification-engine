@@ -69,6 +69,8 @@ PY
 echo "[5/6] systemd unit + timer kurulumu"
 install -m 644 "$UNIT_SRC/nirvana-watchdog.service" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-watchdog.timer" /etc/systemd/system/
+install -m 644 "$UNIT_SRC/nirvana-idleguard.service" /etc/systemd/system/
+install -m 644 "$UNIT_SRC/nirvana-idleguard.timer" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-delivery.service" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-delivery.timer" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-deliveryworker.service" /etc/systemd/system/
@@ -85,8 +87,18 @@ systemctl daemon-reload
 echo "[5.5/6] Dispatch hub derleme kontrolü"
 "$APP_DIR/.venv/bin/python" -m py_compile "$APP_DIR/oracle/dispatch_hub.py"
 
+echo "[5.6/6] idle_guard dry-run (OCI Always-Free idle geri alım koruması canlı test)"
+"$APP_DIR/.venv/bin/python" -m nirvana.runner idle_guard --no-notify
+
+echo "[5.7/6] Yerel Bot API durumu (tanımlıysa yerel, değilse bulut — fail-safe)"
+"$APP_DIR/.venv/bin/python" - <<'PY'
+from telegram_bot_api import status_line
+print(status_line())
+PY
+
 echo "[6/6] Timer'ları canlıya alma"
 systemctl enable --now nirvana-watchdog.timer
+systemctl enable --now nirvana-idleguard.timer
 systemctl enable --now nirvana-delivery.timer
 systemctl enable --now nirvana-deliveryworker.timer
 systemctl enable --now nirvana-linkedin.timer
@@ -102,4 +114,4 @@ if ! systemctl enable --now nirvana-salesbot.service; then
 fi
 
 systemctl list-timers 'nirvana-*' --no-pager
-echo "NIRVANA ORACLE LIVE — watchdog 5dk, delivery haftalık, teslimat işçisi 2 saatte bir, captcha worker 10dk (max 2), dispatch hub 5dk (tüm modüller tam ritim)."
+echo "NIRVANA ORACLE LIVE — watchdog 5dk, idle_guard 10dk (Always-Free koruması), delivery haftalık, teslimat işçisi 2 saatte bir, captcha worker 10dk (max 2), dispatch hub 1dk tick (CDX feed dilimleri 1/2/4/5dk; diğer modüller 30dk-24sa)."

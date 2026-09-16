@@ -4,7 +4,7 @@ name: discover-cc-longtail
 # Fifty deterministic CDX shards rotate through new crawl slices every run.
 on:
   schedule:
-    - cron: "11 */6 * * *"
+    - cron: "5,45 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -12,7 +12,6 @@ permissions:
 
 jobs:
   shard:
-    if: ${{ vars.ENABLE_LEGACY_SMB_WORKFLOWS == 'true' }}
     uses: ./.github/workflows/harvest-shard.yml
     with:
       profile: longtail

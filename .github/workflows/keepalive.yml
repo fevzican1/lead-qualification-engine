@@ -1,0 +1,54 @@
+# GitHub public depolarda 60 gun depo etkinligi olmazsa zamanlanmis
+# workflow'lari otomatik pasife alir (disabled_inactivity). Feed/kuyruk
+# zinciri sessizce durur. Bu workflow gunluk calisir; nirvana keepalive_guard
+# son etkinlige bakip pencere (20-40 gun) doldugunda mikro commit uretir.
+name: keepalive
+
+on:
+  schedule:
+    - cron: "3 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: master
+          fetch-depth: 1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install -q PyYAML
+      - name: keepalive_guard (measure inactivity, micro-commit if window filled)
+        env:
+          GITHUB_TOKEN: \${{ github.token }}`
+        run: python -m nirvana.runner keepalive_guard
+      - name: Commit keepalive state if written
+        run: |
+          git config user.name "nirvana-keepalive"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add nirvana/state/github_keepalive.json
+          if git diff --cached --quiet; then
+            echo "State fresh - no extra commit needed (API micro-commit is enough)."
+            exit 0
+          fi
+          git commit -m "keepalive: state \${GITHUB_RUN_ID}`"
+          for i in 1 2 3; do
+            git pull --rebase origin master && break || {
+              git rebase --abort 2>/dev/null || true
+              sleep 5
+            }
+          done
+          git push origin HEAD:master

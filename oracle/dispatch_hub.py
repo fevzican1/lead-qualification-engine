@@ -43,6 +43,9 @@ DISPATCH_MATRIX: dict[str, int] = {
     "nirvana-heavy.yml": 2 * 3600,           # A→B→C zinciri: 2 saat
     # --- kanıt ve satış pivotu (günlük) ---
     "nirvana-proof.yml": 24 * 3600,          # kanıt kartı üretimi: günlük
+    "keepalive.yml": 24 * 3600,              # 60-gün pasifleşme kapısı: günlük
+                                             # (guard kendi penceresini ölçer; commit
+                                             #  yalnızca 20-40 gün dolunca atılır)
     "nirvana-strategy.yml": 24 * 3600,       # strateji pivotu: günlük
     "nirvana-meta.yml": 24 * 3600,           # meta orkestratör: günlük
     "oracle-diagnose.yml": 12 * 3600,        # oracle sağlık taraması: 12 saat

@@ -1,0 +1,17 @@
+[Unit]
+Description=Nirvana Lane AM — idle_guard (OCI Always-Free idle geri alim korumasi, 10 dk)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=devsolve
+WorkingDirectory=/opt/devsolve
+EnvironmentFile=/opt/devsolve/.env
+ExecStart=/opt/devsolve/.venv/bin/python -m nirvana.runner idle_guard
+# Sentetik yuk EN DUSUK oncelik: gercek is (satis botu, teslimat) asla gecikmez.
+Nice=19
+IOSchedulingClass=idle
+CPUWeight=10
+MemoryMax=512M
+TimeoutStartSec=90

@@ -144,6 +144,19 @@ LINKEDIN_PROFILE_URL: str = _get("LINKEDIN_PROFILE_URL", OWNER_LINKEDIN_URL).str
 OWNER_CHAT_ID: str = _get("OWNER_CHAT_ID", _get("ADMIN_CHAT_ID", "")).strip()
 # Owner self-service registration secret: /admin KOD (set out-of-band on Oracle).
 ADMIN_CODE: str = _get("ADMIN_CODE") or _get("OWNER_ADMIN_CODE", "")
+# GitHub Secret tabanli yonetici kimlik dogrulamasi (rapor madde: admin tanima).
+# TELEGRAM_ADMIN_ID  -> patronun Telegram user/chat id'si (.env'e deploy ile yazilir)
+# TELEGRAM_ADMIN_TOKEN -> gizli eslesme dizesi; /notifyme TOKEN ile sohbet
+# dogrulanip "Sistem Sahibi Taptaze Senkronize Edildi" yaniti verilir.
+TELEGRAM_ADMIN_ID: str = _get("TELEGRAM_ADMIN_ID").lstrip("@") or OWNER_CHAT_ID
+TELEGRAM_ADMIN_TOKEN: str = _get("TELEGRAM_ADMIN_TOKEN", "")
+# Yerel Telegram Bot API (opsiyonel, $0): flood limitini ve 20 MB dosya sinirini
+# kaldiran self-hosted sunucu. Bos ise standart bulut API kullanilir (mevcut hal).
+TELEGRAM_BOT_API_BASE_URL: str = _get("TELEGRAM_BOT_API_BASE_URL", "")
+# telegram-bot-api konteynerinin ihtiyac duydugu my.telegram.org anahtarlari
+# (yalnizca Oracle .env'inde tutulur; asla repoya yazilmaz).
+TELEGRAM_API_ID: str = _get("TELEGRAM_API_ID", "")
+TELEGRAM_API_HASH: str = _get("TELEGRAM_API_HASH", "")
 # Ops channel: pipeline / sıcak lead bildirimleri (müşteri satış botundan ayrı).
 TELEGRAM_NOTIFY_BOT_TOKEN: str = _get("TELEGRAM_NOTIFY_BOT_TOKEN")
 TELEGRAM_NOTIFY_CHAT_ID: str = _get("TELEGRAM_NOTIFY_CHAT_ID")

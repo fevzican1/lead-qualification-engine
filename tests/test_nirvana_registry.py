@@ -12,14 +12,14 @@ ROOT = Path(config.ROOT)
 
 def test_registry_defines_exactly_thirty_modules():
     modules = MODULES()
-    assert len(modules) == 37
+    assert len(modules) == 39
     letters = sorted((m["letter"] for m in modules.values()),
                      key=lambda L: (len(L), L))
     assert letters == (list("ABCDEFGH")
                        + ["I", "J", "K", "L", "M", "N", "O", "P", "Q", "R",
                           "S", "T", "U", "V", "W", "X"]
                        + ["Y", "Z", "AA", "AB", "AC", "AD", "AE", "AF", "AG"]
-                       + ["AH", "AI", "AJ", "AK"])
+                       + ["AH", "AI", "AJ", "AK", "AL", "AM"])
 
 
 def test_host_assignment_matches_architecture():
@@ -33,12 +33,12 @@ def test_host_assignment_matches_architecture():
                       "tech_stack_detector", "service_readiness",
                       "financial_loss_engine", "hash_tokenizer", "tactic_router",
                       "slot_gate", "update_architecture", "data_sync",
-                      "knowledge_updater", "supply_guard"}
+                      "knowledge_updater", "supply_guard", "keepalive_guard"}
     assert oracle == {"onboarding_agent", "delivery_runner", "watchdog_quota_agent",
                       "linkedin_router", "contract_pack", "github_orchestrator",
                       "multi_service_runner", "forget_guard", "proof_card",
                       "queue_fuel_guard", "anti_spam_cadence", "interaction_tracker",
-                      "delivery_worker", "stealth_former",
+                      "delivery_worker", "stealth_former", "idle_guard",
                       "free_captcha_solver", "free_captcha_worker"}
 
 
@@ -71,8 +71,32 @@ def test_oracle_units_exist():
                  "nirvana-deliveryworker.service", "nirvana-deliveryworker.timer",
                  "nirvana-linkedin.service", "nirvana-linkedin.timer",
                  "nirvana-captcha.service", "nirvana-captcha.timer",
+                 "nirvana-dispatch.service", "nirvana-dispatch.timer",
+                 "nirvana-idleguard.service", "nirvana-idleguard.timer",
+                 "nirvana-salesbot.service",
                  "nirvana_oracle_install.sh"):
         assert (ROOT / "oracle" / name).exists(), name
+    install = (ROOT / "oracle" / "nirvana_oracle_install.sh").read_text(encoding="utf-8")
+    # Yeni lane'ler canlıya alma betiğine de bağlanmalı (kurulum unutulmasın).
+    assert "nirvana-idleguard.timer" in install
+    assert "nirvana-dispatch.timer" in install
+    assert "nirvana-salesbot.service" in install
+
+
+def test_keepalive_workflow_guards_60_day_disable():
+    path = ROOT / ".github" / "workflows" / "keepalive.yml"
+    assert path.exists()
+    text = path.read_text(encoding="utf-8")
+    assert "keepalive_guard" in text
+    assert "contents: write" in text
+
+
+def test_idleguard_unit_low_priority_and_bounded():
+    text = (ROOT / "oracle" / "nirvana-idleguard.service").read_text(encoding="utf-8")
+    # Sentetik yük gerçek işi asla aç bırakmaz: en düşük öncelik + sınırlı bellek.
+    assert "Nice=19" in text
+    assert "MemoryMax=" in text
+    assert "idle_guard" in text
 
 
 def test_payment_defaults_are_2500_eur():

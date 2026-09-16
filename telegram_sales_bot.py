@@ -22,6 +22,7 @@ from telegram.constants import ChatAction
 from telegram.error import BadRequest
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -37,6 +38,7 @@ import task_queue
 import optout
 import owner_notify
 import proof_card
+import telegram_bot_api
 import telegram_handoff
 import telegram_sessions
 import payment_safety
@@ -363,8 +365,10 @@ def _owner_intro() -> str:
         f"Custom API / otomasyon, {config.price_label(explicit=True)} teklif (tahsilat değil).\n"
         "Motor özeti: /notifyme   durum: /status\n"
         "Sıcak aday: bu sohbete ping düşer.\n"
+        "Canlı müşteri talebi: bildirimdeki [ Sohbete Bağlan / Reply] butonuna bas; "
+        "sonra buraya yazdığın her mesaj doğrudan müşteriye gider.\n"
         "Sohbete gir: /reply CHATID metin\n"
-        "Botu geri ver: /release CHATID\n"
+        "Botu geri ver: /release CHATID   |   Devri kapat: /disarm\n"
         "Unsubscribe test: /stop"
     )
 
@@ -697,7 +701,23 @@ def _form_data_digest() -> str:
 async def cmd_notifyme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.message:
         return
-    if not _is_owner(update.effective_chat.id):
+    chat_id = int(update.effective_chat.id)
+    if not _is_owner(chat_id):
+        # GitHub Secret'tan gelen gizli TOKEN ile ilk kurulum:
+        #   /notifyme <TELEGRAM_ADMIN_TOKEN>  ->  sohbet yönetici olarak kaydedilir.
+        args = context.args or []
+        given = str(args[0]).strip() if args else ""
+        if given and owner_notify.admin_token_ok(given):
+            owner_notify.register_admin_chat(chat_id)
+            logger.info("Owner chat %s registered via /notifyme token", chat_id)
+            await update.message.reply_text(
+                "✅ Sistem Sahibi Taptaze Senkronize Edildi.\n"
+                f"Bu sohbet (chat_id={chat_id}) operatör olarak kaydedildi.\n"
+                "Şimdi /notifyme ile motor özetini ve sıcak form verilerini görebilirsin.\n"
+                "Canlı müşteri talebinde bildirim altındaki butonla sohbete gireceksin.\n"
+                "Tüm operatör komutları için: /admin 0"
+            )
+            return
         await update.message.reply_text(_not_owner_hint())
         return
     try:
@@ -870,7 +890,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text(f"⚠️ Durum özeti oluşturulamadı: {exc}"[:400])
         return
     await update.message.reply_text(
-        f"Operatör sohbeti (chat_id={update.effective_chat.id}) tanınıyor.\n\n"
+        f"Operatör sohbeti (chat_id={update.effective_chat.id}) tanınıyor.\n"
+        f"{telegram_bot_api.status_line()}\n\n"
         + digest
     )
 
@@ -929,6 +950,104 @@ async def cmd_release(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     target = int(args[0])
     telegram_sessions.set_takeover(target, False)
     await update.message.reply_text(f"Bot tekrar yanıtlıyor: {target}")
+
+
+# --- İnsan devri (Human-in-the-Loop) -----------------------------------------
+# Rapor: bildirimin altındaki [ Sohbete Bağlan / Reply] butonuna basan patron
+# otonom yanıtlayıcıyı duraklatır ve yazdığı mesaj DOĞRUDAN müşteriye gider.
+
+HANDOFF_CALLBACK_PREFIX = "handoff:"
+
+
+def _handoff_target_from_callback(data: str) -> int | None:
+    """'handoff:123456' -> 123456. Bozuk veri sessizce yok sayılır."""
+    text = str(data or "").strip()
+    if not text.startswith(HANDOFF_CALLBACK_PREFIX):
+        return None
+    raw = text[len(HANDOFF_CALLBACK_PREFIX):].strip()
+    if not raw.lstrip("-").isdigit():
+        return None
+    return int(raw)
+
+
+async def on_handoff_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Inline buton: yalnızca operatör basabilir; basınca sohbet ona bağlanır."""
+    query = update.callback_query
+    if query is None:
+        return
+    owner_chat = update.effective_chat.id if update.effective_chat else None
+    target = _handoff_target_from_callback(str(query.data or ""))
+    if owner_chat is None or target is None:
+        await query.answer()
+        return
+    if not _is_owner(owner_chat):
+        # Müşteri ya da yabancı biri bastı: hiçbir yetki açılmaz.
+        await query.answer("Bu buton operatör içindir.", show_alert=False)
+        return
+    telegram_sessions.arm_reply(owner_chat, target)
+    await query.answer("Sohbet sana bağlandı")
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        logger.debug("handoff butonu kaldirilamadi", exc_info=True)
+    await context.bot.send_message(
+        chat_id=owner_chat,
+        text=(f"✅ Bağlandı: müşteri {target}. Otonom yanıtlayıcı DURDU.\n"
+              "Şimdi bu sohbete yazdığın her mesaj doğrudan müşteriye gider.\n"
+              "Bitirmek için: /disarm"),
+    )
+
+
+async def _relay_owner_reply(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                             owner_chat_id: int, text: str) -> bool:
+    """Butonla bağlı patronun mesajını müşteriye iletir.
+
+    Dönüş: True => mesaj devir hattına alındı (oto-yanıtlayıcı çalışmaz).
+    """
+    target = telegram_sessions.armed_target(owner_chat_id)
+    if target is None:
+        return False
+    body = " ".join(str(text or "").split())
+    if not body or not update.message:
+        return True
+    if body.lower() in {"/disarm", "disarm"}:
+        return True
+    try:
+        # Sahiplik: müşteriyi alan bot üzerinden gönder — çapraz bot 403 verir.
+        owner_app = _app_for_chat(target, context.application)
+        bot = owner_app.bot if owner_app is not None else context.bot
+        if not await flood_guard.acquire(target):
+            raise flood_guard.FloodBlocked(target, flood_guard.remaining())
+        await bot.send_message(chat_id=target, text=body)
+    except Exception as exc:
+        await update.message.reply_text(f"Gönderilemedi: {exc}".strip()[:300])
+        return True
+    telegram_sessions.set_takeover(target, True)
+    _remember(target, "assistant", body)
+    task = _proof_tasks.pop(target, None)
+    if task:
+        task.cancel()
+    logger.info("Human handoff relay owner=%s -> customer=%s", owner_chat_id, target)
+    return True
+
+
+async def cmd_disarm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Devri kapat: otonom yanıtlayıcı tekrar çalışır."""
+    if not update.effective_chat or not update.message:
+        return
+    if not _is_owner(update.effective_chat.id):
+        await update.message.reply_text(_not_owner_hint())
+        return
+    target = telegram_sessions.clear_armed(update.effective_chat.id)
+    if target is None:
+        await update.message.reply_text(
+            "Aktif devir yok. Sohbete girmek için bildirimdeki butona bas "
+            "ya da /reply CHATID metin kullan."
+        )
+        return
+    await update.message.reply_text(
+        f"Devir kapandı. Otonom asistan {target} sohbetinde yeniden yanıtlıyor."
+    )
 
 
 async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -993,6 +1112,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
     if _is_owner(chat_id):
+        # Buton ile bağlanan patronun mesajı doğrudan müşteriye gider (oto-yanıt DURUR).
+        await _relay_owner_reply(update, context, chat_id, user_text)
         return
 
     # Teslimat işçisi (Lane AF): müşteri rapor numarasıyla sorar → kendi raporu.
@@ -1077,11 +1198,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         who = str((_briefs.get(chat_id) or {}).get("company") or (_briefs.get(chat_id) or {}).get("host") or "—")
         user = _username(update) or "yok"
         handle = f"@{user}" if user != "yok" else "yok"
+        # İnsan devri: patronun bildirimi BUTONLU gider (tek tıkla sohbete girer).
         await asyncio.to_thread(
-            owner_notify.send,
-            f"🚨 YETKİLİ TALEBİ: Müşteri {handle} doğrudan seninle görüşmek istiyor.\n"
-            f"📌 Site: {who}\n"
-            f"💬 Son Mesajı: \"{user_text[:300]}\""
+            owner_notify.send_handoff_alert,
+            f"🚨 CANLI MÜŞTERİ TALEBİ: {who} yetkilisi kurucu/uzman ile görüşmek istiyor.\n"
+            f"👤 Hesap: {handle}  |  💬 Sohbet: {chat_id}\n"
+            f'💬 Son Mesajı: "{user_text[:300]}"\n'
+            "Sohbete katılmak için aşağıdaki butona tıklayın "
+            f"(ya da /reply {chat_id} metin).",
+            target_chat_id=chat_id,
         )
         telegram_sessions.set_takeover(chat_id, True)
         turkish = _conv_lang(user_text, chat_id)
@@ -1464,7 +1589,7 @@ def _build_application(token: str, *, primary: bool) -> Application:
     async def _post(app: Application) -> None:
         await _post_init(app, primary=primary)
 
-    application = (
+    builder = (
         Application.builder()
         .token(token)
         .connect_timeout(5.0)
@@ -1475,8 +1600,12 @@ def _build_application(token: str, *, primary: bool) -> Application:
         .get_updates_read_timeout(40.0)
         .get_updates_pool_timeout(20.0)
         .post_init(_post)
-        .build()
     )
+    # Yerel (Local) Bot API varsa oraya bağlan: dakikada-30-mesaj ve 20 MB dosya
+    # sınırı kalkar. Sunucu sağlıksızsa otomatik olarak bulut API'ye düşülür.
+    builder, api_choice = telegram_bot_api.apply_to_builder(builder, token=token)
+    logger.info("Telegram API: %s (%s)", api_choice["mode"], api_choice["reason"])
+    application = builder.build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", cmd_admin))
     application.add_handler(CommandHandler("payready", cmd_payready))
@@ -1488,9 +1617,14 @@ def _build_application(token: str, *, primary: bool) -> Application:
     application.add_handler(CommandHandler("status", cmd_status))
     application.add_handler(CommandHandler("reply", cmd_reply))
     application.add_handler(CommandHandler("release", cmd_release))
+    application.add_handler(CommandHandler("disarm", cmd_disarm))
     application.add_handler(CommandHandler("stop", cmd_stop))
     application.add_handler(CommandHandler("unsubscribe", cmd_stop))
     application.add_handler(CommandHandler("resume", cmd_resume))
+    # Canlı müşteri bildirimindeki [ Sohbete Bağlan / Reply] butonu.
+    application.add_handler(
+        CallbackQueryHandler(on_handoff_callback, pattern=r"^handoff:-?\d+$")
+    )
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     application.add_error_handler(on_error)
     return application

@@ -33,6 +33,12 @@ jobs:
       TG_NOTIFY_BOT_TOKEN: ${{ secrets.TELEGRAM_NOTIFY_BOT_TOKEN }}
       TG_NOTIFY_CHAT_ID: ${{ secrets.TELEGRAM_NOTIFY_CHAT_ID }}
       ADMIN_CODE: ${{ secrets.ADMIN_CODE }}
+      # Yönetici kimlik doğrulaması (rapor: /notifyme + ID/TOKEN eşleşmesi).
+      # Mevcut GitHub Secret isimleri kullanılır (yeni secret zorunlu değil):
+      #   TELEGRAM_OWNER_CHAT_ID -> Oracle .env: TELEGRAM_ADMIN_ID
+      #   ADMIN_CODE             -> Oracle .env: TELEGRAM_ADMIN_TOKEN
+      TG_ADMIN_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+      TG_ADMIN_TOKEN: ${{ secrets.ADMIN_CODE }}
     steps:
       - uses: actions/checkout@v4
       - name: SSH anahtarı hazırla
@@ -80,7 +86,7 @@ jobs:
           ssh -i ~/.ssh/oracle.key \
               -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
               -o ConnectTimeout=10 -o ConnectionAttempts=1 -o BatchMode=yes \
-              "${USER}@${HOST}" "PAYONEER_LINK='${PAYONEER_LINK}' TG_BOT_TOKEN='${TG_BOT_TOKEN:-}' TG_BOT_TOKENS='${TG_BOT_TOKENS:-}' TG_BOT_USERNAME='${TG_BOT_USERNAME:-}' TG_OWNER_CHAT_ID='${TG_OWNER_CHAT_ID:-}' TG_NOTIFY_BOT_TOKEN='${TG_NOTIFY_BOT_TOKEN:-}' TG_NOTIFY_CHAT_ID='${TG_NOTIFY_CHAT_ID:-}' ADMIN_CODE='${ADMIN_CODE:-}' GH_DISPATCH_TOKEN='${GH_DISPATCH_TOKEN}' bash -s" <<'REMOTE'
+              "${USER}@${HOST}" "PAYONEER_LINK='${PAYONEER_LINK}' TG_BOT_TOKEN='${TG_BOT_TOKEN:-}' TG_BOT_TOKENS='${TG_BOT_TOKENS:-}' TG_BOT_USERNAME='${TG_BOT_USERNAME:-}' TG_OWNER_CHAT_ID='${TG_OWNER_CHAT_ID:-}' TG_NOTIFY_BOT_TOKEN='${TG_NOTIFY_BOT_TOKEN:-}' TG_NOTIFY_CHAT_ID='${TG_NOTIFY_CHAT_ID:-}' ADMIN_CODE='${ADMIN_CODE:-}' TG_ADMIN_ID='${TG_ADMIN_ID:-}' TG_ADMIN_TOKEN='${TG_ADMIN_TOKEN:-}' TG_API_ID='${TG_API_ID:-}' TG_API_HASH='${TG_API_HASH:-}' TG_BOT_API_BASE_URL='${TG_BOT_API_BASE_URL:-}' GH_DISPATCH_TOKEN='${GH_DISPATCH_TOKEN}' bash -s" <<'REMOTE'
           set -euo pipefail
           echo "=== [0] Telegram/ops config → /opt/devsolve/.env (only when secret set) ==="
           for kv in \
@@ -91,12 +97,22 @@ jobs:
             "TELEGRAM_NOTIFY_BOT_TOKEN|${TG_NOTIFY_BOT_TOKEN}" \
             "TELEGRAM_NOTIFY_CHAT_ID|${TG_NOTIFY_CHAT_ID}" \
             "ADMIN_CODE|${ADMIN_CODE}" \
+            "TELEGRAM_ADMIN_ID|${TG_ADMIN_ID}" \
+            "TELEGRAM_ADMIN_TOKEN|${TG_ADMIN_TOKEN}" \
+            "TELEGRAM_API_ID|${TG_API_ID}" \
+            "TELEGRAM_API_HASH|${TG_API_HASH}" \
+            "TELEGRAM_BOT_API_BASE_URL|${TG_BOT_API_BASE_URL}" \
             "GITHUB_DISPATCH_TOKEN|${GH_DISPATCH_TOKEN}"; do
             key="${kv%%|*}"; val="${kv#*|}"
             if [ -n "$val" ] && [ "$val" != "null" ]; then
               touch /opt/devsolve/.env
-              if grep -q "^${key}=" /opt/devsolve/.env; then
-                sed -i "s|^${key}=.*|${key}=${val}|" /opt/devsolve/.env
+              # sed ayrac/özel karakter güvenliği: & ve | kaçışlanır (token'lar
+              # bu karakterleri içerebilir; yanlış yazım linki bozar).
+              esc_key="$key"
+              esc_val="${val//&/\\&}"
+              esc_val="${esc_val//|/\\|}"
+              if grep -q "^${esc_key}=" /opt/devsolve/.env; then
+                sed -i "s|^${esc_key}=.*|${esc_key}=${esc_val}|" /opt/devsolve/.env
               else
                 printf '%s=%s\n' "${key}" "${val}" >> /opt/devsolve/.env
               fi
@@ -194,6 +210,20 @@ jobs:
           from nirvana import watchdog_quota_agent as w
           print("watchdog kota:", w.quota_snapshot())
           print("cooldown:", w.in_cooldown())
+          from nirvana import idle_guard as ig
+          print("idle_guard dry-run:", ig.run_batch(dry_run=True)["verdict"],
+                "| esikler:", ig.FLOOR_PCT, "-", ig.CEIL_PCT)
+          from nirvana import keepalive_guard as kg
+          print("keepalive penceresi:", kg.load_state().get("last_activity") or "kayit yok",
+                "| esik gun:", kg.THRESHOLD_DAYS)
+          from nirvana import queue_fuel_guard as qfg
+          print("kuyruk yakiti:", qfg.check_refill_needed()["severity"],
+                "| kritik esik:", qfg.CRITICAL_WATERMARK, "| acil ekleme:", qfg.EMERGENCY_ADD)
+          from telegram_bot_api import status_line
+          print(status_line())
+          import owner_notify
+          print("admin sohbeti kayitli:", bool(owner_notify.load_admin_chat_id()),
+                "| admin token tanimli:", bool(config.TELEGRAM_ADMIN_TOKEN))
           PY
           echo "=== [3b] Bildirim hatti gercek testi (mesaj gondermeden) ==="
           .venv/bin/python - <<'PY'

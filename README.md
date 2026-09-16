@@ -24,12 +24,27 @@
 | T | `service_readiness` | GitHub Actions | günlük `37 4 * * *` |
 | U | `multi_service_runner` | Oracle VM | olay bazlı |
 | V | `free_captcha_solver` | GitHub Actions | `*/4 * * * *` |
+| AL | `keepalive_guard` | GitHub Actions | günlük `0 6 * * *` |
+| AM | `idle_guard` | Oracle VM | `*/10 * * * *` |
 
 - Kayıt defteri: `nirvana/nirvana.yaml` — tek doğruluk kaynağı (host, schedule, entrypoint).
 - CLI: `python -m nirvana.runner <modul>` (tüm lane'ler), `--list` ile envanter.
 - Ödeme: 2.500 EUR Payoneer retainer; link `PAYONEER_PAYMENT_URL` (Oracle `.env`), tutar/para birimi `PAYMENT_AMOUNT`/`PAYMENT_CURRENCY`. Link yer tutucuyken ödeme akışları çalışmaz (`nirvana/payment.py`).
 - Oracle canlıya alma: `sudo bash oracle/nirvana_oracle_install.sh` (unit+timer kurar, watchdog dry-run ile doğrular).
 - Heavy işler GitHub'da; Oracle yalnız doğrulanmış kuyruğu (`nirvana/state/verified_queue.json`) ve hafif timer'ları çalıştırır — Always-Free kotası korunur.
+
+## Kesintisizlik ve $0 altyapı güvenceleri
+
+| Kriter | Mekanizma |
+|--------|-----------|
+| GitHub Actions 60 gün pasifleşme | `nirvana/keepalive_guard.py` + `.github/workflows/keepalive.yml`: son depo etkinliği ölçülür, pencere (20–40 gün) dolunca contents API ile mikro commit atılır. Boşluk bırakılmaz, maliyet $0. |
+| OCI Always-Free idle geri alımı | `nirvana/idle_guard.py` + `oracle/nirvana-idleguard.timer` (10 dk): CPU/bellek alt eşiğin (%20) altına düşerse **Nice=19** hafif sentetik yük üretilir; `watchdog_quota_agent` üst tavanı (%85) korur. İkisi ne bosta kalır ne limite dayanır. |
+| Cron kademelendirme (1/2/4/5 dk keşif; 30/40/60 dk modüller) | `oracle/dispatch_hub.py` `DISPATCH_MATRIX`: CDX filoları 1/2/4/5 dk, pipeline-watchdog 30 dk, payload_optimizer 40 dk, enterprise-feed 60 dk, ağır zincir 2 saat. GitHub cron'u yedek katman. |
+| Acil yakıt ikmali (kuyruk <100) | `nirvana/queue_fuel_guard.py`: `CRITICAL_WATERMARK=100`, `EMERGENCY_ADD=500`; kritikte `EMERGENCY_REFILL_REQUIRED` bayrağı + `workflow_dispatch` ile `refill_batch=500`. |
+| Telegram flood/ban koruması | `flood_guard.py` (hız sınırı + `RetryAfter` kapısı, bot havuzu dağıtımı) + opsiyonel **Local Bot API** (`telegram_bot_api.py`, `docker-compose.yml`): dakikada-30-mesaj ve 20 MB sınırı kalkar, sunucu sağlıksızsa otomatik buluta düşer. Kurulum: `oracle/TELEGRAM_LOCAL_BOT_API.md`. |
+| Yönetici tanıma | `/notifyme <TELEGRAM_ADMIN_TOKEN>` → "Sistem Sahibi Taptaze Senkronize Edildi"; `TELEGRAM_ADMIN_ID` + `TELEGRAM_OWNER_CHAT_ID` + `owner.json` birlikte okunur (`owner_notify.load_admin_chat_ids`). Müşteri sohbeti asla operatör sayılmaz. |
+| İnsan devri (butonlu) | Canlı müşteri talebinde bildirim, `[💬 Sohbete Bağlan / Reply]` inline butonu ile gider; patron bastığı anda `telegram_sessions.arm_reply` devri açar, otonom yanıtlayıcı durur ve patronun yazdığı mesaj doğrudan müşteriye iletilir (`/disarm` ile geri verilir). Buton gönderilemezse `/reply CHATID metin` yedeği çalışır. |
+| Kendini onarma | systemd `Type=notify` + `WatchdogSec` (`nirvana-salesbot.service`), `heartbeat.py`, `circuit_breaker.py`, `task_queue.py` (bildirimler kuyruğa alınır, hat dönünce iletilir). |
 
 ---
 

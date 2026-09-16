@@ -6,6 +6,28 @@ services:
       - ollama:/root/.ollama
     # Do not publish 11434 on a public VM.
 
+  # Yerel Telegram Bot API (Local Mode, $0): dakikada-30-mesaj ve 20 MB dosya
+  # sinirini kaldirir (2000 MB, sunucu hizi). Yalnizca loopback'e acilir.
+  # TELEGRAM_API_ID/HASH my.telegram.org'dan alinir ve .env'de tutulur.
+  # Aktif etmek icin .env: TELEGRAM_BOT_API_BASE_URL=http://telegram-bot-api:8081
+  # (ana makineden kosuyorsa http://127.0.0.1:8081). Tanimli degilse sistem
+  # otomatik olarak bulut API'de kalir — satis hatti durmaz.
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      TELEGRAM_LOCAL: "1"
+    volumes:
+      - tg-bot-api-data:/var/lib/telegram-bot-api
+    ports:
+      - "127.0.0.1:8081:8081"
+    # Bos API_ID/HASH ile baslamaz: konteyner kapali kalirsa bot bulut API'ye duser.
+    profiles: ["local-api"]
+
   engine:
     build: .
     restart: unless-stopped
@@ -21,3 +43,4 @@ services:
 
 volumes:
   ollama:
+  tg-bot-api-data:
