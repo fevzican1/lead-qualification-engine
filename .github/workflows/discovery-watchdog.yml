@@ -80,18 +80,23 @@ jobs:
           for workflow in "${families[@]}"; do
             running="$(
               gh run list --workflow "$workflow" --json status \
-                --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length'
+                --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length' \
+                || echo 1
             )"
             if [ "$running" -gt 0 ]; then
               echo "$workflow already active — skip"
               continue
             fi
-            gh workflow run "$workflow" --ref "${GITHUB_REF_NAME}"
+            # Tek bir disabled/bulunamayan workflow tum step'i oldurmesin:
+            # hatayi yut, siradaki fleet ile devam et.
+            gh workflow run "$workflow" --ref "${GITHUB_REF_NAME}" || \
+              echo "WARN: dispatch failed for $workflow (disabled or missing) — continuing"
             echo "Dispatched $workflow"
             delay=$((delay + 15))
             if [ "$delay" -lt 75 ]; then
               sleep 15
             fi
           done
-          gh workflow run publish-feed --ref "${GITHUB_REF_NAME}"
+          gh workflow run publish-feed --ref "${GITHUB_REF_NAME}" || \
+            echo "WARN: dispatch failed for publish-feed — continuing"
           echo "Dispatched publish-feed"

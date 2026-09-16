@@ -149,13 +149,16 @@ jobs:
               dispatch_list+=("${families[$(( (slot + 1) % ${#families[@]} ))]}")
             fi
             for workflow in "${dispatch_list[@]}"; do
-              running="$(gh run list --workflow "$workflow" --json status --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length')"
+              running="$(gh run list --workflow "$workflow" --json status --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length' || echo 1)"
               if [ "$running" -gt 0 ]; then
                 echo "$workflow already running — skip"
                 continue
               fi
               echo "Dispatching $workflow"
-              gh workflow run "$workflow" --ref "${GITHUB_REF_NAME}"
+              # Tek bir disabled/bulunamayan workflow tum step'i oldurmesin:
+              # hatayi yut, siradaki fleet ile devam et.
+              gh workflow run "$workflow" --ref "${GITHUB_REF_NAME}" || \
+                echo "WARN: dispatch failed for $workflow (disabled or missing) — continuing"
             done
           fi
 

@@ -79,15 +79,18 @@ jobs:
           )"
           if [ "$running" -eq 0 ]; then
             echo "Dispatching $workflow for low Oracle fuel/queue."
-            gh workflow run "$workflow" --ref "${GITHUB_REF_NAME}"
+            gh workflow run "$workflow" --ref "${GITHUB_REF_NAME}" || \
+              echo "WARN: dispatch failed for $workflow (disabled or missing) — continuing"
           else
             echo "$workflow is already running."
           fi
           publish_running="$(
             gh run list --workflow publish-feed --json status \
-              --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length'
+              --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length' \
+              || echo 1
           )"
           if [ "$publish_running" -eq 0 ]; then
             echo "Dispatching publish-feed to sync Oracle."
-            gh workflow run publish-feed --ref "${GITHUB_REF_NAME}"
+            gh workflow run publish-feed --ref "${GITHUB_REF_NAME}" || \
+              echo "WARN: dispatch failed for publish-feed — continuing"
           fi
