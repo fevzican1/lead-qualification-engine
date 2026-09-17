@@ -1,10 +1,10 @@
 [Unit]
-Description=Nirvana dispatch hub 1dk tick (matris gate'li: CDX fleet 10/15/20/25dk, diger moduller 30dk-24sa)
+Description=Nirvana dispatch hub (1h tick - discovery fleet 3-4h, other modules 30min-24h)
 
 [Timer]
-OnBootSec=1min
-OnUnitActiveSec=1min
-AccuracySec=10s
+OnBootSec=5min
+OnUnitActiveSec=1h
+AccuracySec=1m
 Persistent=true
 Unit=nirvana-dispatch.service
 

@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import secrets
+import threading
 from collections import defaultdict
 from typing import Any
 
@@ -1697,6 +1698,25 @@ async def _serve(apps: list[Application]) -> None:
                 logger.exception("app stop/shutdown failed")
 
 
+def _ensure_model_background() -> None:
+    """Ollama modeli ARKAPLANDA hazırla — main()'i bloklamaz.
+
+    Neden: Type=notify serviste READY=1 (heartbeat.ready) anahtar verilmeden
+    WatchdogSec (30s) dolarsa systemd SIGABRT ile öldürür. ensure_model (ping
+    yoksa 90 sn bekleme + ilk pull dakikalar) main()'de çağrılırsa bot çökme-
+    restart döngüsüne girer (canlı arıza, 2026-09). Model eksikse ollama_client
+    her chat çağrısında zaten yeniden dener.
+    """
+
+    def _run() -> None:
+        try:
+            ollama_client.ensure_model()
+        except Exception:  # noqa: BLE001 — model yoksa bot yine konuşur
+            logger.warning("Ollama model hazırlığı arkaplanda başarısız oldu", exc_info=True)
+
+    threading.Thread(target=_run, name="ollama-ensure", daemon=True).start()
+
+
 def main() -> None:
     os.chdir(config.ROOT)
     logging.basicConfig(
@@ -1704,7 +1724,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    ollama_client.ensure_model()
+    _ensure_model_background()
     config.require_bot_keys()
     config.ensure_telegram_username()
     pool = config.resolve_bot_pool()

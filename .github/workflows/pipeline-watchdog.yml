@@ -1,10 +1,10 @@
 name: pipeline-watchdog
 
-# GitHub scheduled workflows can stall for 1–2h on public repos. Every 5 min:
-# if discovery-pipeline has not run in 11+ minutes, dispatch it.
+# GitHub scheduled workflows can stall for 1–2h on public repos. Hourly:
+# if discovery-pipeline has not run in 90+ minutes, dispatch it.
 on:
   schedule:
-    # Saatte 1: fleet'lerin kendi cron'lari var; watchdog sadece 40+ dk sicarse mudahale eder.
+    # Saatte 1: fleet'lerin kendi cron'lari var; watchdog sadece 90+ dk sicarse mudahale eder.
     - cron: "8 * * * *"
   workflow_dispatch:
 
@@ -52,8 +52,8 @@ jobs:
           last_epoch=$(date -u -d "$last_iso" +%s)
           age=$(( now_epoch - last_epoch ))
           echo "discovery-pipeline last run ${age}s ago ($last_iso)"
-          if [ "$age" -gt 2400 ]; then
-            echo "Stale (>40 min) — dispatching discovery-pipeline"
+          if [ "$age" -gt 5400 ]; then
+            echo "Stale (>90 min) — dispatching discovery-pipeline"
             gh workflow run discovery-pipeline.yml --ref "${GITHUB_REF_NAME}"
           else
             echo "Fresh enough — no dispatch"

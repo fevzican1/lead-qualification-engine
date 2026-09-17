@@ -1,7 +1,7 @@
 """Nirvana Oracle dispatch hub — GitHub cron gecikmesini kökten kesen orkestratör.
 
 GitHub Actions cron'u best-effort'tur (yoğunlukta 15dk -> 20-45dk gecikebilir).
-Oracle VM 7/24 açık olduğu için bu betik systemd timer ile her 5 dakikada bir
+Oracle VM 7/24 açık olduğu için bu betik systemd timer ile her 1 saatte bir
 çalışır ve DISPATCH_MATRIX'te süresi dolmuş TÜM GitHub modüllerini GitHub API
 (workflow_dispatch) ile TAM zamanında tetikler. GitHub cron'ları yedek katman
 olarak kalır; her workflow'un kendi concurrency kilidi çift çalışmayı önler.
@@ -30,7 +30,7 @@ WARN_EVERY_S = 24 * 3600
 # GitHub cron'ları yedek olarak aynı ritimde çalışır — çakışma concurrency kilidiyle önlenir.
 DISPATCH_MATRIX: dict[str, int] = {
     # --- yakıt ve teşhis omurgası (fleet) ---
-    "discovery-pipeline.yml": 10 * 60,       # her 10dk: alt fleet'ları (discover-cc-*,
+    "discovery-pipeline.yml": 3600,          # her 1 saat: alt fleet'ları (discover-cc-*,
                                              # harvest-shard, publish-feed, refill-on-low)
                                              # zincir halinde tetikler
     "nirvana-stealth-form.yml": 0,            # PASIF YEDEK: Lane O/V Oracle VM'de
@@ -49,16 +49,16 @@ DISPATCH_MATRIX: dict[str, int] = {
     "nirvana-strategy.yml": 24 * 3600,       # strateji pivotu: günlük
     "nirvana-meta.yml": 24 * 3600,           # meta orkestratör: günlük
     "oracle-diagnose.yml": 12 * 3600,        # oracle sağlık taraması: 12 saat
-    # --- discovery alt-fleet'ı — STAGGERED: her CDX dilimi farklı ritimde ---
-    # Fleet'ler birbirinden ayrık ve sakin ritimlerde: 10/15/20/25 dk. Aynı
-    # dakikada üst üste tetiklenme, cascade ve runner kuyruk yığını olmaz;
-    # her filo sırası geldiğinde dakikalarca çalışıp verimli harvest yapar.
-    "discover.yml": 6 * 3600,                # discover-cc-longtail fleet: 6 saat
-    "discover-cc-eu.yml": 10 * 60,           # CDX EU shard fleet: 10dk ritim
-    "discover-cc-global.yml": 15 * 60,       # CDX global shard fleet: 15dk ritim
-    "discover-cc-platform.yml": 20 * 60,     # CDX platform shard fleet: 20dk ritim
-    "discover-cc-tr.yml": 25 * 60,           # CDX TR shard fleet: 25dk ritim
-    "discover-tranco-sitemap.yml": 8 * 3600, # tranco sitemap harvest: 8 saat
+    # --- discovery alt-fleet'ı — STAGGERED: her CDX dilimi 3-4 saatte bir ---
+    # Fleet'ler sakin ritimlerde: 3 / 3.5 / 4 saat. Aynı dakikada üst üste
+    # tetiklenme, cascade ve runner kuyruk yığını olmaz; her filo sırası
+    # geldiğinde dakikalarca çalışıp verimli harvest yapar.
+    "discover.yml": 4 * 3600,                # discover-cc-longtail fleet: 4 saat
+    "discover-cc-eu.yml": 3 * 3600,          # CDX EU shard fleet: 3 saat
+    "discover-cc-global.yml": 3 * 3600 + 1800,  # CDX global shard fleet: 3.5 saat
+    "discover-cc-platform.yml": 4 * 3600,    # CDX platform shard fleet: 4 saat
+    "discover-cc-tr.yml": 3 * 3600,          # CDX TR shard fleet: 3 saat
+    "discover-tranco-sitemap.yml": 4 * 3600, # tranco sitemap harvest: 4 saat
     "discovery-watchdog.yml": 30 * 60,       # discovery fleet tazelik bekçisi: 30dk
     # zincir parçaları (discovery-pipeline içinde çağrılan);
     # ayrıca pasif kalmamak için burada listelenir, min_gap boş

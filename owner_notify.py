@@ -218,6 +218,8 @@ def lead_digest() -> str:
 
 def _post_message(target: int, body: str, *, silent: bool,
                   reply_markup: dict[str, Any] | None = None) -> bool:
+    import flood_guard
+
     token = (config.TELEGRAM_NOTIFY_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN or "").strip()
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -228,12 +230,27 @@ def _post_message(target: int, body: str, *, silent: bool,
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
-    response = httpx.post(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        json=payload,
-        timeout=10.0,
-    )
-    response.raise_for_status()
+    # httpx yolu da flood kapısından geçer: ceza aktifse Telegram'a vurmadan
+    # çık (çağıran kuyruğa yazar), 429 RetryAfter gelirse ceza kaydedilir.
+    if not flood_guard.sync_acquire(int(target)):
+        raise flood_guard.FloodBlocked(int(target), flood_guard.remaining(int(target)))
+    try:
+        response = httpx.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json=payload,
+            timeout=10.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        ra = getattr(exc, "retry_after", None)
+        if ra is None and exc.response is not None and exc.response.status_code == 429:
+            try:
+                ra = float(exc.response.headers.get("retry-after") or 0) or None
+            except (TypeError, ValueError):
+                ra = None
+        if ra is not None:
+            flood_guard.note_retry_after(float(ra), chat_id=int(target))
+        raise
     return True
 
 

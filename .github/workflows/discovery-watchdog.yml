@@ -5,9 +5,9 @@ name: discovery-watchdog
 # Superseded by discovery-pipeline.yml (kept for manual dispatch).
 on:
   schedule:
-    # Saatte 1 — fleet'ler kendi cron'lariyla 15-60 dk araliklarla zaten donuyor.
-    # Sicaklik esigi 65 dk: 60 dk'lik en yavas fleet'i yanlis alarm yapmasin.
-    - cron: "21 */2 * * *"
+    # Saatte 1 — fleet'ler 3-4 saatlik ritimlerle donuyor; sicaklik esigi 5 saat
+    # oldugu icin en yavas fleet (4 saat) yanlis alarm uretmez.
+    - cron: "21 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -41,6 +41,7 @@ jobs:
             discover-cc-platform
           )
           stale=0
+          stale_fleets=()
           now_epoch=$(date -u +%s)
           for workflow in "${families[@]}"; do
             last_iso="$(
@@ -50,13 +51,16 @@ jobs:
             if [ -z "$last_iso" ]; then
               echo "$workflow has no runs — stale"
               stale=1
+              stale_fleets+=("$workflow")
               continue
             fi
             last_epoch=$(date -u -d "$last_iso" +%s)
             age=$(( now_epoch - last_epoch ))
             echo "$workflow last run ${age}s ago ($last_iso)"
-            if [ "$age" -gt 3900 ]; then
+            # Fleet ritmi 3-4 saat; yalnizca 5 saati asan fleet bayat sayilir.
+            if [ "$age" -gt 18000 ]; then
               stale=1
+              stale_fleets+=("$workflow")
             fi
           done
           publish_iso="$(
@@ -77,9 +81,9 @@ jobs:
             echo "Discovery pipeline is fresh — no dispatch."
             exit 0
           fi
-          echo "Discovery stale — dispatching five fleets + publish-feed."
+          echo "Discovery stale — dispatching stale fleets + publish-feed."
           delay=0
-          for workflow in "${families[@]}"; do
+          for workflow in "${stale_fleets[@]}"; do
             running="$(
               gh run list --workflow "$workflow" --json status \
                 --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length' \

@@ -1,14 +1,14 @@
 name: discovery-pipeline
 
 # Unified queue/fuel pipeline (public repo — GitHub Actions minutes are free).
-# Her 30 dk: merge shards → publish feed → sync Oracle → yalnizca gerçekten
-# bayatlamis (90+ dk) TEK bir fleet'i dispatch eder.
+# Saatte 1: merge shards → publish feed → sync Oracle → yalnizca gerçekten
+# bayatlamis (5+ saat) TEK bir fleet'i dispatch eder.
 # CASCADE YOK: workflow_run tetikleyicisi bilerek kaldirildi — publish-feed
 # bitisi pipeline'i, fleet bitisleri publish-feed'i ASLA tetiklemez. Her
-# workflow yalniz kendi cron'unda calisir (15/20/25/10/5 fleet dakikalari).
+# workflow yalniz kendi cron'unda calisir (fleet ritimleri 3-4 saat).
 on:
   schedule:
-    - cron: "2,32 * * * *"
+    - cron: "2 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -85,9 +85,9 @@ jobs:
           # PACING GUARANTEE: dispatch YALNIZCA primary fleet 90+ dk'dir hic
           # calismadiysa ve su an calismiyorsa, TEK fleet ile yapilir.
           # Feed stali/kuyruk dusekligi burada dispatch tetiklemez: fleet'lerin
-          # kendi cron'lari (10-40 dk farkli dakikalar) ve refill-on-low
+          # kendi cron'lari (3-4 saat farkli dakikalar) ve refill-on-low
           # (saatte 1, kuyruk<80 acil) yakit hattini zaten besler. Bu sekilde
-          # her 30 dk'lik pipeline turu en fazla 1 fleet dispatch edebilir,
+          # her saatlik pipeline turu en fazla 1 fleet dispatch edebilir,
           # cascade ve runner yiginini engeller.
           now_epoch=$(date -u +%s)
           need_harvest=0
@@ -99,8 +99,8 @@ jobs:
             last_epoch=$(date -u -d "$last_iso" +%s)
             age=$(( now_epoch - last_epoch ))
             echo "$primary last run ${age}s ago"
-            if [ "$age" -gt 3600 ]; then
-              echo "Stale >90m - dispatch single fleet"
+            if [ "$age" -gt 18000 ]; then
+              echo "Stale >5h - dispatch single fleet"
               need_harvest=1
             fi
           fi
