@@ -523,10 +523,62 @@ async def _warm_ping(chat_id: int, update: Update, row: dict[str, Any]) -> None:
         f"Sohbete gir: /reply {chat_id} merhaba, ben DevSolve tarafıyım…\n"
         f"Botu geri ver: /release {chat_id}"
     )
-    ok = await asyncio.to_thread(owner_notify.send, ping)
+    ok = await asyncio.to_thread(owner_notify.send_handoff_alert, ping,
+                                 target_chat_id=chat_id)
     if ok:
         telegram_sessions.mark_warm(chat_id)
         logger.info("Warm conversion ping sent for chat %s (%s)", chat_id, who)
+
+
+async def _send_payment_link_critical(chat_id: int, text: str, update: Update,
+                                      context: ContextTypes.DEFAULT_TYPE,
+                                      who: str | None = None) -> None:
+    """Ödeme linkini engel yemeden gönder (flood harici kritik hat).
+
+    Sıra: (1) sohbetin sahibi bot reply_text dener; 429/FloodBlocked gelirse
+    (2) havuzdaki DİĞER bot doğrudan send_message dener (Telegram cezası
+    bot+chat bazlıdır — diğer bot aynı sohbete yazabilir); hepsi patlarsa
+    (3) reply_text'e düş (PTB retry'sine bırak). Link metni asla kaybolmaz:
+    en kötü halde normal yoldan gider.
+    """
+    try:
+        await update.message.reply_text(text)
+        return
+    except Exception as first_exc:  # noqa: BLE001 — bypass hattına geç
+        logger.warning("Odeme linki birincil bottan gidemedi (%s) — havuz bypass",
+                       type(first_exc).__name__)
+        ra = getattr(first_exc, "retry_after", None)
+        if ra is not None:
+            try:
+                owner = str(getattr(context.bot, "username", "") or "")
+                flood_guard.note_retry_after(float(ra), chat_id=chat_id,
+                                             bot_username=owner)
+            except (TypeError, ValueError):
+                pass
+    for uname, app in list(_APPS.items()):
+        if app is context.application:
+            continue
+        try:
+            if not await flood_guard.acquire(chat_id):
+                continue
+            await app.bot.send_message(chat_id=chat_id, text=text)
+            logger.info("Odeme linki havuz bypass ile gonderildi (@%s -> %s)", uname, chat_id)
+            try:
+                telegram_sessions._put(
+                    chat_id, bot_username=str(getattr(app.bot, "username", "") or uname))
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        except Exception as exc:  # noqa: BLE001
+            ra = getattr(exc, "retry_after", None)
+            if ra is not None:
+                try:
+                    flood_guard.note_retry_after(float(ra), chat_id=chat_id,
+                                                 bot_username=str(uname))
+                except (TypeError, ValueError):
+                    pass
+            continue
+    await update.message.reply_text(text)
 
 
 async def _hot_ping(chat_id: int, update: Update, text: str) -> None:
@@ -551,25 +603,31 @@ async def _hot_ping(chat_id: int, update: Update, text: str) -> None:
         f"Botu geri ver: /release {chat_id}\n"
         "Telegram özel sohbete üçüncü kişi eklenemez; metin bot üzerinden gider."
     )
-    ok = await asyncio.to_thread(owner_notify.send, ping)
+    # KRİTİK HAT (sıcak temas): flood harici — cezalı olsa bile gider.
+    # Butonlu handoff alert aynı hatta yedeklenir (tek çağrı, çift şans).
+    ok = await asyncio.to_thread(owner_notify.send_handoff_alert, ping,
+                                 target_chat_id=chat_id)
     if ok:
         telegram_sessions.mark_hot(chat_id)
         logger.info("Hot-lead ping sent for chat %s (%s)", chat_id, who)
     else:
-        logger.warning("Hot-lead ping skipped (no owner chat — /notifyme)")
+        logger.warning("Hot-lead ping FAILED for chat %s — mark edilmedi, tekrar dener", chat_id)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.message:
         return
     chat_id = update.effective_chat.id
+    if _is_owner(chat_id):
+        # Operatör sohbeti opt-out'tan ÖNCE gelir: /stop testi sırasında
+        # optouts.json'a düşen patron bir daha "you previously unsubscribed"
+        # duvarına çarpmaz (canlı arıza, 2026-09).
+        await update.message.reply_text(_owner_intro())
+        return
     if optout.is_chat_opted_out(chat_id):
         await update.message.reply_text(
             "You previously unsubscribed. Send /resume if you want to talk again."
         )
-        return
-    if _is_owner(chat_id):
-        await update.message.reply_text(_owner_intro())
         return
 
     token = (context.args[0] if context.args else "") or ""
@@ -1094,6 +1152,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    if _is_owner(chat_id):
+        # Buton ile bağlanan patronun mesajı doğrudan müşteriye gider (oto-yanıt DURUR).
+        # Opt-out'tan ÖNCE: patronun "stop" yazısı kendini optout'a düşürmesin.
+        if await _relay_owner_reply(update, context, chat_id, user_text):
+            return
+        # Devir yoksa operatör panel ipucu ver (sessiz kalma).
+        await update.message.reply_text(_owner_intro())
+        return
+
     if optout.is_chat_opted_out(chat_id) or optout.OPT_OUT_RE.search(user_text):
         await _confirm_stop(update)
         return
@@ -1112,10 +1179,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await _greet_from_token(update, context.bot, chat_id, row)
             return
 
-    if _is_owner(chat_id):
-        # Buton ile bağlanan patronun mesajı doğrudan müşteriye gider (oto-yanıt DURUR).
-        await _relay_owner_reply(update, context, chat_id, user_text)
-        return
+    # (operatör sohbeti yukarıda, opt-out'tan önce ele alındı)
 
     # Teslimat işçisi (Lane AF): müşteri rapor numarasıyla sorar → kendi raporu.
     # Yalnızca ödemesi doğrulanmış chate; satış akışını hiç etkilemez.
@@ -1295,14 +1359,26 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.exception("nirvana self-serve close failed")
             ssc_res = None
         if ssc_res and ssc_res.get("ok"):
-            await update.message.reply_text(ssc_res["message"])
+            # ÖDEME LİNKİ — KRİTİK GÖNDERİM (engel yemez): önce link metni
+            # spam-ateşleyici olabilecek kuyruk/proof işlerinden ÖNCE gider.
+            # Havuzdaki botla gönderilir; bu bot 429 yerse sıradaki botla
+            # bypass denenir (flood harici, retry'li).
+            try:
+                await _send_payment_link_critical(
+                    chat_id, ssc_res["message"], update, context, who=None)
+            except Exception:
+                logger.exception("kritik odeme linki gonderilemedi chat %s", chat_id)
+                await update.message.reply_text(ssc_res["message"])
             telegram_sessions._put(chat_id, terms_acknowledged=True, self_serve_link_sent=True)
             telegram_sessions.mark_payment(chat_id)
             who = str((_briefs.get(chat_id) or {}).get("company") or "—")
+            # KRİTİK HAT (ödeme bildirimi): flood harici — cezalı olsa bile gider.
             await asyncio.to_thread(
-                owner_notify.send,
-                f"SELF-SERVE SATIŞ — doğrulanmış ödeme linki gönderildi (chat {chat_id}, {who}). "
-                "Yerleşince insan doğrulaması yapılacak; teslimat o onaydan sonra.")
+                owner_notify.send_handoff_alert,
+                f"💰 SELF-SERVE SATIŞ — doğrulanmış ödeme linki gönderildi "
+                f"(chat {chat_id}, {who}). "
+                "Yerleşince insan doğrulaması yapılacak; teslimat o onaydan sonra.",
+                target_chat_id=chat_id)
             return
         if ssc_res and ssc_res.get("reason") == "terms":
             who = str((_briefs.get(chat_id) or {}).get("company") or "")
@@ -1348,9 +1424,18 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await asyncio.to_thread(owner_notify.send, f"Satın alma ilgisi (kabul/ödeme değil), chat {chat_id}. "
                                     "Kapsam/sözleşme ve Payoneer talep doğrulaması gerekiyor.")
             return
-        await update.message.reply_text(
-            f"Agreed request: {_currency_symbol(request['currency'])}{request['amount']} {request['currency']}. "
-            "Check the recipient and amount on Payoneer before paying.\n" + config.PAYONEER_PAYMENT_URL)
+        # Ödeme linki (sözleşmeli hat) — KRİTİK GÖNDERİM, engel yemez.
+        try:
+            await _send_payment_link_critical(
+                chat_id,
+                f"Agreed request: {_currency_symbol(request['currency'])}{request['amount']} {request['currency']}. "
+                "Check the recipient and amount on Payoneer before paying.\n" + config.PAYONEER_PAYMENT_URL,
+                update, context)
+        except Exception:
+            logger.exception("kritik odeme linki (sozlesmeli) gonderilemedi chat %s", chat_id)
+            await update.message.reply_text(
+                f"Agreed request: {_currency_symbol(request['currency'])}{request['amount']} {request['currency']}. "
+                "Check the recipient and amount on Payoneer before paying.\n" + config.PAYONEER_PAYMENT_URL)
         telegram_sessions._put(chat_id, payment_request=request)
         telegram_sessions.mark_payment(chat_id)
         return
@@ -1536,16 +1621,29 @@ async def _followup_loop(application: Application) -> None:
 
 
 async def _heartbeat_loop(application: Application) -> None:
-    """Self-healing: systemd WATCHDOG=1 + kalıcı kuyruk aktarıcısı (10 sn ritim)."""
+    """Self-healing: systemd WATCHDOG=1 + kalıcı kuyruk aktarıcısı (10 sn ritim).
+
+    KUYRUĞU ASLA EVENT LOOP'TA SENKRON İŞLEME: run_due -> deliver_queued_notify
+    -> httpx post, cezalı/yavaş Telegram hedefinde dakikalarca bloklarsa
+    WATCHDOG=1 kesilir ve systemd servisi SIGABRT ile çökme-restart döngüsüne
+    sokar (canlı arıza, 2026-09: her ~4.7 dk'da bir 'watchdog' ölümü). Bu
+    yüzden iş, timeout'lu thread'e alınır; loop daima 10 sn'de bir nabız vurur.
+    """
     heartbeat.ready()
     while True:
         heartbeat.pulse("salesbot")
         try:
-            relay = task_queue.run_due(
-                "telegram_notify", owner_notify.deliver_queued_notify, limit=10,
+            relay = await asyncio.wait_for(
+                asyncio.to_thread(
+                    task_queue.run_due,
+                    "telegram_notify", owner_notify.deliver_queued_notify, limit=10,
+                ),
+                timeout=25.0,
             )
             if relay.get("done"):
                 logger.info("Queued notify relay: %s", relay)
+        except asyncio.TimeoutError:
+            logger.warning("Queued notify relay timed out (>25s) — sonraki tura bırak")
         except Exception:
             logger.exception("Queued notify relay failed")
         await asyncio.sleep(10)
@@ -1571,9 +1669,12 @@ async def _apply_public_identity(application: Application) -> None:
 
 
 async def _post_init(application: Application, *, primary: bool = True) -> None:
-    # Telegram flood cezası bir daha yaşanmasın: tüm giden çağrılar kapıdan geçer.
-    # (flood_guard her bot için ayrı kurulur — her botun kendi limit havuzu var.)
-    flood_guard.install(application.bot)
+    # Telegram flood cezası bir daha yaşanmasın: TÜM botlar korumalı —
+    # her botun giden çağrıları kapıdan geçer (bot başına limit havuzu).
+    # username post_init anında belli olmayabilir; _serve'de initialize
+    # sonrası gerçek username ile tekrar kurulur.
+    flood_guard.install(application.bot,
+                        bot_username=str(getattr(application.bot, "username", "") or ""))
     if primary:
         # Arka plan döngüleri yalnızca birincil uygulamada: 3 bot = 3 kopya
         # followup/heartbeat olmasın, routing zaten _app_for_chat ile yapılır.
@@ -1669,8 +1770,21 @@ async def _serve(apps: list[Application]) -> None:
         uname = str(getattr(app.bot, "username", "") or "")
         if uname:
             _APPS[uname] = app
+            # Gerçek username belli: flood_guard bu botu ismiyle tanır
+            # (FLOOD_WAIT yerse havuzda PASSIVE'a çekilir).
+            try:
+                app.bot._flood_guard_bot = uname
+            except Exception:  # noqa: BLE001
+                pass
         healthy.append(app)
     apps = healthy
+    # Ortak Beyin kayıt defteri: havuz üyeleri ACTIVE doğar; pasiflerin
+    # cooldown'u dolmuşsa okuma anında otomatik reaktive olur.
+    try:
+        import bot_registry
+        bot_registry.register_pool(list(_APPS.keys()))
+    except Exception:  # noqa: BLE001
+        logger.exception("bot_registry kaydi basarisiz — rotasyon config havuzundan")
     for index, app in enumerate(apps):
         await _post_init(app, primary=(index == 0))
     for app in apps:

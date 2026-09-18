@@ -67,33 +67,25 @@ def test_send_handoff_alert_butonu_gonderir(monkeypatch):
     owner_notify.save_chat_id(4242)
     seen: dict = {}
 
-    def fake_post(target, body, *, silent, reply_markup=None, token=None):
-        seen.update({"target": target, "body": body, "silent": silent,
-                     "reply_markup": reply_markup, "token": token})
+    def fake_critical(target, body, *, reply_markup=None):
+        seen.update({"target": target, "body": body,
+                     "reply_markup": reply_markup})
         return True
 
-    monkeypatch.setattr(owner_notify, "_post_message", fake_post)
-    ok = owner_notify.send_handoff_alert("🚨 CANLI MÜŞTERİ TALEBİ",
+    # Kritik hat (flood harici): butonlu bildirim buradan gider.
+    monkeypatch.setattr(owner_notify, "send_critical", fake_critical)
+    ok = owner_notify.send_handoff_alert("CANLI MUSTERI TALEBI",
                                          target_chat_id=777)
     assert ok is True
-    assert seen["target"] == 4242 and seen["token"] == "sales-token"
-    assert seen["silent"] is False                      # yüksek öncelik: sessiz değil
+    assert seen["target"] == 4242
     assert seen["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "handoff:777"
 
 
-def test_send_handoff_alert_hata_halinde_duz_bildirime_duser(monkeypatch):
+def test_send_handoff_alert_hatasi_kuyruga_duser_ve_false_doner(monkeypatch):
+    # Kritik hat bile ulasamazsa haber KAYBOLMAZ: kuyruga yazilir, False doner.
     owner_notify.save_chat_id(4242)
-    calls: list[dict] = []
-
-    def flaky_post(target, body, *, silent, reply_markup=None, token=None):
-        calls.append({"markup": reply_markup})
-        if reply_markup is not None:
-            raise RuntimeError("Telegram buton reddetti")
-        return True
-
-    monkeypatch.setattr(owner_notify, "_post_message", flaky_post)
-    assert owner_notify.send_handoff_alert("acil", target_chat_id=777) is True
-    assert len(calls) == 2 and calls[0]["markup"] and calls[1]["markup"] is None
+    monkeypatch.setattr(owner_notify, "send_critical", lambda *a, **k: False)
+    assert owner_notify.send_handoff_alert("acil", target_chat_id=777) is False
 
 
 def test_send_handoff_alert_hedef_yoksa_false(monkeypatch):

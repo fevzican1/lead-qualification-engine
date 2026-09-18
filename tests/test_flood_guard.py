@@ -1,6 +1,7 @@
 """flood_guard birim testleri — Telegram limitlerine takılma garantisi."""
 import asyncio
 
+import config
 import flood_guard
 
 
@@ -68,22 +69,43 @@ def test_install_flood_uzunken_mesaji_duşurur():
         asyncio.run(bot._post("sendMessage", {"chat_id": 7, "text": "x"}))
 
 
-def test_install_retry_after_yakalar_ve_not_eder():
+def test_install_retry_after_yakalar_ve_botu_pasife_ceker(tmp_path, monkeypatch):
     import telegram.error as terr
 
+    import bot_registry
+    import flood_guard as fg_mod
+
+    monkeypatch.setattr(bot_registry, "STATE_PATH", tmp_path / "bot_registry.json")
+    monkeypatch.setattr(fg_mod, "_STATE_PATH", tmp_path / "flood_gate.json")
+    fg_mod.reset()
+    bot_registry.register_pool(["Deneme_Bot"])
+
     class FakeBot:
+        username = "Deneme_Bot"
+
         async def _post(self, endpoint, data, *a, **kw):
             if data.get("fail"):
                 raise terr.RetryAfter(77)
 
     bot = FakeBot()
-    flood_guard.install(bot)
+    flood_guard.install(bot, bot_username="Deneme_Bot")
     try:
         asyncio.run(bot._post("sendMessage", {"chat_id": 7, "text": "x", "fail": True}))
     except terr.RetryAfter:
         pass  # beklendiği gibi fırlatıyor
     rem = flood_guard.remaining()
     assert 60 < rem <= 77, rem
+    # Dinamik havuz: cezayı yiyen bot PASSIVE + cooldown damgalı.
+    assert bot_registry.is_active("Deneme_Bot") is False
+    snap = bot_registry.pool_snapshot()
+    assert snap["Deneme_Bot"]["status"] == "passive"
+    assert snap["Deneme_Bot"]["cooldown_remaining_s"] > 60
+    # Form rotasyonu pasif botu atlar.
+    monkeypatch.setattr(config, "TELEGRAM_BOT_USERNAME", "Deneme_Bot")
+    config.set_bot_pool(["Deneme_Bot", "Yedek_Bot"])
+    bot_registry.register_pool(["Deneme_Bot", "Yedek_Bot"])
+    flood_guard.note_retry_after(3600, bot_username="Deneme_Bot")
+    assert config.next_bot_username() == "Yedek_Bot"
 
 
 def test_per_chat_pacing_rezerve_eder():

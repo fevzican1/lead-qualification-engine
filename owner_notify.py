@@ -216,11 +216,130 @@ def lead_digest() -> str:
     return "\n".join(lines)
 
 
-def _post_message(target: int, body: str, *, silent: bool,
-                  reply_markup: dict[str, Any] | None = None) -> bool:
+def _extract_retry_after(exc: Exception) -> float | None:
+    """httpx 429 / Telegram RetryAfter süresini çıkar (yoksa None)."""
+    ra = getattr(exc, "retry_after", None)
+    try:
+        if ra is not None:
+            return max(1.0, float(ra))
+    except (TypeError, ValueError):
+        pass
+    resp = getattr(exc, "response", None)
+    if resp is not None and getattr(resp, "status_code", None) == 429:
+        try:
+            raw = resp.json().get("parameters", {}).get("retry_after")
+            if raw is not None:
+                return max(1.0, float(raw))
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            raw = resp.headers.get("retry-after")
+            if raw is not None:
+                return max(1.0, float(raw))
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def _send_via_pool(target: int, payload: dict[str, Any], tokens: list[str]) -> bool:
+    """KRİTİK HAT: havuzdaki TÜM botlarla sırayla dene (flood harici).
+
+    Telegram cezası BOT+CHAT bazlıdır: biri cezalıysa diğeri aynı sohbete
+    yazabilir. Her 429'da o bot PASSIVE'a çekilir, sıradakine geçilir.
+    Biri başarırsa True; hepsi patlarsa son hatayı fırlatır.
+    """
     import flood_guard
 
-    token = (config.TELEGRAM_NOTIFY_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN or "").strip()
+    last_exc: Exception | None = None
+    for token in tokens:
+        try:
+            response = httpx.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json=payload,
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            return True
+        except httpx.HTTPStatusError as exc:
+            last_exc = exc
+            ra = _extract_retry_after(exc)
+            if ra is not None:
+                flood_guard.note_retry_after(ra, chat_id=int(target),
+                                             bot_username=_token_owner(token))
+            if exc.response is not None and exc.response.status_code == 429:
+                continue  # sıradaki botla bypass dene
+            raise
+    if last_exc is not None:
+        raise last_exc
+    return False
+
+
+def _token_owner(token: str) -> str:
+    """Token -> bilinen bot username (havuz kaydı için; bilinmiyorsa '')."""
+    try:
+        import bot_registry
+        import hashlib
+        digest = hashlib.sha256((token or "").encode()).hexdigest()[:12]
+        snap = bot_registry.pool_snapshot()
+        for uname, entry in snap.items():
+            if str(entry.get("token_hint") or "") == digest:
+                return uname
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
+def _pool_tokens() -> list[str]:
+    """Gönderim havuzu: notify tokeni önce, sonra tüm satış botu tokenleri."""
+    toks: list[str] = []
+    for raw in [config.TELEGRAM_NOTIFY_BOT_TOKEN] + config.bot_tokens():
+        tok = (raw or "").strip()
+        if tok and tok not in toks:
+            toks.append(tok)
+    return toks
+
+
+def send_critical(target: int, body: str, *,
+                  reply_markup: dict[str, Any] | None = None) -> bool:
+    """🔥 KRİTİK HAT — sıcak temas + ödeme bildirimi (flood harici).
+
+    Flood kapısına HİÇ takılmaz: ceza aktif olsa bile Telegram'a vurur,
+    429 yerse havuzdaki DİĞER botla bypass dener. Sessizce KAYBOLMAZ —
+    tüm botlar patlarsa task_queue'ya yazılır (hat dönüşünce iletilir).
+    normal `send()` bu hattı kullanmaz; yalnızca kritik çağrılar kullanır.
+    """
+    import circuit_breaker
+    import task_queue
+
+    payload: dict[str, Any] = {
+        "chat_id": int(target),
+        "text": body[:3500],
+        "disable_notification": False,  # kritik: telefon Do-Not-Disturb'da bile çalar
+    }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    try:
+        _send_via_pool(int(target), payload, _pool_tokens())
+        circuit_breaker.record("telegram_notify", True)
+        return True
+    except Exception as exc:  # noqa: BLE001 — kaybolma YOK, kuyruğa yaz
+        circuit_breaker.record("telegram_notify", False)
+        logger.warning("Kritik bildirim havuzdan gidemedi (%s) — kuyrukta", _mask(exc))
+        task_queue.enqueue("telegram_notify",
+                           {"chat_id": int(target), "text": str(body)[:3500],
+                            "high_priority": True, "critical": True},
+                           max_attempts=12, delay_s=30)
+        return False
+
+
+def _post_message(target: int, body: str, *, silent: bool,
+                  reply_markup: dict[str, Any] | None = None,
+                  token: str | None = None) -> bool:
+    import flood_guard
+
+    tokens = ([token] if (token or "").strip() else []) or _pool_tokens()
+    if not tokens:
+        raise RuntimeError("Telegram token yok (.env / secret eksik)")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     payload: dict[str, Any] = {
@@ -231,25 +350,22 @@ def _post_message(target: int, body: str, *, silent: bool,
     if reply_markup:
         payload["reply_markup"] = reply_markup
     # httpx yolu da flood kapısından geçer: ceza aktifse Telegram'a vurmadan
-    # çık (çağıran kuyruğa yazar), 429 RetryAfter gelirse ceza kaydedilir.
+    # çık (çağıran kuyruğa yazar), 429 RetryAfter gelirse ceza kaydedilir +
+    # bot havuzda PASSIVE'a çekilir (form rotasyonundan çıkar).
     if not flood_guard.sync_acquire(int(target)):
         raise flood_guard.FloodBlocked(int(target), flood_guard.remaining(int(target)))
     try:
         response = httpx.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
+            f"https://api.telegram.org/bot{tokens[0]}/sendMessage",
             json=payload,
             timeout=10.0,
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
-        ra = getattr(exc, "retry_after", None)
-        if ra is None and exc.response is not None and exc.response.status_code == 429:
-            try:
-                ra = float(exc.response.headers.get("retry-after") or 0) or None
-            except (TypeError, ValueError):
-                ra = None
+        ra = _extract_retry_after(exc)
         if ra is not None:
-            flood_guard.note_retry_after(float(ra), chat_id=int(target))
+            flood_guard.note_retry_after(float(ra), chat_id=int(target),
+                                         bot_username=_token_owner(tokens[0]))
         raise
     return True
 
@@ -309,25 +425,20 @@ def send_handoff_alert(text: str, *, target_chat_id: int,
         return False
     body = text if text.startswith("[DevSolve") else f"[DevSolve Ops]\n{text}"
     markup = handoff_keyboard(target_chat_id) if route.get("button") else None
-    try:
-        _post_message(int(destination), body, silent=not high_priority,
-                      reply_markup=markup, token=use_token)
+    # KRİTİK HAT (sıcak temas): flood harici — cezalı olsa bile gider.
+    if send_critical(int(destination), body, reply_markup=markup):
         circuit_breaker.record("telegram_notify", True)
         return True
-    except Exception as exc:  # noqa: BLE001 — bildirim buton yüzünden kaybolmaz
-        logger.warning("Handoff alert failed (%s) — plain fallback", _mask(exc))
-        try:
-            _post_message(int(destination), body, silent=not high_priority, token=use_token)
-            circuit_breaker.record("telegram_notify", True)
-            return True
-        except Exception as exc2:  # noqa: BLE001
-            circuit_breaker.record("telegram_notify", False)
-            logger.error("Handoff alert failed: %s", _mask(exc2))
-            return False
+    circuit_breaker.record("telegram_notify", False)
+    return False
 
 
 def deliver_queued_notify(task: dict[str, Any]) -> bool:
-    """task_queue işçisi: kuyruktaki bildirimi tek denemede gönder (şalter kontrollü)."""
+    """task_queue işçisi: kuyruktaki bildirimi tek denemede gönder (şalter kontrollü).
+
+    critical=True işaretli görevler (sıcak temas / ödeme) flood harici
+    hattan gider — ceza aktif olsa bile denenir.
+    """
     import circuit_breaker
 
     payload = task.get("payload") or {}
@@ -342,6 +453,10 @@ def deliver_queued_notify(task: dict[str, Any]) -> bool:
     if not target:
         return True  # hedef yok — görev anlamsız, ack'le
     try:
+        if payload.get("critical"):
+            ok = send_critical(int(target), str(payload.get("text") or ""))
+            circuit_breaker.record("telegram_notify", ok)
+            return ok
         _post_message(int(target), str(payload.get("text") or ""),
                       silent=not bool(payload.get("high_priority")))
         circuit_breaker.record("telegram_notify", True)

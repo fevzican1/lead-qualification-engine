@@ -173,11 +173,14 @@ def _save_state() -> None:
         logger.debug("flood_gate state yazilamadi", exc_info=True)
 
 
-def note_retry_after(seconds: float, chat_id: int | None = None) -> float:
-    """Telegram 429 cezası geldi — kapıyı kapat.
+def note_retry_after(seconds: float, chat_id: int | None = None,
+                     bot_username: str = "") -> float:
+    """Telegram 429 cezası geldi — kapıyı kapat + botu havuzda PASSIVE'a çek.
 
-    chat_id verilirse ceza o sohbete yazılır (yalnız o sohbet bekler); global
-    kapı yine kısa bir cooldown alır ki ceza hattı tamamen spam'lenmesin.
+    Dinamik Bot Havuzu: cezayi yiyen bot cooldown_until ile PASSIVE moda
+    alinir — form linki rotasyonundan cikar; sure dolunca otomatik ACTIVE.
+    Kritik bildirimler (sicak temas / odeme) bu kapidan ETKILENMEZ:
+    onlar flood harici hatta gonderilir (owner_notify.CRITICAL).
     """
     global _until
     _load_state()
@@ -210,6 +213,11 @@ def note_retry_after(seconds: float, chat_id: int | None = None) -> float:
             "FLOOD GATE: %.0f sn Telegram cezasi — giden mesajlar duraklatildi", seconds
         )
     _save_state()
+    try:
+        import bot_registry
+        bot_registry.mark_passive(bot_username, seconds)
+    except Exception:  # noqa: BLE001 — kayit defteri yoksa kapi yine calisir
+        pass
     return seconds
 
 
@@ -340,16 +348,21 @@ def sync_acquire(chat_id: int | None = None, *, max_wait: float = 0.0) -> bool:
     return True
 
 
-def install(bot: Any) -> None:
+def install(bot: Any, bot_username: str = "") -> None:
     """PTB Bot örneğinin TÜM API çağrılarını flood kapısından geçir.
 
     Bot._post sarılır; reply_text/send_message/send_photo dahil her gönderim
     otomatik korunur. RetryAfter geldiğinde ceza süresi CEZAYI ALAN SOHBETE
-    yazılır (tek sohbet tüm filoyu susturamaz).
+    yazılır (tek sohbet tüm filoyu susturamaz) + bot havuzda PASSIVE'a çekilir
+    (form linki rotasyonundan çıkar; cooldown dolunca otomatik ACTIVE).
+    bot_username verilirse hangi botun pasife çekileceği bilinir; verilmezse
+    bot.username'dan çözülür.
     """
     if getattr(bot, "_flood_guard_installed", False):
         return
     original = bot._post
+    _uname = str(bot_username or getattr(bot, "username", "") or "")
+    bot._flood_guard_bot = _uname
 
     async def guarded(endpoint: str, data: dict[str, Any], *args: Any, **kwargs: Any):
         name = str(endpoint or "").lower()
@@ -376,9 +389,11 @@ def install(bot: Any) -> None:
             ra = getattr(exc, "retry_after", None)
             if ra is not None:
                 try:
-                    note_retry_after(float(ra), chat_id=cid)
+                    note_retry_after(float(ra), chat_id=cid,
+                                     bot_username=getattr(bot, "_flood_guard_bot", "") or _uname)
                 except (TypeError, ValueError):
-                    note_retry_after(60.0, chat_id=cid)
+                    note_retry_after(60.0, chat_id=cid,
+                                     bot_username=getattr(bot, "_flood_guard_bot", "") or _uname)
             raise
 
     bot._post = guarded

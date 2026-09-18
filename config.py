@@ -490,8 +490,20 @@ def resolve_bot_pool() -> list[str]:
 
 
 def next_bot_username() -> str:
-    """Form linki havuzu round-robin: yük Telegram bot limitleri arasında bölüşülür."""
+    """Form linki havuzu round-robin — SADECE ACTIVE botlardan.
+
+    Dinamik Bot Havuzu + Ortak Beyin: PASSIVE (FLOOD_WAIT cezali) botlar
+    link rotasyonuna GIRMEZ; musteri tiklayinca cezali bota dusmez.
+    bot_registry import edilemezse eski round-robin'e duser (fail-open).
+    """
     global _BOT_POOL_CURSOR
+    try:
+        import bot_registry
+        name = bot_registry.next_active_username()
+        if name:
+            return name
+    except Exception:  # noqa: BLE001 — kayit defteri yoksa eski yola dus
+        pass
     with _pool_lock():
         pool = list(_BOT_POOL_USERNAMES)
         if not pool and TELEGRAM_BOT_USERNAME:
