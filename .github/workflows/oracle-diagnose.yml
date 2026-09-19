@@ -173,10 +173,18 @@ jobs:
           echo "=== FORM HATTI LOG (pipeline + legacy, son 30) ==="
           journalctl -u nirvana-pipeline.service -n 30 --no-pager -o cat 2>/dev/null || true
           tail -n 20 logs/runner.log 2>/dev/null || true
-          echo "=== TIMER JURNALLERI (exit-code kok nedeni) ==="
+          echo "=== TIMER JURNALLERI (YALNIZCA son tetikleme + drop-in User denetimi) ==="
           for u in nirvana-watchdog nirvana-idleguard nirvana-captcha nirvana-deliveryworker nirvana-linkedin nirvana-dispatch; do
-            echo "--- $u (son 15) ---"
-            sudo -n journalctl -u "$u.service" -n 15 --no-pager -o cat 2>/dev/null || journalctl -u "$u.service" -n 15 --no-pager -o cat 2>/dev/null || true
+            echo "--- $u ---"
+            echo "[drop-in User] $(systemctl cat \"$u.service\" 2>/dev/null | grep -E '^(User|DynamicUser)=' || echo 'User-yok(root)')"
+            echo "[drop-in dizin] $(ls -A /etc/systemd/system/\"$u.service.d\" 2>/dev/null || echo 'drop-in-yok')"
+            trig="$(systemctl show \"$u.service\" -p ExecMainExitTimestamp --value 2>/dev/null || echo -)"
+            echo "[son-hata-damgasi] $trig"
+            if [ -n \"$trig\" ] && [ \"$trig\" != \"n/a\" ]; then
+              sudo -n journalctl -u \"$u.service\" --since \"$trig\" --no-pager -o short 2>/dev/null | tail -n 8 || true
+            else
+              sudo -n journalctl -u \"$u.service\" -n 8 --no-pager -o short 2>/dev/null || true
+            fi
           done
           echo "=== PIPELINE SON CIKIS ==="
           tail -n 25 logs/pipeline.log 2>/dev/null || echo "pipeline.log yok"
