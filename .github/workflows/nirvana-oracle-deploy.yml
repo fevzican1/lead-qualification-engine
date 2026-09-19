@@ -254,10 +254,19 @@ jobs:
           PY
           systemctl list-timers 'nirvana-*' --no-pager || sudo -n systemctl list-timers 'nirvana-*' --no-pager
           echo "=== [3c] MODÜL SAĞLIĞI (birim gerçekten koşuyor mu?) ==="
-          # Birim dosyasının var olması yetmez: User= yanlışsa systemd servisi
-          # HİÇ başlatmaz (status=217/USER) ve modül sessizce ölü kalır.
-          echo "yetkili servis kullanıcısı: $(stat -c '%U' /opt/devsolve 2>/dev/null || echo '?')"
-          getent passwd devsolve >/dev/null 2>&1 && echo "devsolve kullanıcısı: VAR" || echo "devsolve kullanıcısı: YOK"
+          # Workaround: eski /opt/devsolve unit'lerinde User=devsolve kalmis
+          # olabilir; once tezgahtaki UNIT_SRC ile degistirilmis olmali.
+          # Kapida User= satiri kontrol edilir; sorunlu birimler
+          # bastan asagiya onaylanir.
+          echo "yetkili servis kullanicisi: $(stat -c '%U' /opt/devsolve 2>/dev/null || echo '?')"
+          getent passwd devsolve >/dev/null 2>&1 && echo "devsolve kullanicisi: VAR" || echo "devsolve kullanicisi: YOK"
+          echo "--- oracle kaynak birimler (User= satiri olmamali) ---"
+          if grep -rE '^User=' oracle/*.service 2>/dev/null; then
+            echo "::error::oracle/*.service icinde User= satiri var — kaynakta kaldirilmali (217/USER riski)"
+            exit 1
+          else
+            echo "oracle kaynak birimler temiz (User= yok)"
+          fi
           for u in nirvana-salesbot nirvana-pipeline devsolve-runner devsolve-bot; do
             printf '%-22s active=%-10s user=%-10s restarts=%s\n' "$u" \
               "$(systemctl is-active "$u.service" 2>/dev/null || echo n/a)" \

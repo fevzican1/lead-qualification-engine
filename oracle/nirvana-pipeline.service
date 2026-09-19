@@ -12,7 +12,6 @@ Wants=network-online.target
 # büyük seçildi: devam eden form gönderimi ASLA ortasından kesilmez; yalnızca
 # gerçek kilitlenme (1 saat boyunca tek nabız yok) onarılır. Normal tur 20-25 sn.
 Type=notify
-User=root
 WorkingDirectory=/opt/devsolve
 # PYTHONUNBUFFERED: journalctl'e anında yazılsın. Tamponlu stdout yüzünden
 # "son log 18:20" görünüp hattın canlı olup olmadığı anlaşılmıyordu.

@@ -5,7 +5,6 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=root
 WorkingDirectory=/opt/devsolve
 EnvironmentFile=-/opt/devsolve/.env
 ExecStart=/opt/devsolve/.venv/bin/python -m nirvana.runner delivery_runner

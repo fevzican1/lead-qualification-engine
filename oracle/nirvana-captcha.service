@@ -5,7 +5,6 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=root
 WorkingDirectory=/opt/devsolve
 EnvironmentFile=-/opt/devsolve/.env
 # Tek tur: once ana seri (CAPTCHA'yi captcha_queue'ya yazar), sonra dedicated worker (max 2) tuketir.
