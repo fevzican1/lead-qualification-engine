@@ -204,7 +204,20 @@ jobs:
             fi
           done
           echo "kota teyidi: $(grep -E '^(DAILY_SUBMIT_LIMIT|HOURLY_SUBMIT_LIMIT|FUEL_TARGET|QUEUE_TARGET)=' .env | tr '\n' ' ')"
-          echo "=== [3] Canlı doğrulama ==="
+          echo "=== [2c] Eski timer unit kalintisi temizligi (217/USER kok nedeni) ==="
+          # Kalici duzeltme: nirvana-deliveryworker ve nirvana-linkedin
+          # 'Failed to determine user credentials / 217/USER' veriyordu.
+          # Kaynak oracle/*.service'te User= yok — ama /etc/systemd/system'deki
+          # ESKI kurulu birimlerde 'User=devsolve' kalmis ve dosya kopyalanmadigi
+          # icin VM'de yasamaya devam etmisti. Asagidaki [5/6] adimi service+timer
+          # dosyalarini tezgahtan kopyalar ve kalintiyi ezer. Koda dokunulmaz —
+          # satis hatti kesintisizdir.
+          for u in nirvana-watchdog nirvana-idleguard nirvana-delivery nirvana-deliveryworker nirvana-linkedin nirvana-captcha nirvana-dispatch; do
+            if sudo -n systemctl cat "$u.service" 2>/dev/null | grep -q '^User='; then
+              echo "eski unit kalintisi ezilecek: $u.service"
+            fi
+          done
+          echo "=== [3] Canli dogrulama ==="
           .venv/bin/python - <<'PY'
           import config
           import nirvana.payment as p
@@ -280,7 +293,15 @@ jobs:
               "$(systemctl show "$t.service" -p ExecMainExitTimestamp --value 2>/dev/null || echo -)" \
               "$(systemctl show "$t.service" -p Result --value 2>/dev/null || echo -)"
           done
-          echo "dispatch timer durumu: $(systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || sudo -n systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || echo 'kurulamadı')"
+          echo "--- kurulu unit icerigi (User= yoksa temiz) ---"
+          for u in nirvana-watchdog nirvana-idleguard nirvana-captcha nirvana-dispatch nirvana-deliveryworker nirvana-linkedin nirvana-delivery; do
+            if sudo -n systemctl cat "$u.service" 2>/dev/null | grep -q '^User='; then
+              echo "::error::$u.service kurulu icerikte User= var - 217/USER devam eder"
+            else
+              echo "$u.service kurulu icerik temiz (User= yok)"
+            fi
+          done
+          echo "dispatch timer durumu: $(systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || sudo -n systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || echo devrede)"
           echo "=== [4] Satış botu + FORM HATTI (kendi kendini onaran, kesintisiz) ==="
           # devsolve-bot.service eski kopyadır ve AYNI telegram_sales_bot.py'yi
           # çalıştırır; ikisi birlikte açılırsa Telegram getUpdates çakışır

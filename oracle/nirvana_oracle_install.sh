@@ -67,22 +67,17 @@ print("OK — captcha_queue:", sf.CAPTCHA_QUEUE_NAME, "| max_workers=2 | $0 (par
 PY
 
 echo "[5/6] systemd unit + timer kurulumu"
-install -m 644 "$UNIT_SRC/nirvana-watchdog.service" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-watchdog.timer" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-idleguard.service" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-idleguard.timer" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-delivery.service" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-delivery.timer" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-deliveryworker.service" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-deliveryworker.timer" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-linkedin.service" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-linkedin.timer" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-captcha.service" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-captcha.timer" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-dispatch.service" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-dispatch.timer" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-salesbot.service" /etc/systemd/system/
-install -m 644 "$UNIT_SRC/nirvana-pipeline.service" /etc/systemd/system/
+for f in nirvana-watchdog.service nirvana-watchdog.timer nirvana-idleguard.service nirvana-idleguard.timer nirvana-delivery.service nirvana-delivery.timer nirvana-deliveryworker.service nirvana-deliveryworker.timer nirvana-linkedin.service nirvana-linkedin.timer nirvana-captcha.service nirvana-captcha.timer nirvana-dispatch.service nirvana-dispatch.timer nirvana-salesbot.service nirvana-pipeline.service; do
+  # 217/USER kok nedeni: /etc'deki ESKI unit'te 'User=devsolve' kalmissa ve
+  # VM'de o kullanici yoksa timer hic calismaz. install dosyayi ezer.
+  install -m 644 "$UNIT_SRC/$f" /etc/systemd/system/
+done
+systemctl daemon-reload
+# Eski icerikle damgalanmis failed durumu yeni icerikle de 'failed' gorunebilir;
+# timer'lari temiz baslat (satis hatti bu sira durmaz: salesbot/pipeline ayri).
+for u in nirvana-watchdog nirvana-idleguard nirvana-delivery nirvana-deliveryworker nirvana-linkedin nirvana-captcha nirvana-dispatch; do
+  systemctl reset-failed "$u.service" 2>/dev/null || true
+done
 systemctl daemon-reload
 
 echo "[5.5/6] Dispatch hub derleme kontrolü"
