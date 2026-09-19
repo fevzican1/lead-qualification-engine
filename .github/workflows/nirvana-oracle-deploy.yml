@@ -141,9 +141,13 @@ jobs:
           echo "=== [1] Paket açma (reviewed committed code, /opt/devsolve) ==="
           cd /opt/devsolve
           tar -xzf /tmp/nirvana-deploy.tgz -C /opt/devsolve
-          find nirvana -name '*.sh' -exec sed -i 's/\r$//' {} + 2>/dev/null || true
-          find oracle -type f -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+          # systemd CRLF'de User=root\r → 217/USER verir; kaynakta kökten temizlenir.
+          find oracle -type f \( -name '*.service' -o -name '*.timer' -o -name '*.sh' \) -exec sed -i 's/\r$//' {} + 2>/dev/null || true
           sed -i 's/\r$//' oracle/nirvana_oracle_install.sh
+          if grep -rIl $'\r' oracle/*.service oracle/*.timer 2>/dev/null | grep -q .; then
+            echo "::error::oracle/ birimlerinde CRLF kalmis"
+            exit 1
+          fi
           chmod +x oracle/nirvana_oracle_install.sh
           echo "=== [2] Nirvana kurulum (link + systemd timer'lar) ==="
           # Form akisi garanti: SMB seridi acik + enterprise cap ayarli. 2026-09
