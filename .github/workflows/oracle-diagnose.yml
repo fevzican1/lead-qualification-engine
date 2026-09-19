@@ -161,6 +161,11 @@ jobs:
           echo "=== FORM HATTI LOG (pipeline + legacy, son 30) ==="
           journalctl -u nirvana-pipeline.service -n 30 --no-pager -o cat 2>/dev/null || true
           tail -n 20 logs/runner.log 2>/dev/null || true
+          echo "=== TIMER JURNALLERI (exit-code kok nedeni) ==="
+          for u in nirvana-watchdog nirvana-idleguard nirvana-captcha nirvana-deliveryworker nirvana-linkedin nirvana-dispatch; do
+            echo "--- $u (son 15) ---"
+            sudo -n journalctl -u "$u.service" -n 15 --no-pager -o cat 2>/dev/null || journalctl -u "$u.service" -n 15 --no-pager -o cat 2>/dev/null || true
+          done
           echo "=== PIPELINE SON CIKIS ==="
           tail -n 25 logs/pipeline.log 2>/dev/null || echo "pipeline.log yok"
           REMOTE
