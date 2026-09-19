@@ -45,6 +45,9 @@
 | Yönetici tanıma | `/notifyme <TELEGRAM_ADMIN_TOKEN>` → "Sistem Sahibi Taptaze Senkronize Edildi"; `TELEGRAM_ADMIN_ID` + `TELEGRAM_OWNER_CHAT_ID` + `owner.json` birlikte okunur (`owner_notify.load_admin_chat_ids`). Müşteri sohbeti asla operatör sayılmaz. |
 | İnsan devri (butonlu) | Canlı müşteri talebinde bildirim, `[💬 Sohbete Bağlan / Reply]` inline butonu ile gider; patron bastığı anda `telegram_sessions.arm_reply` devri açar, otonom yanıtlayıcı durur ve patronun yazdığı mesaj doğrudan müşteriye iletilir (`/disarm` ile geri verilir). Buton gönderilemezse `/reply CHATID metin` yedeği çalışır. |
 | Kendini onarma | systemd `Type=notify` + `WatchdogSec` (`nirvana-salesbot.service`), `heartbeat.py`, `circuit_breaker.py`, `task_queue.py` (bildirimler kuyruğa alınır, hat dönünce iletilir). |
+| Form hattı (400/gün) | `nirvana-pipeline.service` (Oracle): `auto_runner.py` döngüsü — feed senkronu → nitelendirme → `pipeline.py --submit`. Kurulumla gelir (`nirvana_oracle_install.sh`), `Restart=always` + `RuntimeMaxSec=4h`; tur başına duvar-saati sınırı `PIPELINE_RUN_TIMEOUT_SECONDS` (takılı Chromium hattı kilitleyemez). Legacy `devsolve-runner.service`/`devsolve-bot.service` çift gönderim olmasın diye kapatılır. |
+| Bot havuzu | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_BOT_TOKENS` (alias: `TELEGRAM_OTHER_BOT_TOKENS`): her token ayrı Application, tek süreç/tek state. `config.resolve_bot_pool()` getMe ile username'leri çözer; `bot_registry.py` PASSIVE/ACTIVE tutar; form linki yalnız ACTIVE botlardan (`config.next_bot_username`). |
+| Bot id'si ≠ sahip | `config.known_bot_ids()` token öneki + getMe kaydından (`nirvana/state/bot_ids.json`) bot id'lerini toplar; `owner_notify.load_admin_chat_ids()` bu id'leri operatör listesinden çıkarır. `TELEGRAM_BOT_TOKEN` id'siz girilirse (`:<secret>`) `TELEGRAM_BOT_ID` → kayıtlı id → (legacy) owner chat id sırasıyla tamamlanır. |
 
 ---
 

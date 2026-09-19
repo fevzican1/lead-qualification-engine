@@ -11,6 +11,7 @@ Required variables depend on which entrypoint you run:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -82,20 +83,111 @@ def require(name: str) -> str:
 # NOT: TELEGRAM_BOT_TOKEN tam "ID:SECRET" formatında tutulur; id'siz (":" öneksiz)
 # değer asla yazılmaz — Telegram o formu 404 ile reddeder. Bazen env'ye kısaltılmış
 # hali düşerse aşağıdaki normalizasyon ilk ':' öncesindeki bot kimliğiyle tamamlar.
+BOT_ID_STATE_PATH: Path = ROOT / "nirvana" / "state" / "bot_ids.json"
+
+
+def _cached_bot_ids() -> dict[str, str]:
+    """getMe ile dogrulanmis bot id'leri (bot acilisinda yazilir).
+
+    Kaynak: nirvana/state/bot_ids.json -> {"primary": {"id": "...", "username": "..."},
+    "bots": {"<id>": "<username>"}}. Dosya yoksa/bozuksa bos doner.
+    """
+    try:
+        data = json.loads(BOT_ID_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, str] = {}
+    primary = data.get("primary") if isinstance(data, dict) else None
+    if isinstance(primary, dict) and str(primary.get("id") or "").strip():
+        out[str(primary["id"]).strip()] = str(primary.get("username") or "")
+    bots = data.get("bots") if isinstance(data, dict) else None
+    if isinstance(bots, dict):
+        for bid, name in bots.items():
+            if str(bid).strip():
+                out[str(bid).strip()] = str(name or "")
+    return out
+
+
+def save_bot_identity(bot_id: object, username: str = "", *, primary: bool = False) -> None:
+    """Botun GERCEK id'sini diske yaz (getMe sonrasi).
+
+    Iki isi yapar:
+      1) TELEGRAM_BOT_TOKEN id'siz (":<secret>") girilmisse normalizasyon bu
+         dosyadan dogru bot id'sini okur — yanlis tahminle 404 uretilmez.
+      2) Botlarin KENDI id'leri admin listesinden cikarilir (bot id'si
+         "sahip" sanildiginda /notifyme beni musteri zannediyordu).
+    """
+    text = str(bot_id).strip()
+    if not text.isdigit():
+        return
+    with _pool_lock():
+        data: dict[str, object] = {}
+        try:
+            loaded = json.loads(BOT_ID_STATE_PATH.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                data = loaded
+        except (OSError, ValueError):
+            data = {}
+        bots = data.get("bots") if isinstance(data.get("bots"), dict) else {}
+        bots[text] = str(username or "").strip().lstrip("@")
+        data["bots"] = bots
+        if primary:
+            data["primary"] = {"id": text, "username": str(username or "").strip().lstrip("@")}
+            data["primary_at"] = __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ",
+                                                           __import__("time").gmtime())
+        try:
+            BOT_ID_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            tmp = BOT_ID_STATE_PATH.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+            tmp.replace(BOT_ID_STATE_PATH)
+        except OSError:
+            pass
+
+
+def known_bot_ids() -> set[int]:
+    """Bilinen Telegram BOT id'leri (token oneki + getMe durumu).
+
+    Bu id'ler ASLA operator chat'i sayilmaz: aksi halde botun kendi id'si
+    TELEGRAM_OWNER_CHAT_ID'ye yazildiginda /notifyme sahibi "musteri" sanar ve
+    bildirim hedefi bot hesabina dusup 403 alir.
+    """
+    ids: set[int] = set()
+    for token in [TELEGRAM_BOT_TOKEN, *[t.strip() for t in (TELEGRAM_BOT_TOKENS or "").split(",")]]:
+        head, sep, _ = (token or "").partition(":")
+        if sep and head.isdigit() and len(head) >= 5:
+            ids.add(int(head))
+    for token in [(TELEGRAM_NOTIFY_BOT_TOKEN or ""), (TELEGRAM_BOT_API_BASE_URL or "")]:
+        head, sep, _ = (token or "").partition(":")
+        if sep and head.isdigit() and len(head) >= 5:
+            ids.add(int(head))
+    for bid in _cached_bot_ids():
+        if bid.isdigit():
+            ids.add(int(bid))
+    return ids
+
+
 def _full_bot_token(raw: str) -> str:
     tok = (raw or "").strip()
     if not tok or ":" in tok:
         return tok
-    primary_id = _get("TELEGRAM_OWNER_CHAT_ID")
-    if primary_id.isdigit():
-        return f"{primary_id}:{tok}"
+    # 1) Acik override: TELEGRAM_BOT_ID (.env / deploy).
+    # 2) getMe ile dogrulanmis kayitli bot id (kendi kendini onaran yol).
+    # 3) Son care: TELEGRAM_OWNER_CHAT_ID (legacy; yanlissa getMe 404 verir).
+    for candidate in (_get("TELEGRAM_BOT_ID"), next(iter(_cached_bot_ids()), ""),
+                      _get("TELEGRAM_OWNER_CHAT_ID")):
+        if str(candidate).strip().isdigit():
+            return f"{str(candidate).strip()}:{tok}"
     return tok
 
 
 TELEGRAM_BOT_TOKEN: str = _full_bot_token(_get("TELEGRAM_BOT_TOKEN"))
 # Ek satış botları: Telegram bot başına flood limiti olduğu için yük dağıtımı
 # şart. "token1,token2,..." (virgülle ayrık); birincil token otomatik başa alınır.
-TELEGRAM_BOT_TOKENS: str = _get("TELEGRAM_BOT_TOKENS")
+# İKİ İSİM de kabul edilir: TELEGRAM_BOT_TOKENS (GitHub Secret → Oracle .env) ve
+# TELEGRAM_OTHER_BOT_TOKENS (yerel .env / bazı kurulumlarda kullanılan ad).
+# Yalnız tek isim okunursa havuz 1 bota düşüyor, flood bypass ve 3x kapasite
+# sessizce kayboluyordu.
+TELEGRAM_BOT_TOKENS: str = _get("TELEGRAM_BOT_TOKENS") or _get("TELEGRAM_OTHER_BOT_TOKENS")
 PAYONEER_PAYMENT_URL: str = _get("PAYONEER_PAYMENT_URL")
 TELEGRAM_OWNER_CHAT_ID: str = _get("TELEGRAM_OWNER_CHAT_ID")
 # Owner self-service registration secret: /admin KOD (set out-of-band on Oracle).
@@ -259,6 +351,10 @@ AJAX_POST_ENABLED: bool = _get_bool("AJAX_POST_ENABLED", True)
 # instead of skipping them as skipped_no_open_form (email worker picks them up).
 MAILTO_HANDOFF: bool = _get_bool("MAILTO_HANDOFF", True)
 PIPELINE_TIMEOUT_SECONDS: int = _get_int("PIPELINE_TIMEOUT_SECONDS", 30)
+# auto_runner tek turda pipeline.py'yi bu duvar-saati sınırıyla koşar. Neden:
+# takılı bir Chromium/POST, timeout verilmediğinde form hattını saatlerce
+# kilitliyordu (canlı arıza 2026-09: son log 18:20'de kalıp gün boyu 0 form).
+PIPELINE_RUN_TIMEOUT_SECONDS: int = _get_int("PIPELINE_RUN_TIMEOUT_SECONDS", 2400)
 DEFER_MINUTES: int = _get_int("DEFER_MINUTES", 20)
 HTTP_RESERVE_FOR_PIPELINE: int = _get_int("HTTP_RESERVE_FOR_PIPELINE", 20)
 CHROMIUM_DIRECT_MIN: int = _get_int("CHROMIUM_DIRECT_MIN", 65)
@@ -382,8 +478,12 @@ def require_pipeline_keys(*, submitting: bool = False) -> None:
 
 
 def is_owner(chat_id) -> bool:
-    """Telegram chat is the configured owner/admin."""
-    target = str(getattr(chat_id, "id", chat_id))
+    """Telegram chat is the configured owner/admin (bot id'leri asla 'sahip' degil)."""
+    target = str(getattr(chat_id, "id", chat_id)).strip()
+    if not target:
+        return False
+    if target.isdigit() and int(target) in known_bot_ids():
+        return False
     return target == str(OWNER_CHAT_ID).strip() or target == str(TELEGRAM_OWNER_CHAT_ID).strip()
 
 

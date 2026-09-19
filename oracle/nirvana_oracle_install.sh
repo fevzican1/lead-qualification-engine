@@ -82,6 +82,7 @@ install -m 644 "$UNIT_SRC/nirvana-captcha.timer" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-dispatch.service" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-dispatch.timer" /etc/systemd/system/
 install -m 644 "$UNIT_SRC/nirvana-salesbot.service" /etc/systemd/system/
+install -m 644 "$UNIT_SRC/nirvana-pipeline.service" /etc/systemd/system/
 systemctl daemon-reload
 
 echo "[5.5/6] Dispatch hub derleme kontrolü"
@@ -97,6 +98,15 @@ print(status_line())
 PY
 
 echo "[6/6] Timer'ları canlıya alma"
+# Legacy birimler AYNI işi yapar (devsolve-runner = auto_runner, devsolve-bot =
+# telegram_sales_bot). İkisi birlikte açık kalırsa Telegram getUpdates çakışır
+# ve ÇİFT form gönderimi olur; bu yüzden kapatılır. Yetkili birimler nirvana-*.
+for legacy in devsolve-bot.service devsolve-runner.service; do
+  if systemctl list-unit-files "$legacy" 2>/dev/null | grep -q "^${legacy}"; then
+    systemctl disable --now "$legacy" 2>/dev/null || true
+    echo "$legacy devre dışı (çift çalışma önlendi)"
+  fi
+done
 systemctl enable --now nirvana-watchdog.timer
 systemctl enable --now nirvana-idleguard.timer
 systemctl enable --now nirvana-delivery.timer
@@ -104,6 +114,16 @@ systemctl enable --now nirvana-deliveryworker.timer
 systemctl enable --now nirvana-linkedin.timer
 systemctl enable --now nirvana-captcha.timer
 systemctl enable --now nirvana-dispatch.timer
+# Form hattı (günlük 400 form kotasının taşıyıcısı): keşif + nitelendirme +
+# form gönderimi döngüsü. Kurulumla BİRLİKTE gelir; aksi halde taze bir VM'de
+# hiçbir birim form göndermiyor ve günlük kota 0'da kalıyordu (canlı arıza
+# 2026-09: gün boyu 0 form, kuyruk 2500).
+if ! systemctl enable --now nirvana-pipeline.service; then
+  echo "HATA: nirvana-pipeline.service baslamadi — FORM HATTI CANLI DEGIL" >&2
+  systemctl --no-pager -l status nirvana-pipeline.service | head -30 || true
+  journalctl -u nirvana-pipeline.service -n 40 --no-pager -o cat || true
+  exit 1
+fi
 # Satis botu: Type=notify + WatchdogSec. Import zinciri eksikse (ornek:
 # heartbeat.py pakette yok) servis sessizce dusuyordu; artik acikca patlar.
 if ! systemctl enable --now nirvana-salesbot.service; then
@@ -114,4 +134,4 @@ if ! systemctl enable --now nirvana-salesbot.service; then
 fi
 
 systemctl list-timers 'nirvana-*' --no-pager
-echo "NIRVANA ORACLE LIVE — watchdog 5dk, idle_guard 10dk (Always-Free koruması), delivery haftalık, teslimat işçisi 2 saatte bir, captcha worker 10dk (max 2), dispatch hub 1dk tick (CDX feed dilimleri 1/2/4/5dk; diğer modüller 30dk-24sa)."
+echo "NIRVANA ORACLE LIVE — form hattı (nirvana-pipeline: keşif+nitelendirme+400 form/gün), watchdog 5dk, idle_guard 10dk (Always-Free koruması), delivery haftalık, teslimat işçisi 2 saatte bir, captcha worker 10dk (max 2), dispatch hub 1dk tick (CDX feed dilimleri 1/2/4/5dk; diğer modüller 30dk-24sa)."

@@ -83,7 +83,11 @@ def load_admin_chat_ids() -> set[int]:
     cid = _parse_chat_id(str(data.get("chat_id") or ""))
     if cid is not None:
         ids.add(cid)
-    return ids
+    # BOT ID'LERİ ASLA OPERATÖR SAYILMAZ: TELEGRAM_OWNER_CHAT_ID yanlışlıkla
+    # botun kendi id'sine yazıldığında (canlı arıza 2026-09) /notifyme sahibi
+    # "müşteri" sanıyor ve ops bildirimi bot hesabına düşüp 403 alıyordu.
+    bot_ids = config.known_bot_ids()
+    return {cid for cid in ids if cid not in bot_ids}
 
 
 def admin_token_ok(token: str) -> bool:

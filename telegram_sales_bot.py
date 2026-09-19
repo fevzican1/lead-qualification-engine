@@ -436,6 +436,24 @@ async def _confirm_stop(update: Update) -> None:
     )
 
 
+def _audited(text: str, *, turkish: bool) -> str:
+    """Gönderim öncesi son kapı: bot sızıntısı + ücretsiz/indirim teklifi + imla.
+
+    Açılış/intro metinleri de bu kapıdan geçer; model çıktısı dışındaki sabit
+    metinlerde bir hata olursa (ör. 'ücretsiz' kelimesi) müşteriye ASLA gitmez.
+    """
+    try:
+        from nirvana.language_auditor import audit as _audit
+
+        cleaned, issues = _audit(text, turkish=turkish, user_text="")
+        if issues:
+            logger.info("Greeting language audit: %s", issues)
+        return cleaned or text
+    except Exception:  # noqa: BLE001 — denetçi hatası iletişimi bloklamaz
+        logger.exception("greeting language audit failed")
+        return text
+
+
 async def _send_proof(chat_id: int, bot: Any, *, turkish: bool) -> None:
     if optout.is_chat_opted_out(chat_id) or _is_owner(chat_id):
         return
@@ -483,15 +501,32 @@ def _schedule_proof(chat_id: int, bot: Any, *, turkish: bool) -> None:
     _proof_tasks[chat_id] = asyncio.create_task(_run(), name=f"proof-{chat_id}")
 
 
+def _track_link_click(chat_id: int, row: dict[str, Any] | None) -> None:
+    """Form → Telegram tıklama sinyali (madde 48): sahibi ANINDA haberdar olur.
+
+    Sinyal /start token'ıyla gelir; kayıt chat↔domain bağlantısıyla tutulur.
+    Bildirim gönderimi hata verse bile selamlama akışı asla bozulmaz.
+    """
+    brief = row or {}
+    domain = str(brief.get("host") or brief.get("target_domain") or brief.get("company") or "")
+    try:
+        from nirvana import interaction_tracker
+
+        interaction_tracker.track(chat_id, domain, "telegram_start")
+    except Exception:  # noqa: BLE001 — izleme hatası akışı bozmaz
+        logger.debug("interaction track failed for chat %s", chat_id, exc_info=True)
+
+
 async def _greet_from_token(update: Update, bot: Any, chat_id: int, row: dict[str, Any]) -> None:
     """No empty channel: type for a beat, then the named greeting, then the card."""
     turkish = bool(row.get("turkish", True))
+    _track_link_click(chat_id, row)
     try:
         await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
         await asyncio.sleep(1.2)
     except Exception:  # noqa: BLE001
         logger.debug("greeting typing failed for %s", chat_id, exc_info=True)
-    text = telegram_handoff.opener(row)
+    text = _audited(telegram_handoff.opener(row), turkish=turkish)
     _remember(chat_id, "assistant", text)
     if update.message:
         await update.message.reply_text(_display_text(text))
@@ -649,7 +684,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         from nirvana import delivery_worker as _dworker
         mem = _dworker.customer_memory(chat_id)
         if mem.get("returning"):
-            text = _returning_customer_greeting(mem, turkish=turkish)
+            text = _audited(_returning_customer_greeting(mem, turkish=turkish), turkish=turkish)
             _remember(chat_id, "assistant", text)
             await update.message.reply_text(_display_text(text))
             return
@@ -659,7 +694,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _warm_ping(chat_id, update, row)
         await _greet_from_token(update, context.bot, chat_id, row)
         return
-    text = _cold_intro(turkish=turkish)
+    text = _audited(_cold_intro(turkish=turkish), turkish=turkish)
     _remember(chat_id, "assistant", text)
     await update.message.reply_text(_display_text(text))
     _schedule_proof(chat_id, context.bot, turkish=turkish)
@@ -1675,6 +1710,17 @@ async def _post_init(application: Application, *, primary: bool = True) -> None:
     # sonrası gerçek username ile tekrar kurulur.
     flood_guard.install(application.bot,
                         bot_username=str(getattr(application.bot, "username", "") or ""))
+    # Bot kimliğini diske yaz: TELEGRAM_BOT_TOKEN id'siz girilmişse normalizasyon
+    # doğru bot id'sini buradan okur; ayrıca botun kendi id'si admin listesinden
+    # çıkarılır (madde: "telegram botu beni patronu olarak biliyor mu").
+    try:
+        config.save_bot_identity(
+            getattr(application.bot, "id", "") or "",
+            str(getattr(application.bot, "username", "") or ""),
+            primary=bool(primary),
+        )
+    except Exception:  # noqa: BLE001 — kimlik kaydı botu bloklamaz
+        logger.debug("bot kimlik kaydi basarisiz", exc_info=True)
     if primary:
         # Arka plan döngüleri yalnızca birincil uygulamada: 3 bot = 3 kopya
         # followup/heartbeat olmasın, routing zaten _app_for_chat ile yapılır.

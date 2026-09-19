@@ -333,15 +333,26 @@ def main() -> None:
 
         if smb:
             print("\n[3/3] Formlar dolduruluyor...")
-            # Each page operation has its own bounded Playwright timeout. Do not
-            # kill the whole visit batch using a fixed wall-clock limit: the
-            # hourly-floor visit budget can legitimately be 72–96 hosts.
+            # Her sayfa işleminin kendi Playwright timeout'u var; ANCAK turun
+            # tamamı da sınırlı olmalı: takılı bir Chromium/POST, timeout yokken
+            # form hattını saatlerce kilitliyordu (canlı arıza 2026-09: son log
+            # 18:20'de kalıp gün boyu 0 form gönderildi). Sınır dolunca süreç
+            # ağacı öldürülür, tur kapanır ve bir sonraki tur temiz başlar.
             pipeline_code = _run(
                 "pipeline.py",
                 ["--targets", str(config.TARGETS_PATH), "--submit"],
-                timeout=None,
+                timeout=int(getattr(config, "PIPELINE_RUN_TIMEOUT_SECONDS", 2400) or 2400),
             )
-            if pipeline_code != 0:
+            if pipeline_code == 124:
+                logger.error(
+                    "pipeline turu %ss sınırında kesildi — takılı Chromium öldürüldü",
+                    getattr(config, "PIPELINE_RUN_TIMEOUT_SECONDS", 2400),
+                )
+                owner_notify.send(
+                    "Pipeline turu zaman aşımına uğradı (takılı Chromium öldürüldü). "
+                    "Hat canlı: sonraki tur hemen başlıyor."
+                )
+            elif pipeline_code != 0:
                 logger.warning("pipeline exited %s — will retry next cycle", pipeline_code)
                 owner_notify.send(f"Pipeline turu hata ile bitti (kod {pipeline_code}). Sonraki tur denenecek.")
 

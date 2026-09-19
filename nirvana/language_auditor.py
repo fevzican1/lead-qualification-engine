@@ -178,8 +178,13 @@ def _sanitize_urls(text: str, issues: list[str]) -> str:
     return fixed
 
 
-def audit(text: str, *, turkish: bool = False, user_text: str = "") -> tuple[str, list[str]]:
-    """Gönderim öncesi son kapı: (düzeltilmiş metin, sorun listesi) döner."""
+def audit(text: str, *, turkish: bool = False, user_text: str = "",
+          limit: int = 1200) -> tuple[str, list[str]]:
+    """Gönderim öncesi son kapı: (düzeltilmiş metin, sorun listesi) döner.
+
+    limit: Telegram mesajı 1200; FORM metni daha uzun olduğu için çağıran
+    daha büyük bir sınır verir (form metni kırpılmaz).
+    """
     issues: list[str] = []
     reply = text or ""
     reply, hit = _strip_sentences(reply, _BOT_LEAK_RE)
@@ -193,7 +198,7 @@ def audit(text: str, *, turkish: bool = False, user_text: str = "") -> tuple[str
         issues.append("free-offer:sentence-removed")
     reply = _sanitize_urls(reply, issues)
     reply = _tone_fixes(reply, turkish=turkish, issues=issues)
-    reply = _trim(reply)
+    reply = _trim(reply, limit=max(200, int(limit)))
     return reply, issues
 
 
