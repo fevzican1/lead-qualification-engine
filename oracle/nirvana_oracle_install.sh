@@ -97,16 +97,44 @@ from telegram_bot_api import status_line
 print(status_line())
 PY
 
-echo "[6/6] Timer'ları canlıya alma"
-# Legacy birimler AYNI işi yapar (devsolve-runner = auto_runner, devsolve-bot =
-# telegram_sales_bot). İkisi birlikte açık kalırsa Telegram getUpdates çakışır
-# ve ÇİFT form gönderimi olur; bu yüzden kapatılır. Yetkili birimler nirvana-*.
-for legacy in devsolve-bot.service devsolve-runner.service; do
-  if systemctl list-unit-files "$legacy" 2>/dev/null | grep -q "^${legacy}"; then
-    systemctl disable --now "$legacy" 2>/dev/null || true
-    echo "$legacy devre dışı (çift çalışma önlendi)"
-  fi
+echo "[6/6] Modülleri canlıya alma (KESİNTİSİZ devir: yeni hat önce başlar)"
+# 1) FORM HATTI ÖNCE BAŞLAR — günlük 400 form kotasının taşıyıcısı.
+# Kurulumla BİRLİKTE gelir; aksi halde taze bir VM'de hiçbir birim form
+# göndermiyor ve günlük kota 0'da kalıyordu (canlı arıza 2026-09: gün boyu
+# 0 form, kuyruk 2500).
+systemctl enable nirvana-pipeline.service 2>/dev/null || true
+systemctl reset-failed nirvana-pipeline.service 2>/dev/null || true
+systemctl restart nirvana-pipeline.service || true
+# Type=notify: READY=1 gelene kadar durum "activating" olur — bekle.
+PIPE_OK=""
+for _ in $(seq 1 20); do
+  PIPE_OK="$(systemctl is-active nirvana-pipeline.service || true)"
+  [ "${PIPE_OK}" = "active" ] && break
+  sleep 2
 done
+echo "form hattı: ${PIPE_OK}"
+if [ "${PIPE_OK}" = "active" ]; then
+  echo "form hattı canlı: nirvana-pipeline.service (Type=notify + WatchdogSec, kendi kendini onarır)"
+  # Yeni hat DOĞRULANDIKTAN sonra legacy kopya kapatılır (çift gönderim olmasın).
+  for legacy in devsolve-bot.service devsolve-runner.service; do
+    if systemctl list-unit-files "$legacy" 2>/dev/null | grep -q "^${legacy}"; then
+      systemctl disable --now "$legacy" 2>/dev/null || true
+      echo "$legacy devre dışı (çift çalışma önlendi)"
+    fi
+  done
+else
+  # Form hattı ASLA boş kalmaz: yeni birim ayağa kalkmadıysa legacy kopya
+  # (aynı auto_runner döngüsü) çalışır durumda bırakılır. Sert çıkış YOK.
+  echo "UYARI: nirvana-pipeline.service ${PIPE_OK} — legacy form hattı korunuyor" >&2
+  systemctl --no-pager -l status nirvana-pipeline.service | head -20 || true
+  journalctl -u nirvana-pipeline.service -n 20 --no-pager -o cat || true
+  for legacy in devsolve-runner.service devsolve-bot.service; do
+    if systemctl list-unit-files "$legacy" 2>/dev/null | grep -q "^${legacy}"; then
+      systemctl enable --now "$legacy" 2>/dev/null || true
+      echo "$legacy yedek olarak aktif (form hattı kesintisiz)"
+    fi
+  done
+fi
 systemctl enable --now nirvana-watchdog.timer
 systemctl enable --now nirvana-idleguard.timer
 systemctl enable --now nirvana-delivery.timer
@@ -114,16 +142,6 @@ systemctl enable --now nirvana-deliveryworker.timer
 systemctl enable --now nirvana-linkedin.timer
 systemctl enable --now nirvana-captcha.timer
 systemctl enable --now nirvana-dispatch.timer
-# Form hattı (günlük 400 form kotasının taşıyıcısı): keşif + nitelendirme +
-# form gönderimi döngüsü. Kurulumla BİRLİKTE gelir; aksi halde taze bir VM'de
-# hiçbir birim form göndermiyor ve günlük kota 0'da kalıyordu (canlı arıza
-# 2026-09: gün boyu 0 form, kuyruk 2500).
-if ! systemctl enable --now nirvana-pipeline.service; then
-  echo "HATA: nirvana-pipeline.service baslamadi — FORM HATTI CANLI DEGIL" >&2
-  systemctl --no-pager -l status nirvana-pipeline.service | head -30 || true
-  journalctl -u nirvana-pipeline.service -n 40 --no-pager -o cat || true
-  exit 1
-fi
 # Satis botu: Type=notify + WatchdogSec. Import zinciri eksikse (ornek:
 # heartbeat.py pakette yok) servis sessizce dusuyordu; artik acikca patlar.
 if ! systemctl enable --now nirvana-salesbot.service; then

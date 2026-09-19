@@ -173,11 +173,16 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     print("--- TAM OTONOM SATIS MOTORU BASLATILDI ---")
+    # systemd Type=notify: READY=1 hemen gönderilir (boot gecikmesi yok).
+    # Her turda WATCHDOG=1 gider; döngü gerçekten kilitlenirse systemd süreci
+    # temiz bellekle yeniden başlatır — bu, hattı askıya almadan kendini
+    # onarmanın en temiz yolu (elle kill yok, harici bekçi yok).
+    heartbeat.ready()
     cycle = 0
     while True:
         cycle += 1
         print(f"\n=== Tur {cycle} ===")
-        heartbeat.pulse("auto_runner", {"cycle": cycle})
+        heartbeat.pulse("auto_runner", {"cycle": cycle, "phase": "cycle_start"})
         try:
             relay = task_queue.run_due(
                 "telegram_notify", owner_notify.deliver_queued_notify, limit=10,
@@ -343,6 +348,10 @@ def main() -> None:
                 ["--targets", str(config.TARGETS_PATH), "--submit"],
                 timeout=int(getattr(config, "PIPELINE_RUN_TIMEOUT_SECONDS", 2400) or 2400),
             )
+            # Tur içi nabız: uzun Chromium turu boyunca systemd watchdog'u
+            # beslensin (WatchdogSec tur süresinden büyük; yine de taze tutar).
+            heartbeat.pulse("auto_runner", {"cycle": cycle, "phase": "after_pipeline",
+                                            "exit_code": pipeline_code})
             if pipeline_code == 124:
                 logger.error(
                     "pipeline turu %ss sınırında kesildi — takılı Chromium öldürüldü",
@@ -373,6 +382,8 @@ def main() -> None:
             logger.exception("Enterprise apply failed — pipeline unaffected")
 
         wait = _sleep_after_cycle()
+        heartbeat.pulse("auto_runner", {"cycle": cycle, "phase": "cycle_end",
+                                        "wait_s": wait})
         print(f"\n[BILGI] Tur {cycle} tamamlandı. kuyruk={domain_store.queue_depth()}/{cap}. {wait}s sonra yeni tur...")
         today_n, hour_n = knowledge.submit_counts()
         if wait >= 300 or pipeline_code != 0 or today_n >= knowledge.daily_cap() or hour_n >= knowledge.hourly_cap():

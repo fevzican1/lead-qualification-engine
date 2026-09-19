@@ -5,19 +5,26 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
-User=devsolve
+# Type=notify + WatchdogSec: form hattında da satış botundaki (kanıtlanmış)
+# self-healing deseni. auto_runner her turda heartbeat.pulse() ile WATCHDOG=1
+# yollar; döngü gerçekten kilitlenirse systemd süreci TEMİZ bellekle yeniden
+# başlatır. WatchdogSec tur üst sınırından (PIPELINE_RUN_TIMEOUT_SECONDS=2400s)
+# büyük seçildi: devam eden form gönderimi ASLA ortasından kesilmez; yalnızca
+# gerçek kilitlenme (1 saat boyunca tek nabız yok) onarılır. Normal tur 20-25 sn.
+Type=notify
+User=root
 WorkingDirectory=/opt/devsolve
 # PYTHONUNBUFFERED: journalctl'e anında yazılsın. Tamponlu stdout yüzünden
 # "son log 18:20" görünüp hattın canlı olup olmadığı anlaşılmıyordu.
 Environment=PYTHONUNBUFFERED=1
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/devsolve/.playwright
 ExecStart=/opt/devsolve/.venv/bin/python /opt/devsolve/auto_runner.py
+# Çökme → 5 sn içinde temiz restart; form hattı boş kalmaz.
 Restart=always
-RestartSec=30
-# Güvenlik ağı: takılı bir tur (ağ/Chromium) hattı saatlerce kilitleyemesin.
-# Normal tur 20-25 sn; 4 saat dolduysa süreç sert yeniden başlatılır.
-RuntimeMaxSec=4h
+RestartSec=5
+WatchdogSec=3600
+KillSignal=SIGTERM
+TimeoutStopSec=30
 Nice=5
 
 [Install]

@@ -5,9 +5,14 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=devsolve
+# Çalıştıran kullanıcı SABİT: root. Neden: /opt/devsolve altındaki venv,
+# .playwright Chromium ve runtime state dosyalarına koşulsuz erişim gerekir;
+# 'devsolve' kullanıcısı VM'de yoksa systemd servisi hiç başlatmaz
+# (status=217/USER) ve modül sessizce ölü kalırdı. Satış botu da (User satırı
+# olmadığı için root ile) aynı VM'de sorunsuz çalışıyor.
+User=root
 WorkingDirectory=/opt/devsolve
-EnvironmentFile=/opt/devsolve/.env
+EnvironmentFile=-/opt/devsolve/.env
 ExecStart=/opt/devsolve/.venv/bin/python -m nirvana.runner watchdog_quota_agent
 Nice=15
 IOSchedulingClass=idle

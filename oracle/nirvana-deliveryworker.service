@@ -5,9 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=devsolve
+User=root
 WorkingDirectory=/opt/devsolve
-EnvironmentFile=/opt/devsolve/.env
+EnvironmentFile=-/opt/devsolve/.env
 ExecStart=/opt/devsolve/.venv/bin/python -m nirvana.runner delivery_worker
 # Light by design: max 2 jobs per run, 1 httpx request per job
 Nice=10

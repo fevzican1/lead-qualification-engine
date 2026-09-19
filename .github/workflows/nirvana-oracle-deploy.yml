@@ -249,20 +249,36 @@ jobs:
               )
           PY
           systemctl list-timers 'nirvana-*' --no-pager || sudo -n systemctl list-timers 'nirvana-*' --no-pager
-          echo "dispatch timer durumu: $(systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || sudo -n systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || echo 'kurulamadı')"
-          echo "=== [4] Satış botu + FORM HATTI + runner (self-healing) canlıya alma ==="
-          # devsolve-bot.service ve devsolve-runner.service eski kopyalardır ve
-          # AYNI kodları çalıştırır (telegram_sales_bot.py / auto_runner.py).
-          # İkisi birlikte açık kalırsa Telegram getUpdates çakışır
-          # (Conflict: terminated by other getUpdates) ve ÇİFT form gönderilir.
-          # Yetkili birimler: nirvana-salesbot.service + nirvana-pipeline.service.
-          for legacy in devsolve-bot.service devsolve-runner.service; do
-            if systemctl list-unit-files "$legacy" 2>/dev/null | grep -q "^${legacy}"; then
-              sudo -n systemctl stop "$legacy" 2>/dev/null || true
-              sudo -n systemctl disable "$legacy" 2>/dev/null || true
-              echo "$legacy devre dışı — çift polling/gönderim engellendi"
-            fi
+          echo "=== [3c] MODÜL SAĞLIĞI (birim gerçekten koşuyor mu?) ==="
+          # Birim dosyasının var olması yetmez: User= yanlışsa systemd servisi
+          # HİÇ başlatmaz (status=217/USER) ve modül sessizce ölü kalır.
+          echo "yetkili servis kullanıcısı: $(stat -c '%U' /opt/devsolve 2>/dev/null || echo '?')"
+          getent passwd devsolve >/dev/null 2>&1 && echo "devsolve kullanıcısı: VAR" || echo "devsolve kullanıcısı: YOK"
+          for u in nirvana-salesbot nirvana-pipeline devsolve-runner devsolve-bot; do
+            printf '%-22s active=%-10s user=%-10s restarts=%s\n' "$u" \
+              "$(systemctl is-active "$u.service" 2>/dev/null || echo n/a)" \
+              "$(systemctl show "$u.service" -p User --value 2>/dev/null || echo -)" \
+              "$(systemctl show "$u.service" -p NRestarts --value 2>/dev/null || echo -)"
           done
+          echo "--- son 3 timer turu (nirvana-*) ---"
+          for t in nirvana-watchdog nirvana-idleguard nirvana-captcha nirvana-dispatch nirvana-deliveryworker nirvana-linkedin; do
+            printf '%-24s active=%-9s last=%s result=%s\n' "$t" \
+              "$(systemctl is-active "$t.timer" 2>/dev/null || echo n/a)" \
+              "$(systemctl show "$t.service" -p ExecMainExitTimestamp --value 2>/dev/null || echo -)" \
+              "$(systemctl show "$t.service" -p Result --value 2>/dev/null || echo -)"
+          done
+          echo "dispatch timer durumu: $(systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || sudo -n systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || echo 'kurulamadı')"
+          echo "=== [4] Satış botu + FORM HATTI (kendi kendini onaran, kesintisiz) ==="
+          # devsolve-bot.service eski kopyadır ve AYNI telegram_sales_bot.py'yi
+          # çalıştırır; ikisi birlikte açılırsa Telegram getUpdates çakışır
+          # (Conflict: terminated by other getUpdates). Yetkili birim:
+          # nirvana-salesbot.service. Form hattında ise ÖNCE yeni birim
+          # doğrulanır, legacy kopya ancak ondan sonra kapatılır — hat boş kalmaz.
+          if systemctl list-unit-files devsolve-bot.service 2>/dev/null | grep -q '^devsolve-bot.service'; then
+            sudo -n systemctl stop devsolve-bot.service 2>/dev/null || true
+            sudo -n systemctl disable devsolve-bot.service 2>/dev/null || true
+            echo "devsolve-bot.service devre dışı — çift polling engellendi"
+          fi
           # Import kapısı: paket eksikse (ModuleNotFoundError) burada açıkça patlar.
           .venv/bin/python - <<'PY'
           import heartbeat, task_queue, circuit_breaker
@@ -271,12 +287,11 @@ jobs:
           sudo -n systemctl enable nirvana-salesbot.service 2>/dev/null || true
           sudo -n systemctl reset-failed nirvana-salesbot.service 2>/dev/null || true
           sudo -n systemctl restart nirvana-salesbot.service
-          # FORM HATTI: günlük 400 form kotasının taşıyıcısı. Kurulumla gelir ve
-          # her deploy'da yeniden başlatılır; takılı tur 4 saatte kesilir.
+          # FORM HATTI: günlük 400 form kotasının taşıyıcısı (Type=notify +
+          # WatchdogSec → kendi kendini onarır; normal tur 20-25 sn).
           sudo -n systemctl enable nirvana-pipeline.service 2>/dev/null || true
           sudo -n systemctl reset-failed nirvana-pipeline.service 2>/dev/null || true
-          sudo -n systemctl restart nirvana-pipeline.service
-          sudo -n systemctl restart devsolve-runner.service 2>/dev/null || true
+          sudo -n systemctl restart nirvana-pipeline.service 2>/dev/null || true
           # Type=notify: READY=1 gelene kadar durum "activating" olur — bekle.
           BOT_STATE=""
           for _ in $(seq 1 30); do
@@ -286,21 +301,42 @@ jobs:
             if [ "${BOT_STATE}" = "active" ] || [ "${BOT_STATE}" = "failed" ]; then break; fi
             sleep 2
           done
-          echo "satis botu: ${BOT_STATE} | form hatti: $(systemctl is-active nirvana-pipeline.service)"
+          PIPE_STATE=""
+          for _ in $(seq 1 20); do
+            PIPE_STATE="$(systemctl is-active nirvana-pipeline.service || true)"
+            if [ "${PIPE_STATE}" = "active" ] || [ "${PIPE_STATE}" = "failed" ]; then break; fi
+            sleep 2
+          done
+          echo "satis botu: ${BOT_STATE} | form hatti: ${PIPE_STATE}"
           if [ "${BOT_STATE}" != "active" ]; then
             echo "::error::nirvana-salesbot.service aktif degil — satis botu CANLI DEGIL"
             systemctl --no-pager -l status nirvana-salesbot.service | head -30 || true
             sudo -n journalctl -u nirvana-salesbot.service -n 40 --no-pager -o cat || true
             exit 1
           fi
-          # FORM HATTI KAPISI: hat ölüyse günlük 400 form kotası ve tüm Telegram
-          # dönüşümü durur — deploy "success" görünse bile satış olmaz.
-          PIPE_STATE="$(systemctl is-active nirvana-pipeline.service || true)"
-          if [ "${PIPE_STATE}" != "active" ]; then
-            echo "::error::nirvana-pipeline.service aktif degil — FORM HATTI CANLI DEGIL"
-            systemctl --no-pager -l status nirvana-pipeline.service | head -30 || true
+          # FORM HATTI: ASLA boş bırakılmaz. Yeni birim ayaktaysa legacy kopya
+          # kapatılır (çift gönderim önlenir); değilse legacy kopya YEDEK olarak
+          # çalıştırılır ve uyarı verilir — deploy durdurulmaz, hat kesilmez.
+          if [ "${PIPE_STATE}" = "active" ]; then
+            echo "form hattı canlı: nirvana-pipeline.service (Type=notify + WatchdogSec)"
+            for legacy in devsolve-runner.service; do
+              if systemctl list-unit-files "$legacy" 2>/dev/null | grep -q "^${legacy}"; then
+                sudo -n systemctl stop "$legacy" 2>/dev/null || true
+                sudo -n systemctl disable "$legacy" 2>/dev/null || true
+                echo "$legacy devre dışı — çift gönderim engellendi"
+              fi
+            done
+          else
+            echo "::warning::nirvana-pipeline.service ${PIPE_STATE} — legacy form hattı yedek olarak açılıyor"
+            systemctl --no-pager -l status nirvana-pipeline.service | head -25 || true
             sudo -n journalctl -u nirvana-pipeline.service -n 40 --no-pager -o cat || true
-            exit 1
+            if systemctl list-unit-files devsolve-runner.service 2>/dev/null | grep -q '^devsolve-runner.service'; then
+              sudo -n systemctl enable --now devsolve-runner.service 2>/dev/null || true
+              sudo -n systemctl restart devsolve-runner.service 2>/dev/null || true
+              echo "FORM HATTI YEDEK AKTİF: devsolve-runner.service (kesinti yok)"
+            else
+              echo "::error::form hattı için ne nirvana-pipeline ne legacy runner var — ELLE MÜDAHALE"
+            fi
           fi
           sudo -n journalctl -u nirvana-salesbot.service -n 12 --no-pager -o cat || true
           echo "=== [4b] Bot havuzu + form hattı doğrulaması ==="

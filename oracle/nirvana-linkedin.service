@@ -5,9 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=devsolve
+User=root
 WorkingDirectory=/opt/devsolve
-EnvironmentFile=/opt/devsolve/.env
+EnvironmentFile=-/opt/devsolve/.env
 ExecStart=/opt/devsolve/.venv/bin/python -m nirvana.runner linkedin_router
 Nice=10
 IOSchedulingClass=idle
