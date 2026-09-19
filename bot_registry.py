@@ -55,6 +55,20 @@ def _save(data: dict[str, Any]) -> None:
         logger.warning("bot_registry yazilamadi", exc_info=True)
 
 
+def owner_for_hint(token_hint: str) -> str:
+    """Token parmak izinden bot username'i (getMe ÇAĞIRMADAN — zero-touch)."""
+    hint = str(token_hint or "").strip()
+    if not hint:
+        return ""
+    with _lock:
+        data = _load()
+        bots = data.get("bots") if isinstance(data.get("bots"), dict) else {}
+        for uname, entry in bots.items():
+            if isinstance(entry, dict) and str(entry.get("token_hint") or "") == hint:
+                return str(uname)
+    return ""
+
+
 def register_pool(usernames: list[str]) -> None:
     """Havuzu kaydet (bilinmeyen bot duser, yeni bot ACTIVE dogar)."""
     cleaned = [str(u or "").strip().lstrip("@") for u in usernames or []]
@@ -85,6 +99,25 @@ def mark_passive(username: str, retry_after: float) -> float:
         _save(data)
     logger.warning("Bot havuzu: @%s PASSIVE (FLOOD_WAIT %.0fs)", uname, wait)
     return until
+
+
+def set_token_hint(username: str, token_hint: str) -> None:
+    """Token parmak izini bot kaydına yaz (token -> username çözümü için).
+
+    owner_notify._token_owner, 429 cezasını DOĞRU bota yazabilmek için bu
+    ipucunu kullanır; getMe HTTP çağrısı YAPMAZ (zero-touch)."""
+    uname = str(username or "").strip().lstrip("@")
+    hint = str(token_hint or "").strip()
+    if not uname or not hint:
+        return
+    with _lock:
+        data = _load()
+        bots = data.get("bots") if isinstance(data.get("bots"), dict) else {}
+        entry = bots.get(uname, {}) if isinstance(bots.get(uname), dict) else {}
+        entry["token_hint"] = hint
+        bots[uname] = entry
+        data["bots"] = bots
+        _save(data)
 
 
 def _sweep_locked(data: dict[str, Any]) -> bool:
@@ -169,5 +202,6 @@ def pool_snapshot() -> dict[str, Any]:
             entry = entry if isinstance(entry, dict) else {}
             remaining = max(0.0, float(entry.get("cooldown_until") or 0) - now)
             out[uname] = {"status": entry.get("status", ACTIVE),
-                          "cooldown_remaining_s": round(remaining, 1)}
+                          "cooldown_remaining_s": round(remaining, 1),
+                          "token_hint": str(entry.get("token_hint") or "")}
         return out

@@ -373,13 +373,23 @@ jobs:
             fi
           fi
           sudo -n journalctl -u nirvana-salesbot.service -n 12 --no-pager -o cat || true
-          echo "=== [4b] Bot havuzu + form hattı doğrulaması ==="
+          echo "=== [4b] Bot havuzu + form hattı + FLOOD durumu doğrulaması ==="
           .venv/bin/python - <<'PY'
+          import json
           import config
           pool = config.resolve_bot_pool()
           print("bot havuzu:", len(pool), ["@" + p for p in pool])
           print("known_bot_ids:", sorted(config.known_bot_ids()))
           print("primary token gecerli format:", ":" in (config.TELEGRAM_BOT_TOKEN or ""))
+          import bot_registry
+          snap = bot_registry.pool_snapshot()
+          print("havuz durumu:", json.dumps(snap, ensure_ascii=False))
+          pasif = [u for u, e in snap.items() if e.get("status") == "passive"]
+          if pasif:
+              print("::warning::pasif (FLOOD_WAIT karantinasi) botlar:", ",".join(pasif),
+                    "- sure bittiginde otomatik aktive olur; bu botlara tek istek bile atilmaz")
+          import flood_guard
+          print("flood kapisu:", json.dumps(flood_guard.status(), ensure_ascii=False))
           import owner_notify
           print("admin sohbetleri (bot id'leri haric):", sorted(owner_notify.load_admin_chat_ids()))
           print("kayitli operator sohbeti:", owner_notify.load_registered_chat_id())

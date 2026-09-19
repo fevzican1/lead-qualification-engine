@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from typing import Any
 
@@ -48,10 +49,21 @@ def _mask(text: Any) -> str:
 
 
 def _token_ok(token: str) -> bool:
-    """Token gerçekten geçerli mi? (Telegram geçersiz/iptal token'a 404 döner.)"""
+    """Token gerçekten geçerli mi? (Telegram geçersiz/iptal token'a 404 döner.)
+
+    ZERO-TOUCH: getMe YALNIZCA botun karantinada olmadığı kanıtlandığında
+    atılır. Cezalı (PASSIVE) bot için False döner — tek istek bile gitmez.
+    """
     tok = (token or "").strip()
     if not tok:
         return False
+    try:
+        import bot_registry
+        uname = _token_owner(tok)
+        if uname and not bot_registry.is_active(uname):
+            return False  # ZERO-TOUCH PASSIVE: karantinadaki bota getMe YOK
+    except Exception:  # noqa: BLE001
+        pass
     logging.getLogger("httpx").setLevel(logging.WARNING)
     try:
         resp = httpx.post(f"https://api.telegram.org/bot{tok}/getMe", timeout=15)
@@ -246,16 +258,28 @@ def _extract_retry_after(exc: Exception) -> float | None:
 
 
 def _send_via_pool(target: int, payload: dict[str, Any], tokens: list[str]) -> bool:
-    """KRİTİK HAT: havuzdaki TÜM botlarla sırayla dene (flood harici).
+    """KRİTİK HAT: ceza YEMİŞ botlarla sırayla dene (STRICT COOLDOWN uyumlu).
 
-    Telegram cezası BOT+CHAT bazlıdır: biri cezalıysa diğeri aynı sohbete
-    yazabilir. Her 429'da o bot PASSIVE'a çekilir, sıradakine geçilir.
-    Biri başarırsa True; hepsi patlarsa son hatayı fırlatır.
+    Pasif (FLOOD_WAIT cezalı) botlar ve getMe'si doğrulanamayan tokenler
+    SESSİZCE ATLANIR — cezalı bota tek istek gitmez, 429 riski olmaz.
+    Telegram cezası bot+chat bazlı olduğu için temiz bot aynı sohbete
+    yazabilir. Biri başarırsa True; hiçbiri denenemezse False döner
+    (çağıran zaten kuyruğa yazıyor — Telegram'a vurmaya devam etmeyiz).
     """
     import flood_guard
+    import bot_registry
 
+    live: list[str] = []
+    for tok in tokens:
+        tok = (tok or "").strip()
+        if not tok:
+            continue
+        if not flood_guard.token_ok(tok):
+            # getMe'si çözülemeyen / cezalı (PASSIVE) bot: SIFIR istek.
+            continue
+        live.append(tok)
     last_exc: Exception | None = None
-    for token in tokens:
+    for token in live:
         try:
             response = httpx.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
@@ -271,7 +295,7 @@ def _send_via_pool(target: int, payload: dict[str, Any], tokens: list[str]) -> b
                 flood_guard.note_retry_after(ra, chat_id=int(target),
                                              bot_username=_token_owner(token))
             if exc.response is not None and exc.response.status_code == 429:
-                continue  # sıradaki botla bypass dene
+                continue  # sıradaki temiz botla dene
             raise
     if last_exc is not None:
         raise last_exc
@@ -279,38 +303,75 @@ def _send_via_pool(target: int, payload: dict[str, Any], tokens: list[str]) -> b
 
 
 def _token_owner(token: str) -> str:
-    """Token -> bilinen bot username (havuz kaydı için; bilinmiyorsa '')."""
+    """Token -> bilinen bot username. ZERO-TOUCH: HTTP isteği YOK.
+
+    Kaynaklar (sırayla):
+      1) bot_registry token_hint — _serve'de yazılır (getMe sonrası).
+      2) bot_ids.json — token başındaki bot id'sinden (config önbelleği).
+
+    Eski kod ceza kaydında token->username için canlı getMe atıyordu; cezalı
+    bota yapılan bu health-check isteği FLOOD_WAIT'i uzatıyordu (canlı arıza
+    2026-09). Artık hiçbir istek atılmaz; çözülemezse "" döner (fail-open).
+    """
+    tok = (token or "").strip()
+    if not tok:
+        return ""
     try:
         import bot_registry
         import hashlib
-        digest = hashlib.sha256((token or "").encode()).hexdigest()[:12]
-        snap = bot_registry.pool_snapshot()
-        for uname, entry in snap.items():
-            if str(entry.get("token_hint") or "") == digest:
-                return uname
+        digest = hashlib.sha256(tok.encode()).hexdigest()[:12]
+        uname = bot_registry.owner_for_hint(digest)
+        if uname:
+            return uname
     except Exception:  # noqa: BLE001
         pass
-    return ""
+    try:
+        return config.bot_username_for_token(tok)
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def _pool_tokens() -> list[str]:
-    """Gönderim havuzu: notify tokeni önce, sonra tüm satış botu tokenleri."""
+    """Gönderim havuzu: notify tokeni önce, sonra tüm satış botu tokenleri.
+
+    ZERO-TOUCH PASSIVE: FLOOD_WAIT cezalı (PASSIVE) botun tokeni listeden
+    ÇIKARILIR — süre bitene kadar o bota tek istek bile gitmez (getMe dâhil).
+    """
     toks: list[str] = []
     for raw in [config.TELEGRAM_NOTIFY_BOT_TOKEN] + config.bot_tokens():
         tok = (raw or "").strip()
-        if tok and tok not in toks:
-            toks.append(tok)
+        if not tok or tok in toks:
+            continue
+        if _token_zero_touch(tok):
+            logger.info("Havuz: cezalı botun tokeni atlandı (zero-touch passive)")
+            continue
+        toks.append(tok)
     return toks
+
+
+def _token_zero_touch(token: str) -> bool:
+    """Tokenin botu FLOOD_WAIT karantinasında mı? (ZERO-TOUCH kontrolü).
+
+    İsim çözülemiyorsa False döner (bilinmeyen token engellenmez —
+    fail-open; token zaten ceza alırsa kapı sohbet bazında zaten kapanır).
+    """
+    owner = _token_owner(token)
+    if not owner:
+        return False
+    try:
+        import bot_registry
+        return not bot_registry.is_active(owner)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def send_critical(target: int, body: str, *,
                   reply_markup: dict[str, Any] | None = None) -> bool:
-    """🔥 KRİTİK HAT — sıcak temas + ödeme bildirimi (flood harici).
+    """🔥 KRİTİK HAT — sıcak temas + ödeme bildirimi.
 
-    Flood kapısına HİÇ takılmaz: ceza aktif olsa bile Telegram'a vurur,
-    429 yerse havuzdaki DİĞER botla bypass dener. Sessizce KAYBOLMAZ —
-    tüm botlar patlarsa task_queue'ya yazılır (hat dönüşünce iletilir).
-    normal `send()` bu hattı kullanmaz; yalnızca kritik çağrılar kullanır.
+    Kritik olan KAYBOLMAMAK, flood kapısını delmek değil: mesaj ceza YEMİŞ
+    (aktif) botlarla gider; hiçbir aktif bot yoksa Telegram'a VURULMAZ ve
+    task_queue'ya yazılır (hat dönüşünce iletilir). Sıfır erken zorlama.
     """
     import circuit_breaker
     import task_queue
@@ -331,8 +392,8 @@ def send_critical(target: int, body: str, *,
         logger.warning("Kritik bildirim havuzdan gidemedi (%s) — kuyrukta", _mask(exc))
         task_queue.enqueue("telegram_notify",
                            {"chat_id": int(target), "text": str(body)[:3500],
-                            "high_priority": True, "critical": True},
-                           max_attempts=12, delay_s=30)
+                            "high_priority": True},
+                           max_attempts=12, delay_s=60)
         return False
 
 
@@ -353,14 +414,17 @@ def _post_message(target: int, body: str, *, silent: bool,
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
-    # httpx yolu da flood kapısından geçer: ceza aktifse Telegram'a vurmadan
-    # çık (çağıran kuyruğa yazar), 429 RetryAfter gelirse ceza kaydedilir +
-    # bot havuzda PASSIVE'a çekilir (form rotasyonundan çıkar).
+    # %100 EGRESS KORUMASI: bu yol da tek flood kapısından geçer. Cezalı /
+    # doğrulanamayan bot SESSİZCE atlanır (getMe çağrısı dâhil yapılmaz);
+    # kimse güvenli değilse Telegram'a vurulmaz, çağıran kuyruğa yazar.
+    safe = [tok for tok in tokens if flood_guard.token_ok(tok)]
+    if not safe:
+        raise flood_guard.FloodBlocked(int(target), flood_guard.remaining(int(target)))
     if not flood_guard.sync_acquire(int(target)):
         raise flood_guard.FloodBlocked(int(target), flood_guard.remaining(int(target)))
     try:
         response = httpx.post(
-            f"https://api.telegram.org/bot{tokens[0]}/sendMessage",
+            f"https://api.telegram.org/bot{safe[0]}/sendMessage",
             json=payload,
             timeout=10.0,
         )
@@ -369,7 +433,7 @@ def _post_message(target: int, body: str, *, silent: bool,
         ra = _extract_retry_after(exc)
         if ra is not None:
             flood_guard.note_retry_after(float(ra), chat_id=int(target),
-                                         bot_username=_token_owner(tokens[0]))
+                                         bot_username=_token_owner(safe[0]))
         raise
     return True
 
@@ -429,7 +493,8 @@ def send_handoff_alert(text: str, *, target_chat_id: int,
         return False
     body = text if text.startswith("[DevSolve") else f"[DevSolve Ops]\n{text}"
     markup = handoff_keyboard(target_chat_id) if route.get("button") else None
-    # KRİTİK HAT (sıcak temas): flood harici — cezalı olsa bile gider.
+    # Kritik hattın TEK kapısı: send_critical ceza-YEMİŞ botlarla dener;
+    # kimse temiz değilse Telegram'a vurulmaz, görev kuyrukta bekler.
     if send_critical(int(destination), body, reply_markup=markup):
         circuit_breaker.record("telegram_notify", True)
         return True
@@ -440,8 +505,9 @@ def send_handoff_alert(text: str, *, target_chat_id: int,
 def deliver_queued_notify(task: dict[str, Any]) -> bool:
     """task_queue işçisi: kuyruktaki bildirimi tek denemede gönder (şalter kontrollü).
 
-    critical=True işaretli görevler (sıcak temas / ödeme) flood harici
-    hattan gider — ceza aktif olsa bile denenir.
+    %100 EGRESS KORUMASI: kritik görevler dâhil TÜM giden istekler flood
+    kapısından geçer — ceza aktifken Telegram'a tek istek gitmez (görev
+    başarısız sayılır, sonraki tura kalır; STRICT COOLDOWN korunur).
     """
     import circuit_breaker
 
@@ -472,19 +538,28 @@ def deliver_queued_notify(task: dict[str, Any]) -> bool:
 
 
 def probe_delivery() -> dict[str, Any]:
-    """Bildirim hattının GERÇEK sağlığı (mesaj göndermeden ölçer).
+    """Bildirim hattının GERÇEK sağlığı (mesaj göndermeden, ZERO-TOUCH).
 
     Token'ın .env'de VAR olması yetmez: Telegram geçersiz/iptal token'a 404,
     bot hesabına hedeflenmiş sohbete 403 döner. Bu yüzden "kanal: True"
     yanılsaması oluşup lead bildirimleri sessizce kaybolabiliyordu.
-    getMe + getChat ile gerçek durum ölçülür (hiç mesaj gönderilmez).
+    getMe + getChat ile gerçek durum ölçülür (hiç mesaj gönderilmez) — ANCAK
+    FLOOD_WAIT karantinasındaki (PASSIVE) bot tokeni için SIFIR istek atılır:
+    health-check dahi cezalı bota dokunmaz (canlı arıza 2026-09-19: ping +
+    health-check istekleri cezayı uzatıyordu). Karantinadaki tokenler
+    "zero_touch" listesinde raporlanır.
     """
     logging.getLogger("httpx").setLevel(logging.WARNING)
     notify_token = (config.TELEGRAM_NOTIFY_BOT_TOKEN or "").strip()
     sales_token = (config.TELEGRAM_BOT_TOKEN or "").strip()
     target = load_notify_chat_id()
-    notify_valid = _token_ok(notify_token)
-    sales_valid = _token_ok(sales_token)
+    zero_touch: list[str] = []
+    if notify_token and _token_zero_touch(notify_token):
+        zero_touch.append("notify")
+    if sales_token and _token_zero_touch(sales_token):
+        zero_touch.append("sales")
+    notify_valid = False if "notify" in zero_touch else _token_ok(notify_token)
+    sales_valid = False if "sales" in zero_touch else _token_ok(sales_token)
     token = notify_token if notify_valid else sales_token
     result: dict[str, Any] = {
         "notify_token_valid": notify_valid,
@@ -494,9 +569,16 @@ def probe_delivery() -> dict[str, Any]:
         "target_reachable": False,
         "target_detail": "",
         "can_deliver": False,
+        "zero_touch": zero_touch,
     }
+    if zero_touch:
+        result["target_detail"] = (
+            "FLOOD_WAIT karantinasi: " + ", ".join(zero_touch)
+            + " tokenine islik-check/getChat YAPILMADI (zero-touch passive)"
+        )
     if not target or not token:
-        result["target_detail"] = "hedef chat veya geçerli token yok"
+        if not result["target_detail"]:
+            result["target_detail"] = "hedef chat veya geçerli token yok"
         return result
     try:
         resp = httpx.post(f"https://api.telegram.org/bot{token}/getChat",

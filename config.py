@@ -557,11 +557,25 @@ def set_bot_pool(usernames: list[str]) -> None:
         _BOT_POOL_CURSOR = 0
 
 
-def resolve_bot_pool() -> list[str]:
-    """getMe ile tüm satış botlarının username'lerini çöz ve havuzu kur.
+def bot_username_for_token(token: str) -> str:
+    """Token -> bilinen username (bot_ids.json önbelleğinden; HTTP YOK).
 
-    Tek bot akışını bozmaz: getMe başarısız olursa primary username ile
-    devam eder (fail-open), tokenler yine de ayrı Application olarak koşar.
+    ZERO-TOUCH: cezalı (PASSIVE) bota getMe dâhil istek atılmaz; token kimliği
+    her zaman token başındaki bot id'sinden + getMe'de diskte saklanan kayıttan
+    çözülür. Bilinmiyorsa "" döner."""
+    head, sep, _ = (token or "").partition(":")
+    if sep and head.isdigit():
+        return str(_cached_bot_ids().get(head) or "")
+    return ""
+
+
+def resolve_bot_pool() -> list[str]:
+    """Havuz username'lerini kur — getMe YALNIZCA hiç görülmemiş token için.
+
+    ZERO-TOUCH PASSIVE: tokenin botu bot_ids.json / bot_registry parmak izinden
+    çözülebiliyorsa getMe isteği atılmaz (FLOOD_WAIT'teki bota health-check
+    gitmez). Sadece bilinmeyen (ilk kez görülen) token için getMe gerekir;
+    sonuç anında diske yazılır ve bir daha sorulmaz.
     """
     import logging
 
@@ -574,6 +588,20 @@ def resolve_bot_pool() -> list[str]:
     for token in bot_tokens():
         if not token or token == (TELEGRAM_BOT_TOKEN or "").strip():
             continue  # primary zaten yukarıda (ya da getMe ile) çözüldü
+        # ZERO-TOUCH: önce diskteki kimlik önbelleği (HTTP yok).
+        uname = bot_username_for_token(token)
+        if not uname:
+            try:
+                import bot_registry
+                import hashlib
+                uname = bot_registry.owner_for_hint(
+                    hashlib.sha256(token.encode()).hexdigest()[:12])
+            except Exception:  # noqa: BLE001
+                uname = ""
+        if uname:
+            if uname not in usernames:
+                usernames.append(uname)
+            continue
         try:
             response = httpx.get(f"https://api.telegram.org/bot{token}/getMe", timeout=30.0)
             response.raise_for_status()

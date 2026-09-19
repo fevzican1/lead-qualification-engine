@@ -20,16 +20,23 @@ KRİTİK TASARIM KARARLARI (canlı arıza sonrası, 2026-09):
        bot süreci systemd tarafından 1 sn'de yeniden başlatılıyor, her açılışta
        setMyName/getUpdates atıyor, Telegram cezası 2.4 saatten 15.8 saate
        büyüyordu (gözlemlenen: RetryAfter 8608s → 56955s).
-   (b) Ceza artık GLOBAL DEĞİL, SOHBET BAŞINA tutulur. Eski davranışta tek bir
-       sohbetin 20 saatlik cezası Telegram'daki TÜM sohbetlere giden mesajları
-       düşürüyordu: sıcak lead pingi, /notifyme yanıtı, ops bildirimi — hepsi
-       sessizce kayboluyordu ("bildirim gelmiyor" arızası). Global kapı artık
-       yalnızca kısa bir cooldown (GLOBAL_MAX_RETRY_AFTER) tutar; uzun ceza
-       yalnızca cezayı alan sohbeti bağlar.
+   (b) Ceza SOHBET BAŞINA tutulur: tek bir sohbetin cezası Telegram'daki TÜM
+       sohbetlere giden mesajları düşürmez. GLOBAL_MAX_RETRY_AFTER yalnızca
+       KENDİ hız soyutlamamız olan global kapı içindir; Telegram'ın sohbet
+       cezası asla kırpılmaz (STRICT COOLDOWN).
    (c) Ceza süresi DİSKE yazılır (nirvana/state/flood_gate.json): süreç yeniden
        başlasa bile kapı açılmaz, böylece restart döngüsü Telegram cezasını
        büyütemez (cezayı "unutan" bot aynı sohbete tekrar yazarak cezayı
        ikiye katlıyordu).
+   (d) STRICT COOLDOWN (2026-09-19 canlı arıza: 73420 sn FLOOD_WAIT):
+       Telegram ne kadar süre verdiyse diskte/bellekte O SÜRE yazılır —
+       yapay tavanla kırpma, kapıyı erken tıklatma YOK.
+   (e) %100 EGRESS KORUMASI: arka plan ping'leri, durum denetimleri
+       (health-check/getMe) ve müşteri mesajları istisnasız aynı kapıdan
+       geçer. Cezalı (PASSIVE) botun tokenine süre bitene kadar tek istek
+       bile atılmaz — Telegram'ın "kısıtlamayı delme" algoritması
+       tetiklenmez (owner_notify._pool_tokens + probe_delivery + polling
+       sweep; süre sonu otomatik aktivasyon: bot_registry sweep).
 
 Kullanım:
     flood_guard.install(application.bot)      # _post_init'te bir kez
@@ -94,33 +101,6 @@ _STATE_PATH = config.ROOT / "nirvana" / "state" / "flood_gate.json"
 _loaded = False
 
 
-def _operator_ids() -> frozenset[int]:
-    """Operatör (patron) sohbetleri — flood cezasindan ASLA etkilenmez.
-
-    Canlı arıza (2026-09): patronun sohbetine eski bir spam turunda RetryAfter
-    cezası yazıldı, diskten geri yüklendi ve /notifyme + /status + sıcak lead
-    pingleri ~20 saat sessizce düşürüldü. Operatör sohbeti düşük hacimlidir
-    (komut + bildirim); Telegram'ın sohbet cezası burada spam kaynağı olamaz.
-    Bu yüzden operatör sohbetleri ceza kapısının dışında tutulur.
-    """
-    try:
-        import owner_notify  # geç import: döngüsel import yok
-
-        return frozenset(owner_notify.load_admin_chat_ids())
-    except Exception:  # noqa: BLE001 — owner.json yoksa koruma sessizce boş
-        return frozenset()
-
-
-def _is_operator(chat_id: int | None) -> bool:
-    if chat_id is None:
-        return False
-    try:
-        cid = int(chat_id)
-    except (TypeError, ValueError):
-        return False
-    return cid in _operator_ids()
-
-
 def _load_state() -> None:
     """Ceza süreleri diskte kalıcı: restart cezayı 'unutup' büyütemez."""
     global _until, _loaded
@@ -146,9 +126,10 @@ def _load_state() -> None:
                     cid = int(key)
                 except (TypeError, ValueError):
                     continue
-                if _is_operator(cid):
-                    continue  # eski operatör cezası diske yazılmışsa yok say
-                _chat_until[cid] = monotonic_now + min(left, MAX_RETRY_AFTER)
+                # STRICT COOLDOWN: diskten gelen sohbet cezası kim olduğuna
+                # bakılmaksızın AYNEN geri yüklenir (operatör istisnası yok —
+                # erken tıklatma Telegram cezasını uzatır).
+                _chat_until[cid] = monotonic_now + left
     except (TypeError, ValueError):
         return
 
@@ -197,12 +178,10 @@ def note_retry_after(seconds: float, chat_id: int | None = None,
             cid: int | None = int(chat_id)
         except (TypeError, ValueError):
             cid = None
-        if cid is not None and _is_operator(cid):
-            # Operatör sohbetine KALICI ceza yazılmaz: diskten geri yüklenen
-            # 20 saatlik ceza /notifyme + sıcak lead pinglerini susturmuştu.
-            # Telegram'ın canlı sinyali yalnızca kısa global cooldown'a işlenir.
-            seconds = min(seconds, GLOBAL_MAX_RETRY_AFTER)
-        elif cid is not None and now + seconds > _chat_until.get(cid, 0.0):
+        # STRICT COOLDOWN: sohbet cezası kimliğe bakılmadan AYNEN yazılır
+        # (kırpma yok). Kapı, Telegram'ın verdiği sürede o sohbeti bağlar;
+        # süre dolmadan tek istek gitmez.
+        if cid is not None and now + seconds > _chat_until.get(cid, 0.0):
             _chat_until[cid] = now + seconds
             logger.warning(
                 "FLOOD GATE: chat %s icin %.0f sn Telegram cezasi — o sohbet duraklatildi",
@@ -224,10 +203,9 @@ def note_retry_after(seconds: float, chat_id: int | None = None,
 def _penalty_remaining(chat_id: int | None = None) -> float:
     _load_state()
     now = time.monotonic()
-    if chat_id is not None and _is_operator(chat_id):
-        # Operatör sohbeti asla kapıda beklemez: /notifyme, /status ve sıcak
-        # lead pinglerinin sessizce düşürülmesi yasak (canlı arıza, 2026-09).
-        return 0.0
+    # STRICT COOLDOWN: Telegram ne kadar süre verdiyse kapı o kadar kapalıdır.
+    # Tavan kırpma / erken tıklatma YOK — cezalı sürede Telegram'a tek istek
+    # gitmez (erken deneme cezayı uzatır; canlı arıza 2026-09: 73420 sn).
     remaining_s = max(0.0, _until - now)
     if chat_id is not None:
         try:
@@ -238,6 +216,7 @@ def _penalty_remaining(chat_id: int | None = None) -> float:
     for until in _chat_until.values():
         remaining_s = max(remaining_s, max(0.0, until - now))
     return remaining_s
+    return remaining_s
 
 
 def remaining(chat_id: int | None = None) -> float:
@@ -246,6 +225,34 @@ def remaining(chat_id: int | None = None) -> float:
     chat_id verilirse o sohbetin (global cooldown dahil) bekleme süresi döner.
     """
     return _penalty_remaining(chat_id)
+
+
+def token_ok(token: str) -> bool:
+    """Tokenin botu gönderim için güvenli mi? (ZERO-TOUCH PASSIVE kapısı)
+
+    - Bot karantinada (PASSIVE / FLOOD_WAIT) ise False: o tokenle TEK istek
+      bile atılmaz (getMe/ping/health-check dâhil).
+    - Bot adı çözülemiyorsa True (fail-open): adı bilinmeyen tokenin
+      riski sohbet-bazlı ceza kapısıyla zaten sınırlıdır.
+    Çözüm tamamen diskten yapılır (bot_registry token_hint / bot_ids.json
+    önbelleği) — Telegram'a HTTP çağrısı atılmaz.
+    """
+    tok = (token or "").strip()
+    if not tok:
+        return False
+    try:
+        import hashlib
+
+        import bot_registry
+        uname = bot_registry.owner_for_hint(
+            hashlib.sha256(tok.encode()).hexdigest()[:12])
+        if not uname:
+            uname = config.bot_username_for_token(tok)
+        if not uname:
+            return True  # fail-open: adı bilinmeyen token engellenmez
+        return bot_registry.is_active(uname)
+    except Exception:  # noqa: BLE001 — kayıt defteri yoksa kapı yine çalışır
+        return True
 
 
 def status() -> dict[str, Any]:

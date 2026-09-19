@@ -593,6 +593,13 @@ async def _send_payment_link_critical(chat_id: int, text: str, update: Update,
     for uname, app in list(_APPS.items()):
         if app is context.application:
             continue
+        # ZERO-TOUCH: FLOOD_WAIT karantinasındaki bota tek istek dahi yok.
+        try:
+            import bot_registry
+            if not bot_registry.is_active(str(uname)):
+                continue
+        except Exception:  # noqa: BLE001 — kayıt yoksa fail-open
+            pass
         try:
             if not await flood_guard.acquire(chat_id):
                 continue
@@ -827,9 +834,24 @@ async def cmd_notifyme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     try:
         await update.message.reply_text(text, parse_mode="Markdown")
+        return
     except BadRequest:
         # Unbalanced * / _ in a hostname would kill the whole status report.
-        await update.message.reply_text(text)
+        try:
+            await update.message.reply_text(text)
+            return
+        except Exception:
+            pass
+    except Exception:
+        logger.warning("notifyme ozeti satis botundan gidemedi — yedek hatta dusuluyor",
+                       exc_info=True)
+    # Yedek hat: httpx + TEK flood kapısı (notify tokeni önce). Satış botu
+    # Telegram'da cezalıysa (canlı arıza 2026-09-19: 73420 sn FLOOD_WAIT) özet
+    # buradan ulaşır; kimse temiz değilse task_queue'ya yazılır — sessiz kayıp yok.
+    ok = await asyncio.to_thread(
+        owner_notify.send, text.replace("*", ""), chat_id=chat_id, high_priority=True)
+    if not ok:
+        logger.warning("notifyme ozeti yedek hattan da gidemedi — task_queue kuyrugunda")
 
 
 def _financial_owner(update: Update) -> bool:
@@ -983,11 +1005,20 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         logger.exception("status ozeti olusturulamadi")
         await update.message.reply_text(f"⚠️ Durum özeti oluşturulamadı: {exc}"[:400])
         return
-    await update.message.reply_text(
+    text = (
         f"Operatör sohbeti (chat_id={update.effective_chat.id}) tanınıyor.\n"
         f"{telegram_bot_api.status_line()}\n\n"
         + digest
     )
+    try:
+        await update.message.reply_text(text)
+        return
+    except Exception:
+        # Satış botu Telegram'da cezalıysa yedek hattan (tek flood kapısı)
+        # düşür; kimse temiz değilse task_queue'ya yazılır.
+        await asyncio.to_thread(
+            owner_notify.send, text.replace("*", ""),
+            chat_id=int(update.effective_chat.id), high_priority=True)
 
 
 async def cmd_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1591,7 +1622,16 @@ def _offline_reply(user_text: str, row: dict[str, Any] | None) -> tuple[str, boo
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Telegram error: %s", context.error, exc_info=context.error)
     # Flood cezası aktifken kullanıcıya hata mesajı DENEME — döngüyü büyütür.
-    if flood_guard.remaining() > 5:
+    # Sohbet-bazlı kontrol: operatör/müşteri sohbetine yazılan ceza yalnızca
+    # O sohbeti bağlar; temiz bir sohbete hata bildirimi engellenmez.
+    affected = None
+    try:
+        upd = update
+        if isinstance(upd, Update) and upd.effective_chat is not None:
+            affected = int(upd.effective_chat.id)
+    except Exception:
+        affected = None
+    if flood_guard.remaining(affected) > 5:
         return
     # Sessiz ölüm olmasın: handler içinde patlarsa kullanıcıya da söyle.
     chat_id = None
@@ -1668,6 +1708,12 @@ async def _heartbeat_loop(application: Application) -> None:
     while True:
         heartbeat.pulse("salesbot")
         try:
+            # ZERO-TOUCH sweep: PASSIVE botun updater'ı durdurulur, cooldown'u
+            # biten bot otomatik (manuel komut/restart olmadan) aktive edilir.
+            await _sync_pool_polling()
+        except Exception:
+            logger.exception("pool polling sweep failed")
+        try:
             relay = await asyncio.wait_for(
                 asyncio.to_thread(
                     task_queue.run_due,
@@ -1682,6 +1728,65 @@ async def _heartbeat_loop(application: Application) -> None:
         except Exception:
             logger.exception("Queued notify relay failed")
         await asyncio.sleep(10)
+
+
+_POLLING_ON: set[str] = set()
+
+
+async def _start_polling(app: Application, uname: str) -> None:
+    """ACTIVE botun polling'ini başlat + kamu kimliğini uygula.
+
+    Kimlik çağrıları (set_my_name vb.) da Telegram'a giden İSTEKTÜR:
+    sadece polling başlarken, aktif botta, bir kez yapılır (cezalı bota
+    health/config istekleri gitmez)."""
+    if uname in _POLLING_ON:
+        return
+    await app.updater.start_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+        timeout=30,
+        bootstrap_retries=8,
+    )
+    _POLLING_ON.add(uname)
+    await _apply_public_identity(app)
+    logger.info("Polling AKTİF: @%s", uname)
+
+
+async def _stop_polling(app: Application, uname: str) -> None:
+    """PASSIVE botun polling'ini durdur — ZERO-TOUCH PASSIVE.
+
+    Updater çalışırken PTB getUpdates'i kendisi tekrarlar; exception loop'u
+    bile Telegram'a istek demektir. Tek doğru: updater'ı DURDURMAK."""
+    if uname not in _POLLING_ON:
+        return
+    try:
+        await app.updater.stop()
+    except Exception:
+        logger.exception("updater stop failed for @%s", uname)
+    _POLLING_ON.discard(uname)
+    logger.info("Polling DURDURULDU: @%s — ZERO-TOUCH PASSIVE (cooldown bitene dek tek istek yok)", uname)
+
+
+async def _sync_pool_polling() -> None:
+    """Havuz polling'ini bot_registry durumuyla senkronla.
+
+    Süre Sonu Otomatik Aktivasyon: bot_registry.is_active() cooldown bitmiş
+    pasifleri okuma anında ACTIVE'a çeker; sweep polling'i yeniden başlatır.
+    Hiçbir manuel komut/restart gerekmez."""
+    import bot_registry
+
+    for uname, app in list(_APPS.items()):
+        try:
+            live = bot_registry.is_active(uname)
+        except Exception:  # noqa: BLE001 — kayıt defteri yoksa fail-open
+            live = True
+        if live:
+            try:
+                await _start_polling(app, uname)
+            except Exception:
+                logger.exception("polling start failed for @%s", uname)
+        else:
+            await _stop_polling(app, uname)
 
 
 async def _apply_public_identity(application: Application) -> None:
@@ -1730,7 +1835,9 @@ async def _post_init(application: Application, *, primary: bool = True) -> None:
         application.bot_data["heartbeat_task"] = asyncio.create_task(
             _heartbeat_loop(application), name="tg-heartbeat"
         )
-    await _apply_public_identity(application)
+    # NOT: _apply_public_identity BURADA çağrılmaz — set_my_name vb. de
+    # Telegram'a giden istektür ve ZERO-TOUCH PASSIVE bot için yasaktır.
+    # Kimlik, yalnızca polling başlatıldığında (_start_polling) uygulanır.
 
 
 def _build_application(token: str, *, primary: bool) -> Application:
@@ -1825,23 +1932,29 @@ async def _serve(apps: list[Application]) -> None:
         healthy.append(app)
     apps = healthy
     # Ortak Beyin kayıt defteri: havuz üyeleri ACTIVE doğar; pasiflerin
-    # cooldown'u dolmuşsa okuma anında otomatik reaktive olur.
+    # cooldown'u dolmuşsa okuma anında otomatik reaktive olur. token_hint
+    # parmak izleri de yazılır — 429 cezası sonradan getMe ÇAĞIRMADAN
+    # (zero-touch) doğru bota eşlenir.
     try:
-        import bot_registry
-        bot_registry.register_pool(list(_APPS.keys()))
+        import bot_registry as _registry
+        _registry.register_pool(list(_APPS.keys()))
+        import hashlib as _hashlib
+        for _uname, _app in _APPS.items():
+            _token = str(getattr(_app.bot, "_token", "") or "")
+            if _token:
+                _registry.set_token_hint(
+                    _uname, _hashlib.sha256(_token.encode()).hexdigest()[:12])
     except Exception:  # noqa: BLE001
         logger.exception("bot_registry kaydi basarisiz — rotasyon config havuzundan")
     for index, app in enumerate(apps):
         await _post_init(app, primary=(index == 0))
+    # ZERO-TOUCH + SÜRE SONU OTOMATİK AKTİVASYON: yalnızca ACTIVE botlar
+    # polling başlatır. FLOOD_WAIT'te (PASSIVE) botun updater'ı HİÇ
+    # başlatılmaz — getUpdates dâhil tokenine tek istek gitmez. Cooldown
+    # bitince heartbeat sweep'i (aşağıda) botu otomatik aktive eder.
     for app in apps:
         await app.start()
-    for app in apps:
-        await app.updater.start_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True,
-            timeout=30,
-            bootstrap_retries=8,
-        )
+    await _sync_pool_polling()
     logger.info("Sales bot pool live: %d bot(s) — %s", len(apps), ", @".join(_APPS))
     try:
         await stop.wait()
