@@ -47,8 +47,20 @@ jobs:
           systemctl show nirvana-salesbot.service -p NRestarts -p ActiveEnterTimestamp -p SubState 2>/dev/null || true
           echo "--- form hattı uptime/restart (pipeline) ---"
           systemctl show nirvana-pipeline.service -p NRestarts -p ActiveEnterTimestamp -p SubState 2>/dev/null || true
-          echo "--- çalışan süreçler ---"
+          echo "--- çalışan süreçler + journal zamanları ---"
           pgrep -af "auto_runner.py|pipeline.py|telegram_sales_bot.py" 2>/dev/null | head -12 || echo "süreç yok"
+          echo "--- timer servis dosya zamanları (deploy aldı mı?) ---"
+          for u in nirvana-watchdog nirvana-idleguard nirvana-captcha nirvana-deliveryworker nirvana-linkedin nirvana-dispatch nirvana-pipeline nirvana-salesbot; do
+            printf '%-24s ExecMain=%-28s Result=%-9s ActiveState=%s\n' "$u" \
+              "$(systemctl show \"$u.service\" -p ExecMainStartTimestamp --value 2>/dev/null || echo -)" \
+              "$(systemctl show \"$u.service\" -p Result --value 2>/dev/null || echo -)" \
+              "$(systemctl show \"$u.service\" -p ActiveState --value 2>/dev/null || echo -)"
+          done
+          echo "--- birim dosya User satırı (varsa 217/USER adayı) ---"
+          for f in /etc/systemd/system/nirvana-*.service; do
+            u=$(grep -E '^User=' "$f" 2>/dev/null || echo "User=yok(root)")
+            echo "$(basename $f): $u"
+          done
           echo "--- form hattı son log (canlı mı?) ---"
           sudo -n journalctl -u nirvana-pipeline.service -n 12 --no-pager -o cat 2>/dev/null || true
           echo "=== KUYRUK / YAKIT ==="
