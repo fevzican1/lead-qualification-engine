@@ -468,8 +468,15 @@ async def _worker_loop(idx, queue):
             put_session(sid, score=int(scored.get("score") or 0), tone=str(scored.get("tone") or ""))
             try:
                 s2 = get_session(sid) or {}; sc = int(scored.get("score") or 0); who = str(s2.get("name") or sid)[:40]
+                # WATCHDOG GUARD: notify_admin senkron Telegram HTTP + flood pacing
+                # sleep'i icerir — event loop'ta dogrudan cagrilirsa loop 30 sn
+                # bloklanir, sdnotify pulse atlamaz, systemd SIGABRT atardi.
+                # Bu yuzden tum admin bildirimleri thread'e alinir.
                 if (sc >= 80 or wants_to_buy(text)) and not s2.get("vip_notified"):
-                    notify_admin(f"VIP LEAD (webchat) {who} skor={sc} son={(text or '')[:200]} sid={sid}", high_priority=True)
+                    await asyncio.to_thread(
+                        notify_admin,
+                        f"VIP LEAD (webchat) {who} skor={sc} son={(text or '')[:200]} sid={sid}",
+                        high_priority=True)
                     put_session(sid, vip_notified=True)
                 if wants_to_buy(text) and not s2.get("payment_notified"):
                     link = ""
@@ -478,7 +485,9 @@ async def _worker_loop(idx, queue):
                         link = pm.payment_link()
                     except Exception: link = ""
                     if link: reply = f"{reply}\n\nOdeme talebi: {link}"
-                    notify_admin(f"ODEME ISTEGI (webchat) {who} sid={sid}", high_priority=True)
+                    await asyncio.to_thread(notify_admin,
+                                            f"ODEME ISTEGI (webchat) {who} sid={sid}",
+                                            high_priority=True)
                     put_session(sid, payment_notified=True)
             except Exception: logger.warning("admin notify skip", exc_info=True)
             url = await ensure_voice(sid, reply, lang=str((get_session(sid) or {}).get("lang") or "tr"))
@@ -515,7 +524,11 @@ async def _drip_loop():
             try:
                 import task_queue as _tq  # type: ignore
                 import owner_notify as _on  # type: ignore
-                _tq.run_due("telegram_notify", _on.deliver_queued_notify, limit=5, lease_s=300.0, retry_in_s=60.0)
+                # WATCHDOG GUARD: run_due kuyruktaki bildirimleri SENKRON httpx ile
+                # gonderir (10 sn x token x mesaj) — loop'u bloklamaz, thread'de kosar.
+                await asyncio.to_thread(
+                    _tq.run_due, "telegram_notify", _on.deliver_queued_notify,
+                    limit=5, lease_s=300.0, retry_in_s=60.0)
             except Exception: pass
         except Exception as exc: logger.warning("drip err: %s", exc)
         await asyncio.sleep(60.0)
@@ -581,11 +594,13 @@ async def _digest_loop():
                 body = ""
                 try:
                     import owner_notify as _on  # type: ignore
-                    body = str(_on.lead_digest() or "")
+                    # lead_digest() coklu dosya okur + notify_admin senkron Telegram
+                    # HTTP atar — WATCHDOG GUARD: ikisi de thread'de kosar.
+                    body = str(await asyncio.to_thread(_on.lead_digest) or "")
                 except Exception as exc:
                     logger.warning("lead_digest olusmadi: %s", exc)
                 if body:
-                    notify_admin(body, high_priority=False)
+                    await asyncio.to_thread(notify_admin, body, high_priority=False)
                 st["last_slot"] = key
                 st["first_run"] = bool(first_run)
                 st["fired_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
