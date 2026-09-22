@@ -1,0 +1,23 @@
+[Unit]
+Description=Nirvana Web Live Chat Engine (self-healing, WatchdogSec, $0)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+WorkingDirectory=/opt/devsolve
+ExecStart=/opt/devsolve/.venv/bin/python /opt/devsolve/webchat_server.py
+Restart=always
+RestartSec=1
+WatchdogSec=30s
+KillSignal=SIGTERM
+TimeoutStopSec=15
+Environment=WEBCHAT_BIND_HOST=127.0.0.1
+Environment=WEBCHAT_PORT=8765
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/devsolve/.playwright
+# WATCHDOG=1 sinyali 30 sn gelmezse systemd SIGABRT ile oldurup 1 sn icinde
+# tertemiz bellekle yeniden baslatir. Oturumlar diske senkron (veri kaybi yok).
+# Onunde nginx reverse-proxy (80/443 -> 127.0.0.1:8765).
+
+[Install]
+WantedBy=multi-user.target

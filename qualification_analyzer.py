@@ -226,7 +226,8 @@ def _form_note(lead: dict[str, Any], *, turkish: bool) -> tuple[str, str]:
         lead["error_type"] = hook["error_type"] if turkish else hook["error_type_en"]
     except Exception:
         logger.exception("Telegram handoff remember failed for %s", host)
-    link = config.telegram_deeplink(token)
+    # MUSTERI HATTI: web sohbet (Oracle VM) linki; yoksa gecis donemi t.me.
+    link = config.customer_chat_link(token)
     subject, note = telegram_handoff.form_copy(
         host=host,
         hints=hints,

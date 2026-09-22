@@ -431,6 +431,67 @@ def require_live_telegram_link(start: str = "") -> str:
     return f"https://t.me/{username}"
 
 
+# --- Web Live Chat Engine (musteri hatti; Telegram musteriye KAPALI) ---------
+# Musteri trafigi Oracle VM'de host edilen web sohbete tasindi: form dolduran lead
+# t.me yerine WEBCHAT_PUBLIC_URL'ye yonlendirilir. Boylece Telegram'in FLOOD_WAIT,
+# ban ve hiz limitleri musteri mimarisinden TAMAMEN cikar (0 limit, $0 maliyet).
+# Telegram yalnizca pasif admin/operator hattidir (VIP lead, odeme istegi, /status).
+# WEBCHAT_PUBLIC_URL bos ise eski t.me linki kullanilir (gecis donemi uyumlulugu).
+WEBCHAT_PUBLIC_URL: str = _get("WEBCHAT_PUBLIC_URL", "").strip().rstrip("/")
+WEBCHAT_PORT: int = _get_int("WEBCHAT_PORT", 8765)
+WEBCHAT_BIND_HOST: str = _get("WEBCHAT_BIND_HOST", "127.0.0.1").strip() or "127.0.0.1"
+
+
+def webchat_link(session: str = "") -> str:
+    """Web sohbet URL'i; oturum token'i verilirse /chat?sid=... (yoksa "")."""
+    base = (WEBCHAT_PUBLIC_URL or "").strip().rstrip("/")
+    if not base:
+        return ""
+    token = re.sub(r"[^A-Za-z0-9_-]", "", (session or "").strip())[:32] if session else ""
+    return f"{base}/chat?sid={token}" if token else f"{base}/chat"
+
+
+def require_live_webchat_link(session: str = "") -> str:
+    """Fail-closed web sohbet linki — MUSTERI HATTI.
+
+    WEBCHAT_PUBLIC_URL tanimli degilse RuntimeError: cagirici lead'i isaretler ve
+    tiklanamayan bir form mesajiyla firma yakmaz.
+    """
+    link = webchat_link(session)
+    if not link:
+        raise RuntimeError(
+            "WEBCHAT_PUBLIC_URL eksik: musteri hatti icin web sohbet adresi yok. "
+            "Oracle /opt/devsolve/.env icine https://<vm-adresi> yazin "
+            "(deploy: oracle/deploy_webchat.sh otomatik doldurur)."
+        )
+    return link
+
+
+def customer_chat_link(session: str = "") -> str:
+    """Musteriye giden TEK link: web sohbet (varsa), gecis doneminde t.me."""
+    return webchat_link(session) or telegram_deeplink(session)
+
+
+def require_live_customer_link(session: str = "") -> str:
+    """Form gonderimi icin canli musteri linki (fail-closed).
+
+    Sira: WEBCHAT_PUBLIC_URL -> (yoksa) t.me. Ikisi de uretilemezse RuntimeError;
+    form_submitter lead'i `skipped_no_telegram_link` olarak isaretler.
+    """
+    link = customer_chat_link(session)
+    if link and link.strip() and link.strip() != "Telegram":
+        return link
+    raise RuntimeError(
+        "Canli musteri linki yok: WEBCHAT_PUBLIC_URL (web sohbet) veya "
+        "TELEGRAM_BOT_USERNAME (gecis donemi) tanimli degil."
+    )
+
+
+def webchat_customer_only() -> bool:
+    """Musteri hatti web sohbete tasindi mi? (Telegram musteri girisi kapanir)."""
+    return bool(WEBCHAT_PUBLIC_URL)
+
+
 def ensure_telegram_username() -> str:
     """Fill TELEGRAM_BOT_USERNAME from BotFather getMe if it was left blank."""
     global TELEGRAM_BOT_USERNAME

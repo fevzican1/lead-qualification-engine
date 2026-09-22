@@ -197,7 +197,52 @@ def hook_for_lead(lead: dict[str, Any], *, turkish: bool = True) -> dict[str, st
     )
 
 
-def trust_note(turkish: bool) -> str:
+def _is_webchat(link: str) -> bool:
+    """Müşteri linki web sohbet mi (t.me değil)? — metin dili buna göre seçilir."""
+    return bool(str(link or "").strip()) and "t.me/" not in str(link)
+
+
+def _channel_label(link: str, turkish: bool = True) -> str:
+    """Müşteriye görünen kanal adı: web sohbet (Oracle VM) veya geçiş dönemi Telegram."""
+    if _is_webchat(link):
+        return "Canlı sohbet" if turkish else "Live chat"
+    return "Telegram"
+
+
+def _opens_line(link: str, *, turkish: bool) -> str:
+    """Bağlantının nasıl açıldığını anlatan tek cümle (kanal nötr)."""
+    if _is_webchat(link):
+        if turkish:
+            return (
+                "Bağlantı doğrudan tarayıcıda açılır (uygulama/indirme yok; giriş istemez). "
+                "Akıştan sorumlu arkadaşınızla paylaşabilirsiniz."
+            )
+        return (
+            "Opens straight in the browser (no app, no download, no login). "
+            "Forward it to whoever owns this flow."
+        )
+    if turkish:
+        return (
+            "Telegram yüklü olmasa da telefondan açılır (resmi t.me önizlemesi; dosya indirmez). "
+            "Akıştan sorumlu arkadaşınızla paylaşabilirsiniz."
+        )
+    return (
+        "Opens on mobile without the app (official t.me preview; no download). "
+        "Forward to whoever owns this flow."
+    )
+
+
+def trust_note(turkish: bool, link: str = "") -> str:
+    if _is_webchat(link):
+        if turkish:
+            return (
+                "Güvenliğiniz için: bağlantı kendi sohbet sunucumuzda barınır "
+                "(Oracle bulut), dosya indirmez ve giriş bilgisi istemez."
+            )
+        return (
+            "For your safety: the link is hosted on our own chat server (Oracle cloud) — "
+            "no file download, no login requested."
+        )
     if turkish:
         return (
             "Güvenliğiniz için: bağlantı doğrudan resmi Telegram önizlemesidir, "
@@ -259,7 +304,11 @@ def form_cta(
     domain: str,
     variant: str = "C",
 ) -> str:
-    """High-conversion Telegram CTA block — link on its own line for form UIs."""
+    """High-conversion CTA block — link on its own line for form UIs.
+
+    Kanal nötr: müşteri linki web sohbet (Oracle VM) ise "tarayıcıda açılır"
+    cümlesi, geçiş döneminde t.me ise resmi Telegram önizlemesi anlatılır.
+    """
     card = (
         "yetenek kanıtı paketi" if variant == "X"
         else "iletişim akış şeması" if variant == "S"
@@ -270,32 +319,32 @@ def form_cta(
         else "contact-flow schematic" if variant == "S"
         else "checkout flow schematic"
     )
+    opens_tr = _opens_line(link, turkish=True)
+    opens_en = _opens_line(link, turkish=False)
     if variant == "X":
         if turkish:
             return (
                 f"→ BAŞVURU + KANIT — {domain} için hazır (~60 sn):\n"
                 f"{link}\n"
-                "Telegram yüklü olmasa da telefondan açılır (resmi t.me önizlemesi; "
-                "dosya indirmez). Teknik ekipte ilgili kişiye iletebilirsiniz."
+                "Teknik ekipte ilgili kişiye iletebilirsiniz. "
+                f"{opens_tr}"
             )
         return (
             f"→ APPLICATION + EVIDENCE — ready for {domain} (~60 s):\n"
             f"{link}\n"
-            "Opens on mobile without the app (official t.me preview; no download). "
-            "Forward to whoever owns technical staffing."
+            "Forward to whoever owns technical staffing. "
+            f"{opens_en}"
         )
     if turkish:
         return (
             f"→ TEK TIK — {domain} {card} (~60 sn önizleme):\n"
             f"{link}\n"
-            "Telegram yüklü olmasa da telefondan açılır (resmi t.me önizlemesi; dosya indirmez). "
-            "Akıştan sorumlu arkadaşınızla paylaşabilirsiniz."
+            f"{opens_tr}"
         )
     return (
         f"→ ONE TAP — {domain} {card_en} (~60 s preview):\n"
         f"{link}\n"
-        "Opens on mobile without the app (official t.me preview; no download). "
-        "Forward to whoever owns this flow."
+        f"{opens_en}"
     )
 
 
@@ -425,7 +474,7 @@ def form_copy(
                     "Çalışma modeli uygunsa tek bir teslimat, sandbox testi ve kabul ölçütlerini "
                     "birlikte netleştirebiliriz. Bu bir hata tespiti veya tamamlanmış iş iddiası değildir. "
                     "Başlangıç; kapsam, erişim izni ve ödeme doğrulamasından sonradır.\n\n"
-                    f"Başvuru referansı: {rid}\nTelegram: {link}\n"
+                    f"Başvuru referansı: {rid}\n{_channel_label(link, True)}: {link}\n"
                     f"{identity_line(True)}\n"
                     f"E-posta ile de yanıtlayabilirsiniz: {config.SENDER_EMAIL}\n"
                     "Uygun değilse takip yapmayacağız; STOP ile çıkabilirsiniz.")
@@ -435,7 +484,7 @@ def form_copy(
                 "If this working model is suitable, we can agree one deliverable, sandbox tests "
                 "and acceptance criteria first. This is not a diagnosed defect or a claim of "
                 "completed work. Start requires agreed scope, access authorization and verified payment.\n\n"
-                f"Application reference: {rid}\nTelegram: {link}\n"
+                f"Application reference: {rid}\n{_channel_label(link, False)}: {link}\n"
                 f"{identity_line(False)}\n"
                 f"You can also reply by email: {config.SENDER_EMAIL}\n"
                 "If unsuitable we will not follow up; reply STOP to opt out.")
@@ -510,7 +559,7 @@ def form_copy(
             f"{form_cta(link=link, turkish=True, domain=domain, variant=variant)}\n\n"
             f"{standards_line(True)}\n\n"
             f"Rapor No: {report_id(domain)}\n"
-            f"{trust_note(True)} Uygunsa 2 saatlik uygulama slotu ayarlanabilir.\n"
+            f"{trust_note(True, link)} Uygunsa 2 saatlik uygulama slotu ayarlanabilir.\n"
             f"{identity_line(True)}\n"
             f"{'Kanıt paketi (tekrar)' if variant == 'X' else 'Akış şeması (tekrar)'}: {link}\n"
             f"Çıkmak isterseniz STOP yazın veya {getattr(config, 'SENDER_EMAIL', '')} "
@@ -572,16 +621,17 @@ def form_copy(
             f"{form_cta(link=link, turkish=False, domain=domain, variant=variant)}\n\n"
             f"{standards_line(False)}\n\n"
             f"Report No: {report_id(domain)}\n"
-            f"{trust_note(False)} If it fits, a 2-hour implementation slot can be arranged. ({err})\n"
+            f"{trust_note(False, link)} If it fits, a 2-hour implementation slot can be arranged. ({err})\n"
             f"{identity_line(False)}\n"
             f"{'Evidence pack (repeat)' if variant == 'X' else 'Flow schematic (repeat)'}: {link}\n"
             f"Opt-out: reply STOP or email {getattr(config, 'SENDER_EMAIL', '')} with subject Unsubscribe."
         )
     subject = form_subject(domain, turkish=turkish, technical=subject, audience=audience)
     # Collapse intra-paragraph spaces, but preserve line structure of any
-    # part carrying the t.me link so the CTA stays tap-friendly in form UIs.
+    # part carrying the customer link (web sohbet URL'i veya t.me) so the CTA
+    # stays tap-friendly in form UIs.
     def _collapse(part: str) -> str:
-        return part if "t.me/" in part else " ".join(part.split())
+        return part if re.search(r"https?://\S+", part) else " ".join(part.split())
 
     body = "\n\n".join(_collapse(part) for part in body.split("\n\n"))
     # Dil Bekçisi (madde 56/87): FORM metni de Telegram ile AYNI kapıdan geçer —

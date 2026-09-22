@@ -468,23 +468,26 @@ def _submit_with_page(
         import enterprise_forms
         return enterprise_forms.submit(page, lead)
 
-    # FORMLINK GUARD: t.me bağlantısı olmadan form gönderme. username boşsa
-    # mesaj gövdesine sadece "Telegram" kelimesi düşer — tıklanamaz → dönüş 0.
-    # Böyle bir form kuyruğu yakıtını boş yere yakar; fail-closed skip edilir.
+    # FORMLINK GUARD (musteri hatti): musteriye giden link olmadan form gonderme.
+    # Artik birincil kanal WEB SOHBET (WEBCHAT_PUBLIC_URL); t.me yalnizca gecis
+    # donemi yedegi. Ikisi de yoksa fail-closed skip edilir — tiklanamayan
+    # mesaj kuyruk yakiti yakar, donus sifir olur.
+    # MUSTERI HATTI KAPISI: musteriye giden link artik WEB sohbet (Oracle VM).
+    # t.me yalnizca gecis donemi yedegi; ikisi de yoksa form GONDERILMEZ (fail-closed).
     try:
-        live_link = config.require_live_telegram_link(lead.get("telegram_start") or "")
+        live_link = config.require_live_customer_link(lead.get("telegram_start") or "")
     except RuntimeError:
         result["status"] = "skipped_no_telegram_link"
         result["error"] = (
-            "Telegram bot identity eksik: TELEGRAM_BOT_USERNAME ayarlayın "
-            "(ya da bot token ile getMe çözümüne izin verin)."
+            "Canli musteri linki eksik: WEBCHAT_PUBLIC_URL (web sohbet) ayarlayin; "
+            "gecis donemi icin TELEGRAM_BOT_USERNAME yeterli."
         )
-        logger.warning("Skipping submit for %s (no_telegram_link)", lead.get("url"))
+        logger.warning("Skipping submit for %s (no_customer_link)", lead.get("url"))
         return result
-    if "t.me/" not in live_link:
+    if not (live_link.startswith("http://") or live_link.startswith("https://")):
         result["status"] = "skipped_no_telegram_link"
-        result["error"] = "Live Telegram link üretilemedi — boş mesajla firma yakma."
-        logger.warning("Skipping submit for %s (no_telegram_link)", lead.get("url"))
+        result["error"] = "Canli musteri linki uretilemedi — bos mesajla firma yakma."
+        logger.warning("Skipping submit for %s (no_customer_link)", lead.get("url"))
         return result
 
     message = (lead.get("value_proposition") or "").strip()

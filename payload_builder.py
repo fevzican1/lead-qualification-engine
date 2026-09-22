@@ -65,7 +65,8 @@ def build_target(
         turkish=turkish,
         gap_notes=list(analysis.get("gaps") or [])[:12],
     )
-    link = config.telegram_deeplink(token)
+    # MUSTERI HATTI: web sohbet (Oracle VM) linki; yoksa gecis donemi t.me.
+    link = config.customer_chat_link(token)
     subject, body = telegram_handoff.form_copy(
         host=host,
         hints=hints,

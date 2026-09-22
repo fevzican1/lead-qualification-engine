@@ -374,6 +374,48 @@ def _owner_intro() -> str:
     )
 
 
+def _webchat_point_text(*, turkish: bool, link: str = "") -> str:
+    """Müşteriyi web sohbete yönlendiren tek satır (satış akışı BAŞLATMAZ)."""
+    try:
+        url = (link or config.webchat_link()).strip()
+    except Exception:  # noqa: BLE001
+        url = ""
+    if not url:
+        return ""
+    if turkish:
+        return (
+            f"Sohbet hattımız web'e taşındı: {url}\n"
+            "Tarayıcıda açılır (uygulama/indirme yok, giriş istemez) — oradan devam edelim."
+        )
+    return (
+        f"Our chat moved to the web: {url}\n"
+        "Opens in your browser (no app, no download, no login) — let's continue there."
+    )
+
+
+async def _redirect_customer_to_webchat(update: Update, chat_id: int) -> bool:
+    """Telegram musteri girisini web sohbete yonlendir (FLOOD/ban riski = 0).
+
+    WEBCHAT_PUBLIC_URL tanimli oldugunda (Oracle canli) True doner: musteri satis
+    akisi Telegram'da BASLAMAZ, tek satir web sohbet adresi verilir. Adres yoksa
+    False doner ve eski davranis korunur (gecis donemi uyumlulugu). Bu mesaj da
+    flood_guard.install ile sarilan bot._post uzerinden gider (Telegram 429 yok).
+    """
+    try:
+        if not config.webchat_customer_only():
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+    text = _webchat_point_text(turkish=_customer_lang(update))
+    if not text:
+        return False
+    try:
+        await update.message.reply_text(text)
+    except Exception:  # noqa: BLE001
+        logger.warning("webchat yonlendirme mesaji gonderilemedi (chat %s)", chat_id)
+    return True
+
+
 def _not_owner_hint() -> str:
     """Clear dead-end instead of a silent sales intro when a command is admin-only."""
     return (
@@ -670,6 +712,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "You previously unsubscribed. Send /resume if you want to talk again."
         )
+        return
+
+    # Musteri girisi web sohbete tasindi (WEBCHAT_PUBLIC_URL dolu -> akis orada).
+    if await _redirect_customer_to_webchat(update, chat_id):
         return
 
     token = (context.args[0] if context.args else "") or ""
@@ -1229,6 +1275,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if optout.is_chat_opted_out(chat_id) or optout.OPT_OUT_RE.search(user_text):
         await _confirm_stop(update)
+        return
+
+    # MUSTERI HATTI WEBCHAT'E TASINDI (WEBCHAT_PUBLIC_URL dolu): Telegram'da
+    # musteri satis akisi BASLATILMAZ — FLOOD_WAIT/ban/hiz limitleri musteri
+    # mimarisinden tamamen cikar; tek satir web adresi verilir.
+    if await _redirect_customer_to_webchat(update, chat_id):
         return
 
     start_m = re.match(r"^/start(?:@\w+)?(?:\s+(\S+))?", user_text, re.I)

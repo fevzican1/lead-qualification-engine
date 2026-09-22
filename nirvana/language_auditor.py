@@ -167,10 +167,33 @@ def _trim(text: str, *, limit: int = 1200) -> str:
     return cut.rstrip() + "…"
 
 
+def _webchat_allowed(url: str) -> bool:
+    """Müşteri hattı web sohbet adresi (Oracle VM) izinli linktir.
+
+    Telegram musteriye kapandığı için form/sohbet metinlerindeki tek meşru link
+    artık WEBCHAT_PUBLIC_URL. Bu kapı olmadan Dil Bekçisi web sohbet linkini
+    "uydurma URL" sayıp siler ve müşteri adressiz kalırdı (dönüşüm = 0).
+    """
+    raw = str(url or "").strip()
+    if not raw:
+        return False
+    try:
+        import config  # type: ignore
+
+        base = str(getattr(config, "WEBCHAT_PUBLIC_URL", "") or "").strip().rstrip("/")
+    except Exception:  # noqa: BLE001 — config yoksa yalnızca eski allowlist geçerli
+        base = ""
+    if not base:
+        return False
+    return raw.startswith(base) or raw.split("?")[0].rstrip("/") == base
+
+
 def _sanitize_urls(text: str, issues: list[str]) -> str:
     def _keep(match: re.Match[str]) -> str:
         url = match.group(0)
-        return url if _ALLOWED_URL_RE.match(url) else ""
+        if _ALLOWED_URL_RE.match(url) or _webchat_allowed(url):
+            return url
+        return ""
 
     fixed = _URL_RE.sub(_keep, text)
     if fixed != text:

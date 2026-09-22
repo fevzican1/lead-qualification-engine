@@ -41,6 +41,13 @@ jobs:
       #   ADMIN_CODE             -> Oracle .env: TELEGRAM_ADMIN_TOKEN
       TG_ADMIN_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
       TG_ADMIN_TOKEN: ${{ secrets.ADMIN_CODE }}
+      # Musteri hatti: web sohbet adresi (Oracle VM). Secret tanimli degilse
+      # deploy_webchat.sh OCI metadata'dan VM genel IP'sini cozer ve .env'e yazar.
+      # NOT: secrets.* dinamik oldugu icin VS Code Actions eklentisi burada
+      # "Context access might be invalid" uyarisi verebilir — bu YANLIS ALARM.
+      # Runtime'da tanimsiz secret = bos string; asagidaki || '' fallback'i ve
+      # deploy_webchat.sh'deki OCI-IP cozumu bunu bilerek karsilar.
+      WEBCHAT_PUBLIC_URL: ${{ secrets.WEBCHAT_PUBLIC_URL || '' }}
     steps:
       - uses: actions/checkout@v4
       - name: SSH anahtarı hazırla
@@ -63,15 +70,20 @@ jobs:
           # deploy yine "success" görünüyordu (sessiz ölüm). Modül kümesi artık
           # depodan dinamik türetilir.
           TOP_PY="$(git ls-tree -r --name-only HEAD | grep -E '^[^/]+\.py$' | tr '\n' ' ')"
-          git archive -o /tmp/nirvana-deploy.tgz HEAD $TOP_PY nirvana oracle knowledge requirements.txt .env.example
+          # templates: musteri sohbet UI'i (webchat_server /chat ile sunar).
+          git archive -o /tmp/nirvana-deploy.tgz HEAD $TOP_PY nirvana oracle knowledge \
+            templates requirements.txt .env.example
           test -s /tmp/nirvana-deploy.tgz
           # Liste dosyaya yazılır: 'tar | grep -q' + pipefail birlikte yanlış
           # sonuç verir (grep erken çıkınca tar SIGPIPE alıp "write error" der).
           tar -tzf /tmp/nirvana-deploy.tgz > /tmp/nirvana-list.txt
           echo "paket: $(wc -l < /tmp/nirvana-list.txt) dosya"
-          # Regresyon kapısı: botun/runner'ın import zinciri pakette olmalı.
+          # Regresyon kapısı: botun/runner'ın import zinciri + webchat hattı pakette olmalı.
           for need in heartbeat.py task_queue.py circuit_breaker.py config.py knowledge.py \
-                      telegram_sales_bot.py auto_runner.py owner_notify.py payment_safety.py; do
+                      telegram_sales_bot.py auto_runner.py owner_notify.py payment_safety.py \
+                      webchat_server.py webchat_core.py templates/chat.html \
+                      oracle/nirvana-webchat.service oracle/deploy_webchat.sh \
+                      oracle/webchat-nginx.conf; do
             grep -qE "(^|/)${need}$" /tmp/nirvana-list.txt \
               || { echo "::error::${need} pakette yok — deploy iptal (ModuleNotFoundError riski)"; exit 1; }
           done
@@ -88,7 +100,7 @@ jobs:
           ssh -i ~/.ssh/oracle.key \
               -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
               -o ConnectTimeout=10 -o ConnectionAttempts=1 -o BatchMode=yes \
-              "${USER}@${HOST}" "PAYONEER_LINK='${PAYONEER_LINK}' TG_BOT_TOKEN='${TG_BOT_TOKEN:-}' TG_BOT_TOKENS='${TG_BOT_TOKENS:-}' TG_OTHER_BOT_TOKENS='${TG_OTHER_BOT_TOKENS:-}' TG_BOT_ID='${TG_BOT_ID:-}' TG_BOT_USERNAME='${TG_BOT_USERNAME:-}' TG_OWNER_CHAT_ID='${TG_OWNER_CHAT_ID:-}' TG_NOTIFY_BOT_TOKEN='${TG_NOTIFY_BOT_TOKEN:-}' TG_NOTIFY_CHAT_ID='${TG_NOTIFY_CHAT_ID:-}' ADMIN_CODE='${ADMIN_CODE:-}' TG_ADMIN_ID='${TG_ADMIN_ID:-}' TG_ADMIN_TOKEN='${TG_ADMIN_TOKEN:-}' TG_API_ID='${TG_API_ID:-}' TG_API_HASH='${TG_API_HASH:-}' TG_BOT_API_BASE_URL='${TG_BOT_API_BASE_URL:-}' GH_DISPATCH_TOKEN='${GH_DISPATCH_TOKEN}' bash -s" <<'REMOTE'
+              "${USER}@${HOST}" "PAYONEER_LINK='${PAYONEER_LINK}' TG_BOT_TOKEN='${TG_BOT_TOKEN:-}' TG_BOT_TOKENS='${TG_BOT_TOKENS:-}' TG_OTHER_BOT_TOKENS='${TG_OTHER_BOT_TOKENS:-}' TG_BOT_ID='${TG_BOT_ID:-}' TG_BOT_USERNAME='${TG_BOT_USERNAME:-}' TG_OWNER_CHAT_ID='${TG_OWNER_CHAT_ID:-}' TG_NOTIFY_BOT_TOKEN='${TG_NOTIFY_BOT_TOKEN:-}' TG_NOTIFY_CHAT_ID='${TG_NOTIFY_CHAT_ID:-}' ADMIN_CODE='${ADMIN_CODE:-}' TG_ADMIN_ID='${TG_ADMIN_ID:-}' TG_ADMIN_TOKEN='${TG_ADMIN_TOKEN:-}' TG_API_ID='${TG_API_ID:-}' TG_API_HASH='${TG_API_HASH:-}' TG_BOT_API_BASE_URL='${TG_BOT_API_BASE_URL:-}' GH_DISPATCH_TOKEN='${GH_DISPATCH_TOKEN}' WC_PUBLIC_URL='${WEBCHAT_PUBLIC_URL:-}' bash -s" <<'REMOTE'
           set -euo pipefail
           echo "=== [0] Telegram/ops config → /opt/devsolve/.env (only when secret set) ==="
           for kv in \
@@ -106,6 +118,8 @@ jobs:
             "TELEGRAM_API_ID|${TG_API_ID}" \
             "TELEGRAM_API_HASH|${TG_API_HASH}" \
             "TELEGRAM_BOT_API_BASE_URL|${TG_BOT_API_BASE_URL}" \
+            "WEBCHAT_PUBLIC_URL|${WC_PUBLIC_URL}" \
+            "WEBCHAT_BIND_HOST|127.0.0.1" \
             "GITHUB_DISPATCH_TOKEN|${GH_DISPATCH_TOKEN}"; do
             key="${kv%%|*}"; val="${kv#*|}"
             if [ -n "$val" ] && [ "$val" != "null" ]; then
@@ -394,6 +408,35 @@ jobs:
           print("admin sohbetleri (bot id'leri haric):", sorted(owner_notify.load_admin_chat_ids()))
           print("kayitli operator sohbeti:", owner_notify.load_registered_chat_id())
           print("bildirim hedefi:", owner_notify.load_notify_chat_id())
+          PY
+          echo "=== [4c] WEB LIVE CHAT ENGINE (musteri hatti: Telegram yerine web sohbet) ==="
+          # Musteri trafigi artik Oracle VM'deki web sohbete akar: deploy_webchat.sh
+          # venv + systemd (WatchdogSec + RestartSec=1) + nginx (80 -> 8765, WS upgrade)
+          # + firewall adimlarini idempotent uygular, /health ve /chat dogrular.
+          cd /opt/devsolve
+          WEBCHAT_PUBLIC_URL="${WC_PUBLIC_URL:-}" \
+            sudo -n -E bash oracle/deploy_webchat.sh 2>&1 | tail -n 60 || {
+              echo "::error::webchat deploy basarisiz — musteri hatti canli degil"
+              sudo -n journalctl -u nirvana-webchat.service -n 40 --no-pager -o cat || true
+              exit 1
+            }
+          WC_STATE="$(systemctl is-active nirvana-webchat.service 2>/dev/null || true)"
+          echo "webchat servisi: ${WC_STATE}"
+          if [ "${WC_STATE}" != "active" ]; then
+            echo "::error::nirvana-webchat.service aktif degil — musteri web sohbeti CANLI DEGIL"
+            sudo -n journalctl -u nirvana-webchat.service -n 40 --no-pager -o cat || true
+            exit 1
+          fi
+          .venv/bin/python - <<'PY'
+          import config
+          print("musteri kanali:", "webchat" if config.WEBCHAT_PUBLIC_URL else "telegram (gecis)")
+          print("webchat adresi:", config.WEBCHAT_PUBLIC_URL or "<tanimsiz>")
+          print("musteri linki  :", config.customer_chat_link("dsTEST")[:80])
+          try:
+              config.require_live_webchat_link()
+              print("webchat kapisi : ACIK (musteri trafigi web'de)")
+          except RuntimeError as exc:
+              print("::warning::webchat kapisi KAPALI:", str(exc)[:120])
           PY
           echo "NIRVANA ORACLE LIVE"
           REMOTE
