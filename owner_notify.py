@@ -208,6 +208,41 @@ def lead_digest() -> str:
     # boşluk bırakmak "Kuyruk: ..." ile "Model: ..."ı yapıştırır. Özet bu yüzden
     # tek bloktur; Funnel/Kuyruk satırları bir kez yazılır (sahibe giden özet
     # mesajında tekrar ve yapışma olmaz).
+    try:
+        submitted_today, submitted_hour = knowledge.submit_counts()
+        quota_line = (f"Kota/yakıt: bugün {submitted_today}/{knowledge.daily_cap()} | "
+                      f"son 1 saat {submitted_hour}/{knowledge.hourly_cap()} (hız)")
+    except Exception:
+        quota_line = "Kota/yakıt: ölçülemedi"
+    # Müşteri kanalı: webchat canlıysa musteri hatti web'dedir; Telegram yalnızca
+    # pasif bildirimdir. WEBCHAT_PUBLIC_URL yoksa eski t.me rehberi gösterilir.
+    try:
+        if config.webchat_customer_only():
+            wc_sessions, wc_vip = 0, 0
+            try:
+                wc_rows = json.loads((config.ROOT / "nirvana" / "state" / "webchat_sessions.json")
+                                     .read_text(encoding="utf-8"))
+                if isinstance(wc_rows, dict):
+                    wc_vals = [v for v in wc_rows.values() if isinstance(v, dict)]
+                    wc_sessions = len(wc_vals)
+                    wc_vip = sum(1 for v in wc_vals if int(v.get("score") or 0) >= 70)
+            except Exception:
+                pass
+            channel_line = (f"Müşteri kanalı: WEB SOHBET ({config.WEBCHAT_PUBLIC_URL}) | "
+                            f"webchat oturum: {wc_sessions} | VIP: {wc_vip}")
+            channel_tail = [
+                "Müşteri formdan WEB SOHBET linkine tıklar (Telegram FLOOD_WAIT/ban musteriye değmez).",
+                "Telegram: yalnızca VIP/ödeme/status bildirimleri bu özetle gelir.",
+            ]
+        else:
+            channel_line = "Müşteri kanalı: t.me (geçiş modu — WEBCHAT_PUBLIC_URL ayarlanmalı)"
+            channel_tail = [
+                "Telegram sohbetin boşsa bu normal: satış botu müşteriye ilk mesajı ATMAZ.",
+                "Müşteri formdan t.me linkine tıklayınca satış botunda sohbet başlar.",
+            ]
+    except Exception:
+        channel_line = "Müşteri kanalı: ölçülemedi"
+        channel_tail = []
     lines = [
         "DevSolve motor özeti (Oracle, Always Free)",
         f"Model: {config.OLLAMA_MODEL}",
@@ -221,10 +256,11 @@ def lead_digest() -> str:
         f"Kuyruk: {domain_store.queue_depth()}/{getattr(config, 'QUEUE_TARGET', 150)} "
         f"(max {getattr(config, 'QUEUE_MAX', 250)}) | hazır {domain_store.ready_pool_size()} "
         f"| HTTP {domain_store.http_budget_label()}",
+        quota_line,
+        channel_line,
         f"Durumlar: {counts}",
         "",
-        "Telegram sohbetin boşsa bu normal: satış botu müşteriye ilk mesajı ATMAZ.",
-        "Müşteri formdan t.me linkine tıklayınca satış botunda sohbet başlar.",
+        *channel_tail,
         "Pipeline / sıcak lead → yalnızca ops chat (müşteri satış sohbetine gitmez).",
         "Satış devralma: satış botunda /reply CHATID metin",
         "Bu özet yalnızca sana gider. /stop müşteri çıkışıdır, bunu kapatmaz.",

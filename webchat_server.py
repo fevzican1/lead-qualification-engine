@@ -530,6 +530,71 @@ async def _hb_loop():
             _hb.pulse("webchat", {"online": len(_conns), "sessions": len(all_sessions())})
         except Exception: pass
         await asyncio.sleep(15.0)
+# __PART5D__ motor ozeti: gunde 3 kez, komutsuz (UTC 03/11/18 = TR 06/14/21)
+DIGEST_HOURS = tuple(sorted({h for h in (
+    int(x) for x in os.getenv("WEBCHAT_DIGEST_HOURS", "3,11,18").replace(";", ",").split(",")
+    if x.strip().lstrip("+-").isdigit() and 0 <= int(x) <= 23)})) or (3, 11, 18)
+DIGEST_GRACE_S = 1800.0  # slot gectikten 30 dk icine kadar ateslenebilir (restart dayanikliligi)
+DIGEST_STATE_PATH = STATE_DIR / "webchat_digest_state.json"
+def current_digest_slot(now_ts=None):
+    """Saf zamanlayici: en son gecen ozet slotu -> (slot_key, slot_uzerinden_gecen_sn)."""
+    now_ts = time.time() if now_ts is None else now_ts
+    now = time.gmtime(now_ts); midnight = now_ts - (now.tm_hour*3600 + now.tm_min*60 + now.tm_sec)
+    for h in reversed(DIGEST_HOURS):
+        t = midnight + h*3600
+        if now_ts >= t:
+            return (time.strftime("%Y-%m-%d", time.gmtime(t)) + f":{h:02d}", now_ts - t)
+    hmax = max(DIGEST_HOURS); t = midnight - 86400 + hmax*3600
+    return (time.strftime("%Y-%m-%d", time.gmtime(t)) + f":{hmax:02d}", now_ts - t)
+def next_digest_wait(now_ts=None):
+    """Saf: bir sonraki slot atesine kalan saniye (test/dokumantasyon icin)."""
+    now_ts = time.time() if now_ts is None else now_ts
+    now = time.gmtime(now_ts); midnight = now_ts - (now.tm_hour*3600 + now.tm_min*60 + now.tm_sec)
+    for day_off in (0, 1):
+        for h in DIGEST_HOURS:
+            t = midnight + day_off*86400 + h*3600
+            if t > now_ts: return t - now_ts
+    return 86400.0
+def _digest_state():
+    try: return json.loads(DIGEST_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception: return {}
+def _save_digest_state(st):
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = DIGEST_STATE_PATH.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(st, ensure_ascii=False) + "\n", encoding="utf-8"); tmp.replace(DIGEST_STATE_PATH)
+    except Exception: pass
+async def _digest_loop():
+    """Gunde 3 kez motor ozeti -> operator chat (flood kapisi + kuyruk devrede).
+
+    Icerik: owner_notify.lead_digest() — form verimliligi/hiz/sayisi, kota/yakit,
+    webchat oturum+VIP sayisi, musteri kanali durumu. Komut gerektirmez.
+    """
+    await asyncio.sleep(20.0)  # startup: store/loop'lar otursun
+    while True:
+        try:
+            key, since = current_digest_slot()
+            st = _digest_state()
+            first_run = "last_slot" not in st
+            due = first_run or (st.get("last_slot") != key and since <= DIGEST_GRACE_S)
+            if due:
+                body = ""
+                try:
+                    import owner_notify as _on  # type: ignore
+                    body = str(_on.lead_digest() or "")
+                except Exception as exc:
+                    logger.warning("lead_digest olusmadi: %s", exc)
+                if body:
+                    notify_admin(body, high_priority=False)
+                st["last_slot"] = key
+                st["first_run"] = bool(first_run)
+                st["fired_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                st["sent"] = bool(body)
+                _save_digest_state(st)
+                logger.info("motor ozeti gonderildi slot=%s first_run=%s", key, first_run)
+        except Exception as exc:
+            logger.warning("digest err: %s", exc)
+        await asyncio.sleep(300.0)
 def _ensure_runtime():
     global _queues
     try: loop = asyncio.get_event_loop()
@@ -537,7 +602,9 @@ def _ensure_runtime():
     if not _queues:
         _queues = [asyncio.Queue(maxsize=200) for _ in range(N_WORKERS)]
         for i, q in enumerate(_queues): _tasks.append(loop.create_task(_worker_loop(i, q)))
-        _tasks.append(loop.create_task(_drip_loop())); _tasks.append(loop.create_task(_hb_loop()))
+        _tasks.append(loop.create_task(_drip_loop()))
+        _tasks.append(loop.create_task(_digest_loop()))
+        _tasks.append(loop.create_task(_hb_loop()))
 try:
     from fastapi import FastAPI as _FA  # type: ignore
     _lazy_app()
