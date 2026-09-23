@@ -24,6 +24,9 @@ def test_enterprise_only_runner_syncs_feed_without_smb_import(tmp_path, monkeypa
     monkeypatch.setattr(knowledge, "submit_counts", lambda: (0, 0))
     monkeypatch.setattr(knowledge, "oracle_safe", lambda: True)
     monkeypatch.setattr(auto_runner, "_warn_if_starving", lambda **kw: None)
+    # Yeni çift motor/yakıt kancaları bu testte dosya/process üretmemeli.
+    monkeypatch.setattr(auto_runner, "_feed_hot_fuel", lambda: None)
+    monkeypatch.setattr(auto_runner, "_kick_captcha_worker", lambda: None)
     sync = Mock(return_value={"count": 0, "updated_at": "test"})
     monkeypatch.setattr(feed_ingest, "sync_enterprise_feed", sync)
     legacy = Mock(side_effect=AssertionError("Legacy feed must remain disabled"))

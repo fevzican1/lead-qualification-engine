@@ -437,6 +437,11 @@ def _submit_with_page(
         if lead.get("captcha_detected"):
             logger.info("Skipping submit for %s (captcha_detected)", lead.get("url"))
             result["status"] = "skipped_captcha"
+            # ÇİFT MOTOR: ana hat kilitlemez/atlamaz — hedef captcha_queue'ya
+            # anında yazılır; free_captcha_worker (max 2) arka planda tüketir.
+            result["route_to"] = _enqueue_background_captcha(
+                lead, reason="submitter_captcha_detected"
+            )
             return result
         # Upstream said "no form" — one cheap httpx scan before any skip
         # verdict (quota-isolated: mailto / ajax / depth-2 candidate URL).
@@ -551,7 +556,11 @@ def _submit_with_page(
         if captcha_present(page):
             result["status"] = "skipped_captcha"
             result["captcha_detected"] = True
-            logger.warning("CAPTCHA on %s — not submitting", form_url)
+            logger.warning("CAPTCHA on %s — routing to background queue", form_url)
+            # ÇİFT MOTOR: sayfa kapatılmaz/lead atılmaz — arka plan kuyruğuna.
+            result["route_to"] = _enqueue_background_captcha(
+                {**lead, "url": form_url}, reason="submitter_page_captcha"
+            )
             return result
         if busy_used() > budget:
             raise TimeoutError("site budget before fill")
@@ -1112,6 +1121,30 @@ def _looks_successful(page: Page) -> bool:
     except Exception:  # noqa: BLE001
         return False
     return bool(SUCCESS_RE.search(str(text or "")))
+
+
+def _enqueue_background_captcha(lead: dict[str, Any], *, reason: str) -> str:
+    """CAPTCHA'lı hedefi ARKA PLAN motoruna devret (ana hat asla beklemez).
+
+    captcha_queue'ya anında yazar; free_captcha_worker (max 2 eşzamanlı, Oracle
+    systemd timer) kuyruğu tüketir. Kuyruk hatası asla ana akışı düşürmez.
+    """
+    try:
+        from nirvana.stealth_former import enqueue_captcha_target
+
+        url = str(lead.get("url") or lead.get("final_url") or "")
+        payload = {
+            k: str(v) for k, v in {
+                "value_proposition": lead.get("value_proposition") or "",
+                "form_subject": lead.get("form_subject") or "",
+                "target_email": lead.get("target_email") or "",
+            }.items() if v
+        }
+        out = enqueue_captcha_target(url, payload, reason=reason)
+        return "captcha_queue" if out.get("ok") or out.get("deduped") else ""
+    except Exception as exc:  # noqa: BLE001 — kuyruk hatası submitter'ı durdurmaz
+        logger.warning("captcha_queue devri başarısız (%s): %s", reason, exc)
+        return ""
 
 
 def delay_seconds_for(lead: dict[str, Any] | None = None) -> float:

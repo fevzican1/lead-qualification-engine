@@ -46,7 +46,12 @@ task_queue.db
 task_queue.db-shm
 task_queue.db-wal
 nirvana/state/heartbeat_*.json
+# Sıcak yakıt + koruma katmanı çalışma zamanı ürünleri (SQLite WAL)
+nirvana/state/hot_fuel.db
+nirvana/state/hot_fuel.db-shm
+nirvana/state/hot_fuel.db-wal
 *.log
+
 .idea/
 .vscode/
 .playwright/

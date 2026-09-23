@@ -49,16 +49,24 @@ CONTACT_PATHS = (
 
 
 def _headers() -> dict[str, str]:
+    """Katman 4: her istekte güncel tarayıcı imza listesinden rastgele UA."""
+    ua = (
+        "Mozilla/5.0 (compatible; devsolve-form-preflight/1.0; +contact-discovery)"
+    )
+    try:
+        from nirvana.fingerprint_rotator import rotate_ua
+
+        ua = rotate_ua()
+    except Exception:  # noqa: BLE001 — rotasyon yoksa tanımlayıcı UA kalır
+        pass
     return {
-        "User-Agent": (
-            "Mozilla/5.0 (compatible; devsolve-form-preflight/1.0; +contact-discovery)"
-        ),
+        "User-Agent": ua,
         "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
     }
 
 
 def analyze_html(body: str, *, header_blob: str = "") -> dict[str, Any]:
-    """Return whether HTML contains a submittable contact form."""
+    """Return whether HTML contains a submittable contact form (+honeypot/jeton izleri)."""
     text = (body or "")[:MAX_BODY]
     blob = f"{header_blob}\n{text}"
     captcha = bool(CAPTCHA_RE.search(blob))
@@ -67,6 +75,28 @@ def analyze_html(body: str, *, header_blob: str = "") -> dict[str, Any]:
     has_submit = bool(SUBMIT_RE.search(text))
     has_fields = bool(FORM_FIELD_RE.search(text))
     form_verified = has_form and has_submit and has_fields and not captcha and not waf
+    # Rapor: gizli honeypot alanları ve dinamik jetonlar forma karar verirken izlenir.
+    honeypots: list[str] = []
+    tokens: list[str] = []
+    js_hints: list[str] = []
+    try:
+        from nirvana.honeypot_human_sim import detect_honeypot_fields
+
+        honeypots = [str(row.get("name") or "") for row in detect_honeypot_fields(text)][:10]
+    except Exception:  # noqa: BLE001
+        honeypots = []
+    try:
+        from nirvana.form_tokens import token_payload
+
+        tokens = sorted(token_payload(text))[:10]
+    except Exception:  # noqa: BLE001
+        tokens = []
+    try:
+        from nirvana.preflight_lite import js_framework_hints
+
+        js_hints = js_framework_hints(text)
+    except Exception:  # noqa: BLE001
+        js_hints = []
     return {
         "form_verified": form_verified,
         "captcha": captcha,
@@ -74,6 +104,9 @@ def analyze_html(body: str, *, header_blob: str = "") -> dict[str, Any]:
         "has_form": has_form,
         "has_submit": has_submit,
         "has_fields": has_fields,
+        "honeypots": honeypots,
+        "tokens": tokens,
+        "js_hints": js_hints,
     }
 
 
@@ -84,8 +117,13 @@ def _origin(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
 
 
-def probe(client: httpx.Client, url: str, *, timeout: float = DEFAULT_TIMEOUT) -> dict[str, Any]:
-    """GET one URL and verify form markup. Does not touch Oracle HTTP budget."""
+def probe(client: Any | None, url: str, *, timeout: float = DEFAULT_TIMEOUT) -> dict[str, Any]:
+    """GET one URL and verify form markup.
+
+    `client` verilmezse TLS impersonation taşıyıcısı (curl_cffi -> httpx fallback)
+    kullanılır; verilirse geriye dönük uyum için o istemciye dokunulmaz.
+    Does not touch Oracle HTTP budget by itself.
+    """
     result: dict[str, Any] = {
         "url": url,
         "ok": False,
@@ -94,8 +132,31 @@ def probe(client: httpx.Client, url: str, *, timeout: float = DEFAULT_TIMEOUT) -
         "waf_strict": False,
         "status_code": None,
         "error": None,
+        "backend": "",
+        "elapsed_ms": 0,
     }
     try:
+        if client is None:
+            from nirvana import net_stealth
+
+            page = net_stealth.get_html(url, timeout=timeout)
+            result["status_code"] = page.status
+            result["backend"] = page.backend
+            result["elapsed_ms"] = page.elapsed_ms
+            if page.error:
+                result["error"] = page.error
+                return result
+            if page.status >= 400:
+                result["error"] = f"http_{page.status}"
+                return result
+            header_blob = page.header_blob()
+            body = page.text or ""
+            analysis = analyze_html(body, header_blob=header_blob)
+            result.update(analysis)
+            result["ok"] = True
+            if analysis["form_verified"]:
+                result["url"] = str(page.url or url)
+            return result
         response = client.get(url, headers=_headers(), timeout=timeout)
         result["status_code"] = response.status_code
         if response.status_code >= 400:
@@ -113,7 +174,7 @@ def probe(client: httpx.Client, url: str, *, timeout: float = DEFAULT_TIMEOUT) -
     return result
 
 
-def probe_contact(client: httpx.Client, url: str, *, timeout: float = DEFAULT_TIMEOUT) -> dict[str, Any]:
+def probe_contact(client: Any | None, url: str, *, timeout: float = DEFAULT_TIMEOUT) -> dict[str, Any]:
     """Try the contact URL, then common contact paths on the same origin."""
     primary = probe(client, url, timeout=timeout)
     if primary.get("form_verified"):
@@ -125,10 +186,20 @@ def probe_contact(client: httpx.Client, url: str, *, timeout: float = DEFAULT_TI
         return primary
     parsed = urlparse(url)
     seen = {parsed.path.rstrip("/") or "/"}
+    first = True
     for path in CONTACT_PATHS:
         if path in seen:
             continue
         seen.add(path)
+        if not first:
+            # Katman 1: istek döngüsü arasında uniform insan jitter (3.0–9.0 sn).
+            try:
+                from nirvana import protection
+
+                protection.human_delay()
+            except Exception:  # noqa: BLE001 — jitter hatası taramayı durdurmaz
+                pass
+        first = False
         alt = probe(client, origin + path, timeout=timeout)
         if alt.get("form_verified"):
             logger.info("Form verified on %s%s", origin, path)
@@ -138,7 +209,7 @@ def probe_contact(client: httpx.Client, url: str, *, timeout: float = DEFAULT_TI
     return primary
 
 
-def verify_row(client: httpx.Client, row: dict[str, Any], *, timeout: float) -> dict[str, Any] | None:
+def verify_row(client: Any | None, row: dict[str, Any], *, timeout: float) -> dict[str, Any] | None:
     url = str(row.get("url") or "").strip()
     if not url:
         return None
@@ -155,12 +226,15 @@ def verify_row(client: httpx.Client, row: dict[str, Any], *, timeout: float) -> 
 def filter_verified_rows(
     rows: list[dict[str, Any]],
     *,
-    client: httpx.Client,
+    client: Any | None = None,
     deadline_s: float,
     workers: int = 8,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> list[dict[str, Any]]:
-    """Concurrent preflight; keep only rows with verified submittable forms."""
+    """Concurrent preflight; keep only rows with verified submittable forms.
+
+    `client` verilmezse TLS impersonation taşıyıcısı kullanılır (curl_cffi).
+    """
     import time
 
     started = time.monotonic()

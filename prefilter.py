@@ -72,13 +72,21 @@ def _contact_paths(url: str) -> tuple[str, ...]:
 
 
 def _headers() -> dict[str, str]:
-    return {
+    """Katman 4: her istekte güncel tarayıcı imza listesinden rastgele UA."""
+    base = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
         ),
         "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
     }
+    try:
+        from nirvana.fingerprint_rotator import rotate_ua
+
+        base["User-Agent"] = rotate_ua()
+    except Exception:  # noqa: BLE001 — rotasyon yoksa sabit UA ile devam
+        pass
+    return base
 
 
 def probe(url: str) -> dict[str, Any]:
@@ -99,22 +107,43 @@ def probe(url: str) -> dict[str, Any]:
     headers = _headers()
     try:
         import domain_store
+        from nirvana import protection
+
+        # Katman 2: istikrarsız domain Circuit'te ise istek ATILMAZ (boşa vakit yok).
+        if not protection.allow(url):
+            result["error"] = "circuit_open"
+            result["defer"] = True
+            logger.info("Circuit open — probe atlandı: %s", url)
+            return result
 
         if not domain_store.consume_http(1):
             result["error"] = "http_budget"
             result["defer"] = True
             return result
 
+        # Katman 3: havuzdan rastgele proxy (havuz boşsa doğrudan, $0).
+        proxy = protection.pick_proxy()
+
         def _fetch():
-            with httpx.Client(follow_redirects=True, timeout=TIMEOUT) as client:
+            kwargs: dict[str, Any] = {
+                "follow_redirects": True,
+                "timeout": TIMEOUT,
+            }
+            if proxy:
+                kwargs["proxy"] = proxy
+            with httpx.Client(**kwargs) as client:
                 return client.get(url, headers=headers)
 
         try:
             import risk_guard
 
             response = risk_guard.call_once_retry(_fetch)
+            protection.record(url, 200 <= response.status_code < 400,
+                              error=f"http_{response.status_code}"
+                              if response.status_code >= 400 else "")
         except Exception as exc:  # noqa: BLE001
             result["error"] = str(exc)
+            protection.record(url, False, error=str(exc)[:120])
             logger.info("HTTP probe failed %s: %s", url, exc)
             return result
         result["status_code"] = response.status_code
@@ -189,15 +218,36 @@ def split_and_rank(urls: list[str]) -> tuple[list[dict[str, Any]], list[dict[str
     """Return (browser_jobs, skipped_leads). Browser jobs are high-priority first."""
     jobs: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
-    for url in urls:
+    try:
+        from nirvana import protection
+    except Exception:  # noqa: BLE001 — koruma katmanı yoksa hatasız devam
+        protection = None  # type: ignore[assignment]
+    for idx, url in enumerate(urls):
+        if idx and protection is not None:
+            # Katman 1: istek döngüsü arasında uniform insan jitter (3.0–9.0 sn).
+            try:
+                protection.human_delay()
+            except Exception:  # noqa: BLE001
+                pass
         item = probe_for_form(url)
         if item.get("defer"):
+            if str(item.get("error") or "") == "circuit_open":
+                logger.info("Circuit open — %s bu tur dokunulmadı", url)
+                continue
             logger.info("HTTP budget empty — stop probing this slice, rest stay queued")
             break
         if item.get("captcha"):
             item["easy_score"] = 10
             skipped.append(_skip_lead(item, "skipped_captcha", "CAPTCHA/WAF challenge in HTTP probe"))
             logger.info("Skip %s (captcha in HTML, score=10)", url)
+            # ÇİFT MOTOR: CAPTCHA'lı hedef ana akıştan düşer ama ARKA PLANDA
+            # captcha_queue'ya yazılır — lead kaybı sıfır, ana hat kilitlenmez.
+            try:
+                from nirvana.stealth_former import enqueue_captcha_target
+
+                enqueue_captcha_target(url, reason="prefilter_captcha")
+            except Exception:  # noqa: BLE001 — kuyruk hatası prefilter'ı durdurmaz
+                logger.debug("captcha_queue enqueue failed for %s", url, exc_info=True)
             continue
         code = int(item.get("status_code") or 0)
         if code in {401, 403, 408, 425, 429, 500, 502, 503, 504}:

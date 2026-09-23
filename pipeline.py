@@ -692,9 +692,64 @@ def _run_browser_pipeline(
         jobs = jobs[: min(_visit_budget(remain), slice_cap * 2)]
     else:
         jobs = jobs[: int(getattr(config, "CHROMIUM_BATCH", 40) or 40)]
+    # --- 100ms PRE-FLIGHT (rapor Aşama 1): Chromium öncesi hafif HTTP eleme -----
+    # %79'luk form barındırmayan/engelli küme burada düşer; ağır render yalnızca
+    # form_ok / js_dynamic hedeflere uygulanır. HTTP bütçesi yoksa dokunulmaz
+    # (fail-open) ve eski davranış aynen sürer.
+    screened_out: list[dict[str, Any]] = []
+    if jobs and int(getattr(config, "PREFLIGHT_BUDGET_MS", 0) or 0) > 0:
+        try:
+            from nirvana import preflight_lite
+
+            def _gate(_url: str) -> bool:
+                return bool(domain_store.consume_http(1, role="pipeline"))
+
+            jobs, dropped, pf_stats = preflight_lite.screen_slice(
+                jobs,
+                budget_ms=int(getattr(config, "PREFLIGHT_BUDGET_MS", 100) or 100),
+                workers=6,
+                verify_gate=_gate,
+            )
+            _status_by_verdict = {
+                "captcha": "skipped_captcha",
+                "waf": "waf_strict",
+                "unreachable": "skipped_unreachable",
+            }
+            for row in dropped:
+                verdict = str((row.get("preflight") or {}).get("verdict") or "no_form")
+                status = _status_by_verdict.get(verdict, "skipped_no_form")
+                url = str(row.get("url") or "")
+                item = {
+                    **row,
+                    "status": status,
+                    "captcha_detected": verdict == "captcha",
+                    "waf_strict": verdict == "waf",
+                    "error": f"preflight:{verdict}",
+                    "contact_form": {"found": False, "page_url": url, "fields": []},
+                }
+                # ÇİFT MOTOR: CAPTCHA/WAF engelli hedef ana akıştan düşer ama
+                # ARKA PLANDA captcha_queue'ya yazılır — lead kaybı sıfır.
+                if verdict in {"captcha", "waf"} and url:
+                    try:
+                        from nirvana.stealth_former import enqueue_captcha_target
+
+                        enqueue_captcha_target(url, reason=f"preflight_{verdict}")
+                        item["route_to"] = "captcha_queue"
+                    except Exception:  # noqa: BLE001 — kuyruk hatası hattı düşürmez
+                        logger.debug("captcha_queue enqueue failed for %s", url,
+                                     exc_info=True)
+                screened_out.append(item)
+                try:
+                    domain_store.mark(url, status, source="preflight")
+                except Exception:  # noqa: BLE001 — işaretleme hatası hattı durdurmaz
+                    pass
+            logger.info("Pre-flight özeti: %s", pf_stats)
+        except Exception:  # noqa: BLE001 — pre-flight asla hattı düşürmez
+            logger.warning("Pre-flight atlandı", exc_info=True)
+
     if not jobs:
-        logger.info("No easy-score>=%s jobs this slice — Chromium skipped", min_easy)
-        return []
+        logger.info("No easy-score>=%s jobs left after pre-flight — Chromium skipped", min_easy)
+        return screened_out
     urls = [str(job["url"]) for job in jobs]
     meta = {str(job["url"]): job for job in jobs}
     idx = [0]

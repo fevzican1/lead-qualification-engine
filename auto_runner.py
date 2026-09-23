@@ -86,6 +86,60 @@ def _run(script: str, extra: list[str] | None = None, *, timeout: int | None = N
 
 _starve_pinged_hour: list[str] = []
 
+# ÇİFT MOTOR: arka plan CAPTCHA kuyruğu soğuması (systemd timer ile çakışmasın).
+_CAPTCHA_KICK_TS: list[float] = [0.0]
+CAPTCHA_KICK_MIN_GAP_S = 600.0
+
+
+def _feed_hot_fuel() -> None:
+    """Yakıt kıtlığının önlenmesi: hot_fuel.db -> domain kuyruğu (sıfır HTTP).
+
+    import_targets.py ile dışarıdan beslenen havuzu her turda ana kuyruğa
+    aktarır; ağ senkronu YOK (local feed dosyaları + SQLite okuma/yazma).
+    """
+    try:
+        from nirvana import hot_fuel
+
+        hf = hot_fuel.refill(allow_network=False)
+        primed = hot_fuel.prime_queue(limit=200)
+        if primed:
+            print(
+                f"Hot-fuel ikmal: +{primed} hedef kuyruğa alındı "
+                f"(havuz hazır {hf.get('ready', 0)}/{hf.get('target', 0)})"
+            )
+    except Exception:
+        logger.exception("hot fuel feed failed — pipeline unaffected")
+
+
+def _kick_captcha_worker() -> None:
+    """ÇİFT MOTOR: kuyrukta CAPTCHA varsa arka plan motoru anında ateşlenir.
+
+    Popen beklemeden döner — ana hat asla captcha_queue tüketimini beklemez
+    (kilitlenme/atlama YOK; lead kaybı sıfır). Timer ile çakışmasın diye
+    10 dakika soğuma uygulanır; kuyruk boşsa hiç dokunulmaz.
+    """
+    try:
+        from nirvana.stealth_former import captcha_queue_depth
+
+        queued = int(captcha_queue_depth().get("queued") or 0)
+        if queued <= 0:
+            return
+        now = time.time()
+        if now - _CAPTCHA_KICK_TS[0] < CAPTCHA_KICK_MIN_GAP_S:
+            return
+        _CAPTCHA_KICK_TS[0] = now
+        subprocess.Popen(
+            [str(PYTHON), "-m", "nirvana.runner", "free_captcha_worker"],
+            cwd=str(config.ROOT),
+            env=os.environ.copy(),
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print(f"ÇİFT MOTOR: arka plan CAPTCHA kuyruğu atıldı (bekleyen: {queued})")
+    except Exception:
+        logger.exception("captcha worker kick failed — main loop unaffected")
+
 
 def _hourly_floor() -> int:
     floor = int(getattr(config, "HOURLY_SUBMIT_FLOOR", 30) or 30)
@@ -266,6 +320,9 @@ def main() -> None:
             _warn_if_starving(feed_updated_at=feed_stamp)
 
         smb = bool(getattr(config, "SMB_LANE_ENABLED", False))
+        # Yakıt kıtlığının önlenmesi: import_targets ile gelen hot_fuel.db
+        # havuzunu ana kuyruğa aktar (sıfır HTTP, ana akışı kilitlemez).
+        _feed_hot_fuel()
         pipeline_code = 0
         if smb:
             print("\n[1/3] Katalog kuyruğa basılıyor (HTTP yok, kota yanmaz)...")
@@ -380,6 +437,10 @@ def main() -> None:
                 print(f"[FAZ-A] Atlandı: {ent.get('why', '?')}")
         except Exception:
             logger.exception("Enterprise apply failed — pipeline unaffected")
+
+        # ÇİFT MOTOR: CAPTCHA/WAF kuyruğu ana hattı beklemeden arka planda
+        # tüketilir (fire-and-forget; ana hat asla kuyruk process'ini beklemez).
+        _kick_captcha_worker()
 
         wait = _sleep_after_cycle()
         heartbeat.pulse("auto_runner", {"cycle": cycle, "phase": "cycle_end",

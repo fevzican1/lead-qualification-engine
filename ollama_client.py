@@ -7,6 +7,7 @@ Talks to http://127.0.0.1:11434 — start the Ollama app or `ollama serve`.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -83,8 +84,16 @@ def ensure_model(model: Optional[str] = None) -> None:
     if any(model == name or name.startswith(model) or model in name for name in names):
         return
     locked = str(knowledge.oracle_lock().get("model") or "deepseek-r1:14b")
-    if model != locked and not model.startswith(locked):
-        logger.warning("Refusing to pull %s — Always Free lock is %s", model, locked)
+    fast = ""
+    try:
+        fast = knowledge.model_fast()
+    except Exception:  # noqa: BLE001
+        fast = ""
+    # Hafif webchat modeli (llama3.2:3b) Always Free kilidi içinde indirilebilir.
+    allowed = (model == locked or model.startswith(locked)
+               or (fast and (model == fast or model.startswith(fast))))
+    if not allowed:
+        logger.warning("Refusing to pull %s — Always Free lock is %s (fast=%s)", model, locked, fast or "-")
         return
     logger.info("Pulling Ollama model %s (first time only)", model)
     binary = shutil.which("ollama")
@@ -100,6 +109,60 @@ def ensure_model(model: Optional[str] = None) -> None:
 
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.I | re.S)
+
+
+def keep_alive() -> str:
+    """Model bellekte kalma süresi: OLLAMA_KEEP_ALIVE > oracle.json > 24h (rapor)."""
+    env = (os.getenv("OLLAMA_KEEP_ALIVE") or "").strip()
+    if env:
+        return env
+    try:
+        locked = str(knowledge.oracle_lock().get("ollama_keep_alive") or "").strip()
+        if locked:
+            return locked
+    except Exception:  # noqa: BLE001
+        pass
+    return "24h"
+
+
+def model_present(model: str) -> bool:
+    """Model diskte hazır mı (canlı VM'de indirme sürprizi olmasın)."""
+    target = (model or "").strip()
+    if not target:
+        return False
+    return any(target == name or name.startswith(target) or target in name
+               for name in list_models())
+
+
+def webchat_model() -> str:
+    """WebChat için hafif model; diskte yoksa ana modele düşer (indirme zorlamaz)."""
+    try:
+        fast = knowledge.enforce_model(knowledge.model_fast())
+    except Exception:  # noqa: BLE001
+        fast = ""
+    if fast and fast != config.OLLAMA_MODEL and model_present(fast):
+        return fast
+    return config.OLLAMA_MODEL
+
+
+def chat_webchat(
+    messages: Iterable[dict[str, str]],
+    *,
+    temperature: float = 0.6,
+    max_tokens: int = 240,
+    timeout: float = 90.0,
+) -> tuple[str, str]:
+    """(yanıt, kullanılan model). Ampere A1'de 3B Q4 modeli kısa yanıtı hızlandırır."""
+    model = webchat_model()
+    try:
+        return chat(messages, model=model, temperature=temperature,
+                    max_tokens=max_tokens, timeout=timeout), model
+    except Exception as exc:  # noqa: BLE001 — hızlı model düşerse ana model devreye girer
+        if model == config.OLLAMA_MODEL:
+            raise
+        logger.warning("Hızlı model (%s) başarısız: %s — ana modele dönülüyor", model, exc)
+        return chat(messages, model=config.OLLAMA_MODEL, temperature=temperature,
+                    max_tokens=max_tokens, timeout=timeout), config.OLLAMA_MODEL
 
 
 def _visible_text(raw: str) -> str:
@@ -122,7 +185,7 @@ def chat(
         "messages": list(messages),
         "stream": False,
         "think": False,
-        "keep_alive": "45m",
+        "keep_alive": keep_alive(),
         "options": {
             "temperature": temperature,
             "num_predict": max_tokens,

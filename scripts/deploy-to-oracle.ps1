@@ -55,6 +55,7 @@ $include = @(
     "easy_score.py", "feed_ingest.py", "form_preflight.py", "stack_fingerprint.py",
     "optout.py", "owner_notify.py", "bounded_agents.py", "target_pool.py",
     "payload_analyzer.py", "payload_builder.py", "optimized_payload.py",
+    "import_targets.py",
     "optimized_ingest.py", "ingest_api.py",
     "requirements.txt", "targets.txt", ".env", ".env.example",
     "Dockerfile", "docker-compose.yml"

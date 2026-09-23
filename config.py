@@ -314,6 +314,46 @@ if FORM_DELAY_FAST_MAX_SECONDS >= 20:
     FORM_DELAY_FAST_MAX_SECONDS = 8.0
 LEAD_BATCH_SIZE: int = _get_int("LEAD_BATCH_SIZE", 15)
 AUTO_RUNNER_SLEEP_SECONDS: int = _get_int("AUTO_RUNNER_SLEEP_SECONDS", 21_600)
+# --- Rapor: TLS impersonation + 100ms pre-flight + honeypot/CSRF -------------
+# TLS_IMPERSONATE / TLS_IMPERSONATE_ENABLED -> nirvana/net_stealth.py (curl_cffi).
+TLS_IMPERSONATE: str = _get("TLS_IMPERSONATE", "chrome") or "chrome"
+TLS_IMPERSONATE_ENABLED: bool = _get_bool("TLS_IMPERSONATE_ENABLED", True)
+# Pre-flight hafif sorgu bütçesi (ms): form barındırmayan siteler bu pencerede elenir.
+PREFLIGHT_BUDGET_MS: int = _get_int("PREFLIGHT_BUDGET_MS", 100)
+PREFLIGHT_TIMEOUT_SECONDS: float = _get_float("PREFLIGHT_TIMEOUT_SECONDS", 6.0)
+# Gizli CSS/aria alanları (honeypot) doldurulmaz — bot tuzağına düşmemek için.
+HONEYPOT_CSS_GUARD: bool = _get_bool("HONEYPOT_CSS_GUARD", True)
+# Dinamik (React/Vue/Shadow-DOM) form tespitinde hafif headless fallback devreye girer.
+JS_FALLBACK_ENABLED: bool = _get_bool("JS_FALLBACK_ENABLED", True)
+# --- Rapor: domain başı sınırlama + Gauss jitter + spintax ------------------
+DOMAIN_HOURLY_LIMIT: int = _get_int("DOMAIN_HOURLY_LIMIT", 1)
+DOMAIN_RATE_WINDOW_HOURS: int = _get_int("DOMAIN_RATE_WINDOW_HOURS", 24)
+SUBMIT_JITTER_MIN_SECONDS: float = _get_float("SUBMIT_JITTER_MIN_SECONDS", 3.5)
+SUBMIT_JITTER_MAX_SECONDS: float = _get_float("SUBMIT_JITTER_MAX_SECONDS", 8.2)
+SPINTAX_ENABLED: bool = _get_bool("SPINTAX_ENABLED", True)
+# --- Çift motor + 4 katman koruma (nirvana/protection.py) --------------------
+# Katman 1: istek döngülerinde uniform insan jitter (default 3.0–9.0 sn).
+REQUEST_JITTER_MIN_SECONDS: float = _get_float("REQUEST_JITTER_MIN_SECONDS", 3.0)
+REQUEST_JITTER_MAX_SECONDS: float = _get_float("REQUEST_JITTER_MAX_SECONDS", 9.0)
+# Katman 2: hot_fuel.db domain_health circuit breaker (kalıcı hata -> soğuma).
+CIRCUIT_BREAKER_THRESHOLD: int = _get_int("CIRCUIT_BREAKER_THRESHOLD", 3)
+CIRCUIT_BREAKER_COOLDOWN_SECONDS: float = _get_float("CIRCUIT_BREAKER_COOLDOWN_SECONDS", 3600.0)
+# Katman 3: proxy havuzu (virgülle ayrılmış; boş = doğrudan bağlantı, $0).
+PROXY_POOL: str = _get("PROXY_POOL", "") or ""
+
+# --- Rapor: Sıcak Havuz (SQLite WAL) ---------------------------------------
+HOT_FUEL_TARGET: int = _get_int("HOT_FUEL_TARGET", 2000)
+HOT_FUEL_LEASE_SECONDS: float = _get_float("HOT_FUEL_LEASE_SECONDS", 1800.0)
+# --- Rapor: Üçlü Zırh (Triple-Shield) --------------------------------------
+RESILIENCE_MEMORY_LIMIT_MB: int = _get_int("RESILIENCE_MEMORY_LIMIT_MB", 1024)
+RESILIENCE_WATCHDOG_INTERVAL_S: float = _get_float("RESILIENCE_WATCHDOG_INTERVAL_S", 2.0)
+RESILIENCE_AUTO_RECYCLE: bool = _get_bool("RESILIENCE_AUTO_RECYCLE", True)
+# --- Rapor: WebChat satış motoru (SPIN + Challenger + n8n + takvim) --------
+BOOKING_URL: str = _get("BOOKING_URL") or _get("CALCOM_BOOKING_URL") or _get("GOOGLE_BOOKING_URL")
+N8N_WEBHOOK_URL: str = _get("N8N_WEBHOOK_URL") or _get("CRM_WEBHOOK_URL")
+# WebChat hızlı model (Ampere A1'de 4 vCPU için küçük kuantize model önerilir).
+OLLAMA_FAST_MODEL: str = _get("OLLAMA_FAST_MODEL", "")
+SPIN_SELLING_ENABLED: bool = _get_bool("SPIN_SELLING_ENABLED", True)
 DAILY_SUBMIT_LIMIT: int = _get_int("DAILY_SUBMIT_LIMIT", 400)
 HOURLY_SUBMIT_LIMIT: int = _get_int("HOURLY_SUBMIT_LIMIT", 48)
 # Target floor inside the cap: keep the hour at 40+ posts, never above the cap.
