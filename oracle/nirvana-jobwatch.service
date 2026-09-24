@@ -1,0 +1,16 @@
+[Unit]
+Description=Nirvana Lane AO — job_watchdog: iş seviyesi bekçi (kuyruk+yakıt+form+webchat)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/devsolve
+EnvironmentFile=-/opt/devsolve/.env
+# Servis "active" olsa bile İŞ durursa (kuyruk 0 / yakıt 0 / form 0 / webchat
+# yanıtsız) yakalar: 2 tur üst üste kırmızıda ilgili birimi restart eder ve
+# sahibe tek Telegram mesajı atar (sinyal başına saatte 1 — spam yok).
+ExecStart=/opt/devsolve/.venv/bin/python -m nirvana.runner job_watchdog
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=180

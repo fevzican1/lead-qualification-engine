@@ -341,6 +341,18 @@ CIRCUIT_BREAKER_COOLDOWN_SECONDS: float = _get_float("CIRCUIT_BREAKER_COOLDOWN_S
 # Katman 3: proxy havuzu (virgülle ayrılmış; boş = doğrudan bağlantı, $0).
 PROXY_POOL: str = _get("PROXY_POOL", "") or ""
 
+# --- İç yakıt (local_fuel) + iş bekçisi (job_watchdog) -----------------------
+# Yakıt kıtlığının kök çözümü: Oracle VM kendi liste servislerinden (Tranco/CDX/
+# tohum) beslenir; dış (GitHub/CDN) feed gecikse bile 400+/gün kapasite durmaz.
+LOCAL_FUEL_ENABLED: bool = (
+    (_get("LOCAL_FUEL_ENABLED", "1") or "1").strip().lower()
+    not in {"0", "false", "no", "off"}
+)
+# Günlük liste-servisi GET bütçesi (hedef site isteği DEĞİL; tranco/cdx/crt).
+LOCAL_FUEL_DAILY_GETS: int = _get_int("LOCAL_FUEL_DAILY_GETS", 40)
+# İç yakıt motorunun arka plan tetiklenme soğuması (sn).
+LOCAL_FUEL_KICK_MIN_GAP_S: float = _get_float("LOCAL_FUEL_KICK_MIN_GAP_S", 1800.0)
+
 # --- Rapor: Sıcak Havuz (SQLite WAL) ---------------------------------------
 HOT_FUEL_TARGET: int = _get_int("HOT_FUEL_TARGET", 2000)
 HOT_FUEL_LEASE_SECONDS: float = _get_float("HOT_FUEL_LEASE_SECONDS", 1800.0)

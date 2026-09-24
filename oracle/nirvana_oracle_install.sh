@@ -67,7 +67,7 @@ print("OK — captcha_queue:", sf.CAPTCHA_QUEUE_NAME, "| max_workers=2 | $0 (par
 PY
 
 echo "[5/6] systemd unit + timer kurulumu"
-for f in nirvana-watchdog.service nirvana-watchdog.timer nirvana-idleguard.service nirvana-idleguard.timer nirvana-delivery.service nirvana-delivery.timer nirvana-deliveryworker.service nirvana-deliveryworker.timer nirvana-linkedin.service nirvana-linkedin.timer nirvana-captcha.service nirvana-captcha.timer nirvana-dispatch.service nirvana-dispatch.timer nirvana-salesbot.service nirvana-pipeline.service; do
+for f in nirvana-watchdog.service nirvana-watchdog.timer nirvana-idleguard.service nirvana-idleguard.timer nirvana-delivery.service nirvana-delivery.timer nirvana-deliveryworker.service nirvana-deliveryworker.timer nirvana-linkedin.service nirvana-linkedin.timer nirvana-captcha.service nirvana-captcha.timer nirvana-dispatch.service nirvana-dispatch.timer nirvana-salesbot.service nirvana-pipeline.service nirvana-fuel.service nirvana-fuel.timer nirvana-jobwatch.service nirvana-jobwatch.timer; do
   # 217/USER kok nedeni: /etc'deki ESKI unit'te 'User=devsolve' kalmissa ve
   # VM'de o kullanici yoksa timer hic calismaz. install dosyayi ezer.
   install -m 644 "$UNIT_SRC/$f" /etc/systemd/system/
@@ -75,7 +75,7 @@ done
 systemctl daemon-reload
 # Eski icerikle damgalanmis failed durumu yeni icerikle de 'failed' gorunebilir;
 # timer'lari temiz baslat (satis hatti bu sira durmaz: salesbot/pipeline ayri).
-for u in nirvana-watchdog nirvana-idleguard nirvana-delivery nirvana-deliveryworker nirvana-linkedin nirvana-captcha nirvana-dispatch; do
+for u in nirvana-watchdog nirvana-idleguard nirvana-delivery nirvana-deliveryworker nirvana-linkedin nirvana-captcha nirvana-dispatch nirvana-fuel nirvana-jobwatch; do
   systemctl reset-failed "$u.service" 2>/dev/null || true
 done
 systemctl daemon-reload
@@ -85,6 +85,12 @@ echo "[5.5/6] Dispatch hub derleme kontrolü"
 
 echo "[5.6/6] idle_guard dry-run (OCI Always-Free idle geri alım koruması canlı test)"
 "$APP_DIR/.venv/bin/python" -m nirvana.runner idle_guard --no-notify
+
+echo "[5.65/6] İç yakıt motoru (local_fuel) kuru çalışma — ağ/DB yazımı YOK"
+"$APP_DIR/.venv/bin/python" -m nirvana.runner local_fuel --self-test
+
+echo "[5.66/6] İş bekçisi (job_watchdog) saf rapor — restart/bildirim YOK"
+"$APP_DIR/.venv/bin/python" -m nirvana.runner job_watchdog --no-notify || true
 
 echo "[5.7/6] Yerel Bot API durumu (tanımlıysa yerel, değilse bulut — fail-safe)"
 "$APP_DIR/.venv/bin/python" - <<'PY'
@@ -137,6 +143,12 @@ systemctl enable --now nirvana-deliveryworker.timer
 systemctl enable --now nirvana-linkedin.timer
 systemctl enable --now nirvana-captcha.timer
 systemctl enable --now nirvana-dispatch.timer
+# İÇ YAKIT: dış (GitHub/CDN) feed'e bağımlı olmadan Tranco/CDX/tohum beslemesi.
+systemctl enable --now nirvana-fuel.timer
+# İŞ BEKÇİSİ: servis "active" olsa bile iş durursa yakalar, restart eder, haber verir.
+systemctl enable --now nirvana-jobwatch.timer
+# İlk tur hemen çalışsın: rezervuar taze kurulumda da dolu başlar.
+systemctl start nirvana-fuel.service 2>/dev/null || true
 # Satis botu: Type=notify + WatchdogSec. Import zinciri eksikse (ornek:
 # heartbeat.py pakette yok) servis sessizce dusuyordu; artik acikca patlar.
 if ! systemctl enable --now nirvana-salesbot.service; then
@@ -147,4 +159,4 @@ if ! systemctl enable --now nirvana-salesbot.service; then
 fi
 
 systemctl list-timers 'nirvana-*' --no-pager
-echo "NIRVANA ORACLE LIVE — form hattı (nirvana-pipeline: keşif+nitelendirme+400 form/gün), watchdog 5dk, idle_guard 10dk (Always-Free koruması), delivery haftalık, teslimat işçisi 2 saatte bir, captcha worker 10dk (max 2), dispatch hub 1dk tick (CDX feed dilimleri 1/2/4/5dk; diğer modüller 30dk-24sa)."
+echo "NIRVANA ORACLE LIVE — form hattı (nirvana-pipeline: keşif+nitelendirme+400 form/gün), watchdog 5dk, idle_guard 10dk (Always-Free koruması), delivery haftalık, teslimat işçisi 2 saatte bir, captcha worker 10dk (max 2), dispatch hub 1dk tick (CDX feed dilimleri 1/2/4/5dk; diğer modüller 30dk-24sa), İÇ YAKIT 30dk (Tranco/CDX/tohum -> hot_fuel.db; hedef siteye istek YOK), İŞ BEKÇİSİ 5dk (kuyruk+yakıt+form+webchat; iş durursa restart+sahibe tek mesaj)."

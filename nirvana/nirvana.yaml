@@ -281,3 +281,17 @@ nirvana:
       entrypoint: "python -m nirvana.runner idle_guard"
       description: "OCI Always-Free idle geri alim korumasi: CPU/bellek alt esigin (%20) altina duserse Nice=19 hafif sentetik yuk uretir; watchdog tavani (%85) korunur. Telegram bildirimi YOK."
       heavy: false
+    local_fuel:
+      host: oracle
+      letter: AN
+      schedule: "*/30 * * * *"
+      entrypoint: "python -m nirvana.runner local_fuel"
+      description: "Ic kaynakli sinirsiz yakit: Tranco Top-1M dilimi + Common Crawl CDX + yerel tohum listesi -> hot_fuel.db. Hedef siteye istek YOK (yalnizca liste servisleri); gunluk GET butcesi + jitter + UA rotasyonu + circuit breaker. Dis (GitHub/CDN) bagimlilik olmadan 400+/gun kapasiteyi besler."
+      heavy: false
+    job_watchdog:
+      host: oracle
+      letter: AO
+      schedule: "*/5 * * * *"
+      entrypoint: "python -m nirvana.runner job_watchdog"
+      description: "Is seviyesi bekci: kuyruk derinligi + yakit + bugunku form + webchat /health ve musteri oturumlari. Servis 'active' olsa bile is durursa 2 tur kirmizida ilgili birimi restart eder ve sahibe tek Telegram mesaji atar (saatte 1)."
+      heavy: false

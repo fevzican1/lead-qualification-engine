@@ -90,12 +90,53 @@ _starve_pinged_hour: list[str] = []
 _CAPTCHA_KICK_TS: list[float] = [0.0]
 CAPTCHA_KICK_MIN_GAP_S = 600.0
 
+# İÇ YAKIT: yerel keşif (Tranco/CDX/tohum) arka planda ateşlenir; ana hat beklemez.
+_LOCAL_FUEL_KICK_TS: list[float] = [0.0]
+LOCAL_FUEL_KICK_MIN_GAP_S = float(os.getenv("LOCAL_FUEL_KICK_MIN_GAP_S", "1800") or 1800)
+
+
+def _kick_local_fuel(reason: str = "") -> None:
+    """Yakıt kıtlığında iç kaynaklı beslemeyi ARKA PLANDA ateşle (sıfır bekleme).
+
+    ``hot_fuel`` rezervuarı hedefin altındaysa yerel keşif (Tranco dilimi +
+    Common Crawl CDX + yerel tohum listesi) ayrı süreçte çalışır; ana hat yalnızca
+    anında döner. Böylece dış feed (GitHub/CDN) gecikse bile yakıt üretimi
+    Oracle VM'in içinde devam eder ve günlük 400+ kapasite boş kalmaz.
+    """
+    if not bool(getattr(config, "LOCAL_FUEL_ENABLED", True)):
+        return
+    try:
+        from nirvana import local_fuel
+
+        if not local_fuel.enabled():
+            return
+    except Exception:  # noqa: BLE001 — modül yoksa sessiz geç (fail-open)
+        return
+    now = time.time()
+    if now - _LOCAL_FUEL_KICK_TS[0] < LOCAL_FUEL_KICK_MIN_GAP_S:
+        return
+    _LOCAL_FUEL_KICK_TS[0] = now
+    try:
+        subprocess.Popen(
+            [str(PYTHON), "-m", "nirvana.runner", "local_fuel"],
+            cwd=str(config.ROOT),
+            env=os.environ.copy(),
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print(f"İÇ YAKIT: arka plan yerel keşif atıldı {reason}".rstrip())
+    except Exception:
+        logger.exception("local fuel kick failed — main loop unaffected")
+
 
 def _feed_hot_fuel() -> None:
     """Yakıt kıtlığının önlenmesi: hot_fuel.db -> domain kuyruğu (sıfır HTTP).
 
     import_targets.py ile dışarıdan beslenen havuzu her turda ana kuyruğa
     aktarır; ağ senkronu YOK (local feed dosyaları + SQLite okuma/yazma).
+    Havuz hedefin altına düşerse İÇ besleme (local_fuel) arka planda tetiklenir:
+    dış bağımlılık (GitHub/CDN) olmadan da yakıt üretilir.
     """
     try:
         from nirvana import hot_fuel
@@ -107,6 +148,10 @@ def _feed_hot_fuel() -> None:
                 f"Hot-fuel ikmal: +{primed} hedef kuyruğa alındı "
                 f"(havuz hazır {hf.get('ready', 0)}/{hf.get('target', 0)})"
             )
+        ready = int(hf.get("ready") or 0)
+        want = int(hf.get("target") or 0)
+        if want and ready < want:
+            _kick_local_fuel(f"(havuz {ready}/{want})")
     except Exception:
         logger.exception("hot fuel feed failed — pipeline unaffected")
 

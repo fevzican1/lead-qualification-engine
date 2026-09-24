@@ -12,14 +12,14 @@ ROOT = Path(config.ROOT)
 
 def test_registry_defines_exactly_thirty_modules():
     modules = MODULES()
-    assert len(modules) == 39
+    assert len(modules) == 41
     letters = sorted((m["letter"] for m in modules.values()),
                      key=lambda L: (len(L), L))
     assert letters == (list("ABCDEFGH")
                        + ["I", "J", "K", "L", "M", "N", "O", "P", "Q", "R",
                           "S", "T", "U", "V", "W", "X"]
                        + ["Y", "Z", "AA", "AB", "AC", "AD", "AE", "AF", "AG"]
-                       + ["AH", "AI", "AJ", "AK", "AL", "AM"])
+                       + ["AH", "AI", "AJ", "AK", "AL", "AM", "AN", "AO"])
 
 
 def test_host_assignment_matches_architecture():
@@ -39,7 +39,8 @@ def test_host_assignment_matches_architecture():
                       "multi_service_runner", "forget_guard", "proof_card",
                       "queue_fuel_guard", "anti_spam_cadence", "interaction_tracker",
                       "delivery_worker", "stealth_former", "idle_guard",
-                      "free_captcha_solver", "free_captcha_worker"}
+                      "free_captcha_solver", "free_captcha_worker",
+                      "local_fuel", "job_watchdog"}
 
 
 def test_every_module_has_entrypoint_and_runner_binding():
@@ -73,6 +74,8 @@ def test_oracle_units_exist():
                  "nirvana-captcha.service", "nirvana-captcha.timer",
                  "nirvana-dispatch.service", "nirvana-dispatch.timer",
                  "nirvana-idleguard.service", "nirvana-idleguard.timer",
+                 "nirvana-fuel.service", "nirvana-fuel.timer",
+                 "nirvana-jobwatch.service", "nirvana-jobwatch.timer",
                  "nirvana-salesbot.service",
                  "nirvana_oracle_install.sh"):
         assert (ROOT / "oracle" / name).exists(), name
@@ -81,6 +84,10 @@ def test_oracle_units_exist():
     assert "nirvana-idleguard.timer" in install
     assert "nirvana-dispatch.timer" in install
     assert "nirvana-salesbot.service" in install
+    # İç yakıt + iş bekçisi canlı kurulumda etkinleşir.
+    assert "nirvana-fuel.timer" in install
+    assert "nirvana-jobwatch.timer" in install
+    assert "local_fuel --self-test" in install
 
 
 def test_keepalive_workflow_guards_60_day_disable():
