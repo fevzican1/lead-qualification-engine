@@ -42,6 +42,11 @@ RESTART_COOLDOWN_S = float(os.getenv("JOB_WATCHDOG_RESTART_COOLDOWN_S", "1800") 
 NOTIFY_COOLDOWN_S = float(os.getenv("JOB_WATCHDOG_NOTIFY_COOLDOWN_S", "3600") or 3600)
 WEBCHAT_PORT = int(os.getenv("WEBCHAT_PORT", "8765") or 8765)
 FORMS_GRACE_HOUR = int(os.getenv("JOB_WATCHDOG_FORMS_GRACE_HOUR", "3") or 3)
+# Asılı süreç tavanı: legit pipeline turu PIPELINE_RUN_TIMEOUT_SECONDS (2400s) ile
+# sınırlıdır; bu yaştan eski pipeline süreci kaçak/asılıdır. Canlı arıza
+# 2026-09-25: elle başlatılan `pipeline.py --targets ... | tail -n 50` süreci
+# systemd cgroup'u DIŞINDA asılı kaldı; `systemctl restart` onu öldüremedi.
+STUCK_PROC_MAX_AGE_S = float(os.getenv("JOB_WATCHDOG_STUCK_MAX_AGE_S", "2700") or 2700)
 
 UNIT_FOR_SIGNAL = {
     "queue": "nirvana-pipeline.service",
@@ -80,18 +85,174 @@ def systemd_available() -> bool:
     return raw not in {"0", "false", "no", "off"}
 
 
+def _kill_pid(pid: int) -> bool:
+    """PID'i zorla öldür (SIGKILL); hata halinde False (asla raise etmez)."""
+    try:
+        subprocess.run(
+            ["kill", "-9", str(pid)],
+            capture_output=True, timeout=10, check=False,
+        )
+        return True
+    except Exception:  # noqa: BLE001 — öldürme hatası bekçiyi düşürmez
+        return False
+
+
+def _ps_rows() -> list[tuple[int, int, str]]:
+    """(pid, yaş_sn, args) listesi — posix; hata halinde boş (fail-open)."""
+    try:
+        proc = subprocess.run(
+            ["ps", "-eo", "pid=,etimes=,args="],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    rows: list[tuple[int, int, str]] = []
+    for line in (proc.stdout or "").splitlines():
+        parts = line.strip().split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid_s, age_s, args = parts
+        if not pid_s.isdigit() or not age_s.isdigit():
+            continue
+        rows.append((int(pid_s), int(age_s), args))
+    return rows
+
+
+def sweep_stuck_processes(
+    *,
+    max_age_s: float | None = None,
+    rows: list[tuple[int, int, str]] | None = None,
+    kill_fn: Any = None,
+) -> list[str]:
+    """Kaçak/asılı form hattı süreçlerini yaş tavanıyla temizle (her turda).
+
+    Canlı arıza 2026-09-25: elle `pipeline.py --targets ... --submit | tail -n 50`
+    başlatılan süreç systemd cgroup'u DIŞINDA 9 saat asılı kaldı; `systemctl
+    restart` onu öldüremediği için form hattı 0'da dondu. Bekçi artık systemd'ye
+    bağımlı değil: yaş tavanını aşan pipeline süreçlerini ve boru sarmalayıcısı
+    `tail` süreçlerini kendisi öldürür.
+
+    Kurallar (yanlış pozitif koruması):
+      * `pipeline.py` (--targets/--submit) > max_age_s (varsayılan 2700s:
+        PIPELINE_RUN_TIMEOUT_SECONDS=2400 + 5 dk marj) → kaçak, öldür.
+      * `tail -n 50` boru sarmalayıcısı > 600s → asılı, öldür.
+      * Çalışan uzun ömürlü `auto_runner.py` servis süreci ÖLDÜRÜLMEZ (zaten
+        systemd restart mekanizması ona bağlı); yalnızca `bash -c` sarmalayıcısı
+        içindeki elle başlatılmış kopyalar yaş tavanında öldürülür.
+    """
+    if rows is None:
+        if os.name != "posix":
+            return []
+        rows = _ps_rows()
+    limit = float(max_age_s if max_age_s is not None else STUCK_PROC_MAX_AGE_S)
+    kill = kill_fn or _kill_pid
+    my_pid = os.getpid()
+    killed: list[str] = []
+    for pid, age, args in rows:
+        if pid == my_pid:
+            continue
+        match = ""
+        if "pipeline.py" in args and ("--submit" in args or "--targets" in args):
+            if age >= limit:
+                match = "pipeline"
+        # KURALLAR BAĞIMSIZ (elif DEĞİL): birleşik `bash -c ... pipeline.py
+        # --targets ... | tail -n 50` satırında yaş tavanı henüz dolmamış olsa
+        # bile boru sarmalayıcısı 10 dk eşiğinde yakalanmalı. Canlı arıza
+        # 2026-09-25'teki asılı süreç tam bu birleşik biçimdeydi ve elif
+        # zinciri yüzünden tail kuralı hiç değerlendirilmiyordu.
+        if not match and "tail -n 50" in args and age >= 600:
+            # Boru sarmalayıcısı hiçbir meşru akışta 10 dk yaşamaz.
+            match = "tail"
+        if (not match and "auto_runner.py" in args and "bash -c" in args
+                and age >= limit):
+            # Elle başlatılmış kopya (systemd cgroup'u dışında) — servis süreci değil.
+            match = "auto_runner_manual"
+        if not match:
+            continue
+        if kill(pid):
+            killed.append(f"{match}:{pid}")
+            logger.warning("Kaçak/asılı süreç temizlendi: %s (yaş %ss)", args[:120], age)
+    return killed
+
+
 def restart_unit(unit: str) -> dict[str, Any]:
     """İlgili birimi yeniden başlat; hata bilgisi raporlanır (asla raise etmez)."""
+    # ÖNCE: systemd dışında asılı kalmış kaçak süreçleri temizle. Canlı arıza
+    # 2026-09-25: biri elle `pipeline.py --submit` çalıştırmış, `| tail -n 50`
+    # borusuna takılı kalmış; systemd "running" görüp restart etmemiş, Chromium
+    # kilidi kaçak süreçte kalmış, 9 saat form 0. Restart ÖNCESİ kill şart.
+    killed: list[str] = []
+    if unit == "nirvana-pipeline.service":
+        # Servisin KENDİ sürecini (MainPID) -9 ile öldürme: `systemctl restart`
+        # onu zaten düzgün kapatır. Kaçak = cgroup DIŞINDAKİ elle başlatılmış
+        # kopyalar; MainPID korunur, gerisi temizlenir.
+        main_pid = ""
+        try:
+            show = subprocess.run(
+                ["systemctl", "show", unit, "-p", "MainPID", "--value"],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            main_pid = (show.stdout or "").strip()
+        except Exception:  # noqa: BLE001 — PID çözülemezse yalnız pattern koruması
+            main_pid = ""
+        for pat in ("pipeline.py --targets", "pipeline.py --submit",
+                    "auto_runner.py"):
+            try:
+                ps = subprocess.run(
+                    ["pgrep", "-f", pat],
+                    capture_output=True, text=True, timeout=10, check=False,
+                )
+                for pid in (ps.stdout or "").split():
+                    pid = pid.strip()
+                    if not pid.isdigit():
+                        continue
+                    if main_pid and pid == main_pid:
+                        continue
+                    try:
+                        subprocess.run(
+                            ["kill", "-9", pid],
+                            capture_output=True, timeout=10, check=False,
+                        )
+                        killed.append(f"{pat.split()[0]}:{pid}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        # Boru sarmalayıcısı da ölsün (bash -c ... | tail -n 50 asılı kalıyor).
+        try:
+            ps = subprocess.run(
+                ["pgrep", "-f", "tail -n 50"],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            for pid in (ps.stdout or "").split():
+                pid = pid.strip()
+                if pid.isdigit():
+                    try:
+                        subprocess.run(
+                            ["kill", "-9", pid],
+                            capture_output=True, timeout=10, check=False,
+                        )
+                        killed.append(f"tail:{pid}")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
     try:
         proc = subprocess.run(
             ["systemctl", "restart", unit],
             capture_output=True, text=True, timeout=60, check=False,
         )
-        return {"unit": unit, "ok": proc.returncode == 0,
+        out = {"unit": unit, "ok": proc.returncode == 0,
                 "code": int(proc.returncode),
-                "err": (proc.stderr or "").strip()[:120]}
+                "err": (proc.stderr or "").strip()[:160]}
+        if killed:
+            out["killed"] = killed
+        return out
     except Exception as exc:  # noqa: BLE001 — onarım hatası bekçiyi düşürmez
-        return {"unit": unit, "ok": False, "error": f"{type(exc).__name__}: {exc}"[:140]}
+        out2 = {"unit": unit, "ok": False, "error": f"{type(exc).__name__}: {exc}"[:140]}
+        if killed:
+            out2["killed"] = killed
+        return out2
 
 
 # --- ölçümler ----------------------------------------------------------------
@@ -295,6 +456,19 @@ def run_batch(**kwargs: Any) -> dict[str, Any]:
     notified: list[str] = []
     notes: list[str] = []
     test_mode = kwargs.get("restart_fn") is not None and not systemd_available()
+    # OTONOM TEMİZLİK (her turda, systemd'ye bağımsız): systemd cgroup'u dışında
+    # asılı kalmış pipeline/tail kaçaklarını yaş tavanıyla öldür. 2026-09-25
+    # arızasında `systemctl restart` kaçağı öldüremediği için form hattı 9 saat
+    # 0'da donmuştu; bu süpürge aynı arızayı dakikalar içinde kendi kendine çözer.
+    swept: list[str] = []
+    if allow_restart:
+        try:
+            sweep = kwargs.get("sweep_fn") or sweep_stuck_processes
+            swept = sweep(max_age_s=kwargs.get("sweep_max_age_s"))
+        except Exception:  # noqa: BLE001 — süpürge hatası bekçiyi düşürmez
+            logger.warning("Kaçak süreç süpürgesi atlandı", exc_info=True)
+        if swept:
+            notes.append(f"kaçak/asılı süreç temizlendi: {', '.join(swept)}")
 
     for name in ("queue", "fuel", "forms", "webchat"):
         row = dict(signals.get(name) or {})
@@ -321,12 +495,23 @@ def run_batch(**kwargs: Any) -> dict[str, Any]:
                 )
             if notify and now - float(row.get("last_notify") or 0) >= NOTIFY_COOLDOWN_S:
                 traffic = sig.get("webchat") or {}
+                since_restart = now - float(row.get("last_restart") or 0)
+                if notes:
+                    repair = "\n".join(f"• {n}" for n in notes) + "\n"
+                elif (unit and allow_restart and systemd_available()
+                      and since_restart < RESTART_COOLDOWN_S):
+                    wait_min = max(1, int((RESTART_COOLDOWN_S - since_restart) // 60))
+                    repair = (
+                        f"Onarım: soğuma penceresi — {wait_min} dk sonra otomatik "
+                        "yeniden denenecek (elle müdahale gerekmez).\n"
+                    )
+                else:
+                    repair = "Onarım: elle kontrol gerekli (systemd onarımı kapalı/yok).\n"
                 msg = (
                     "🛠️ Nirvana iş bekçisi: iş durdu, onarım denendi.\n"
                     f"Sinyal: {name} — {check.get('detail')}\n"
                     f"Streak: {row['streak']} tur üst üste kırmızı\n"
-                    + ("\n".join(f"• {n}" for n in notes) + "\n" if notes else
-                       "Onarım: systemd kapalı/soğumada — elle kontrol gerekebilir.\n")
+                    + repair
                     + f"Webchat bugün: {traffic.get('sessions_today', '?')} oturum"
                 )
                 sent = (kwargs.get("notify_fn") or _notify)(msg)
@@ -353,6 +538,7 @@ def run_batch(**kwargs: Any) -> dict[str, Any]:
         "checks": verdict["checks"],
         "restarts": restarts,
         "notified": notified,
+        "swept": swept,
         "streaks": {name: int((signals.get(name) or {}).get("streak") or 0)
                     for name in signals},
         "webchat": sig.get("webchat") or {},

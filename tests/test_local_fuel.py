@@ -5,6 +5,9 @@
 """
 from __future__ import annotations
 
+import json
+import time
+
 import config
 import domain_store
 from nirvana import hot_fuel, job_watchdog, local_fuel
@@ -148,3 +151,109 @@ def test_job_watchdog_self_test_ok(tmp_path, monkeypatch, capsys):
     code = job_watchdog.self_test()
     assert code == 0
     assert "JOB_WATCHDOG SELF-TEST OK" in capsys.readouterr().out
+
+
+def test_job_watchdog_sweep_kills_stuck_pipeline_only():
+    """Yaş tavanını aşan pipeline kaçağı ölür; genç süreç ve bekçi dokunulmaz."""
+    rows = [
+        (111, 3000, "/opt/devsolve/.venv/bin/python pipeline.py --targets targets.txt --submit"),
+        (222, 120, "/opt/devsolve/.venv/bin/python pipeline.py --targets targets.txt --submit"),
+        (333, 9000, "/usr/bin/python -m nirvana.runner job_watchdog"),
+    ]
+    killed: list[int] = []
+    out = job_watchdog.sweep_stuck_processes(
+        max_age_s=2700, rows=rows, kill_fn=lambda pid: killed.append(pid) or True,
+    )
+    assert killed == [111]
+    assert out == ["pipeline:111"]
+
+
+def test_job_watchdog_sweep_catches_combined_pipe_wrapper():
+    """Canlı arıza birebir: `bash -c ... pipeline.py ... | tail -n 50` asılı süreç.
+
+    Süreç satırı pipeline kuralına da uyar; yaş tavanı (2700s) dolmamış olsa
+    bile boru sarmalayıcısı 10 dk eşiğinde yakalanmalı (elif zinciri hatası:
+    canlı arızada tail kuralı hiç değerlendirilmiyordu).
+    """
+    cmd = ("bash -c cd /opt/devsolve && /opt/devsolve/.venv/bin/python "
+           "pipeline.py --targets targets.txt --submit 2>&1 | tail -n 50")
+    killed: list[int] = []
+    out = job_watchdog.sweep_stuck_processes(
+        max_age_s=2700, rows=[(872396, 700, cmd)],
+        kill_fn=lambda pid: killed.append(pid) or True,
+    )
+    assert killed == [872396]
+    assert out == ["tail:872396"]
+
+
+def test_job_watchdog_sweep_spares_service_and_self(monkeypatch):
+    """systemd servis süreci ve bekçinin kendisi asla öldürülmez."""
+    import os
+
+    rows = [
+        (555, 9999, "/opt/devsolve/.venv/bin/python /opt/devsolve/auto_runner.py"),
+        (556, 9999, "bash -c /opt/devsolve/.venv/bin/python /opt/devsolve/auto_runner.py"),
+        (os.getpid(), 99999, "python pipeline.py --targets x --submit"),
+    ]
+    killed: list[int] = []
+    out = job_watchdog.sweep_stuck_processes(
+        rows=rows, kill_fn=lambda pid: killed.append(pid) or True,
+    )
+    assert 555 not in killed  # servis süreci korunur
+    assert os.getpid() not in killed  # kendini vurma yok
+    assert 556 in killed  # elle başlatılmış kopya (bash -c) temizlenir
+    assert out == ["auto_runner_manual:556"]
+
+
+def test_job_watchdog_sweep_runs_every_cycle(tmp_path, monkeypatch):
+    """Süpürge systemd'den bağımsız HER turda çalışır ve rapora yazılır."""
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(domain_store, "queue_depth", lambda: 0)
+    monkeypatch.setattr(job_watchdog, "WEBCHAT_PORT", 9)
+    seen: list[float | None] = []
+
+    def fake_sweep(*, max_age_s=None):
+        seen.append(max_age_s)
+        return ["pipeline:4242"]
+
+    report = job_watchdog.run_batch(
+        dry_run=False, notify=False, sweep_fn=fake_sweep,
+        restart_fn=lambda unit: {"unit": unit, "ok": True},
+    )
+    assert seen, "süpürge her turda çağrılmalı"
+    assert report["swept"] == ["pipeline:4242"]
+
+
+def test_job_watchdog_dry_run_no_sweep(tmp_path, monkeypatch):
+    """dry_run (kurulum doğrulaması) hiçbir süreç öldürmez."""
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(domain_store, "queue_depth", lambda: 0)
+    monkeypatch.setattr(job_watchdog, "WEBCHAT_PORT", 9)
+
+    def _boom(**kwargs):  # pragma: no cover - çağrılmamalı
+        raise AssertionError("dry-run süpürge YOK")
+
+    report = job_watchdog.run_batch(dry_run=True, notify=False, sweep_fn=_boom)
+    assert report["swept"] == []
+
+
+def test_job_watchdog_cooldown_message_is_autonomous(tmp_path, monkeypatch):
+    """Soğuma penceresindeki mesaj 'elle müdahale gerekli' değil, otonom olmalı."""
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(domain_store, "queue_depth", lambda: 0)
+    monkeypatch.setattr(job_watchdog, "WEBCHAT_PORT", 9)
+    monkeypatch.setattr(job_watchdog, "STREAK", 1)
+    monkeypatch.setattr(job_watchdog, "systemd_available", lambda: True)
+    state = {"signals": {"queue": {"streak": 1, "last_restart": time.time() - 60}}}
+    state_path("job_watchdog.json").write_text(json.dumps(state), encoding="utf-8")
+    messages: list[str] = []
+    report = job_watchdog.run_batch(
+        dry_run=False, notify=True,
+        sweep_fn=lambda **kwargs: [],
+        restart_fn=lambda unit: {"unit": unit, "ok": True},
+        notify_fn=lambda msg: messages.append(msg) or True,
+    )
+    # Soğuma penceresi: kuyruk sinyali için yeni restart yok (diğer sinyaller bağımsız).
+    assert all(row.get("signal") != "queue" for row in report["restarts"])
+    joined = "\n".join(messages)
+    assert "otomatik" in joined and "elle müdahale gerekmez" in joined
