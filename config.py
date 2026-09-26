@@ -223,10 +223,10 @@ ENTERPRISE_RETRY_SKIP_DAYS: int = _get_int("ENTERPRISE_RETRY_SKIP_DAYS", 3)
 # Acceptance-first framing: do NOT print a dollar figure in outreach; the
 # contract amount is only shared in-chat when the company asks.
 PRICE_HIDDEN: bool = _get("PRICE_HIDDEN", "0").strip() in {"1", "true", "yes", "on"}
-# Revenue model: 40 employers x $2,500/mo retainer = $100k/mo target.
+# Revenue model: 40 employers x $5,000/mo retainer = $200k/mo target.
 # PRICE_USD is a proposed offer, NOT the amount encoded by a Payoneer request.
-PRICE_USD: int = _get_int("PRICE_USD", 2500)
-ENTERPRISE_RETAINER_USD: int = _get_int("ENTERPRISE_RETAINER_USD", 2500)
+PRICE_USD: int = _get_int("PRICE_USD", 5000)
+ENTERPRISE_RETAINER_USD: int = _get_int("ENTERPRISE_RETAINER_USD", 5000)
 ENTERPRISE_PILOT_USD: int = _get_int("ENTERPRISE_PILOT_USD", 500)
 # --- Nirvana owner identity (insan algisi) ---------------------------------
 # Raporlarda, kanıt kartlarında ve Telegram kimliğinde gerçek insan görünür.
@@ -259,11 +259,11 @@ WATCHDOG_CHAT_ID: str = _get("WATCHDOG_CHAT_ID", TELEGRAM_NOTIFY_CHAT_ID or OWNE
 # created by the owner in the provider panel; these values only describe the
 # offer text and gate the amount/currency of verified requests.
 PAYMENT_CURRENCY: str = _get("PAYMENT_CURRENCY", "EUR").upper()
-PAYMENT_AMOUNT: int = _get_int("PAYMENT_AMOUNT", 2500)
+PAYMENT_AMOUNT: int = _get_int("PAYMENT_AMOUNT", 5000)
 # Human-facing price label for all customer copy (Telegram, proof cards, PDFs).
-# Nirvana retainer: €2.500 EUR aylık. Payment gates stay numeric (PRICE_USD /
-# PAYMENT_AMOUNT == 2500); only the display currency changes here.
-PRICE_LABEL: str = _get("PRICE_LABEL", "€2.500")
+# Nirvana retainer: €5.000 EUR aylık. Payment gates stay numeric (PRICE_USD /
+# PAYMENT_AMOUNT == 5000); only the display currency changes here.
+PRICE_LABEL: str = _get("PRICE_LABEL", "€5.000")
 # Payoneer webhook: HMAC-SHA256 imza doğrulama sırrı. Sadece bu imzayla gelen
 # PAID sinyali pipeline'ı otomatik başlatır; imzasız/sahte POST reddedilir.
 PAYONEER_WEBHOOK_SECRET: str = _get("PAYONEER_WEBHOOK_SECRET", "")
@@ -447,7 +447,7 @@ def price_label(*, explicit: bool = False) -> str:
 
 
 def payment_label() -> str:
-    """Retainer label for the configured Nirvana payment currency (e.g. 2.500 EUR)."""
+    """Retainer label for the configured Nirvana payment currency (e.g. 5.000 EUR)."""
     amount = f"{PAYMENT_AMOUNT:,}".replace(",", ".") if PAYMENT_CURRENCY == "EUR" else str(PAYMENT_AMOUNT)
     return f"{amount} {PAYMENT_CURRENCY}"
 

@@ -8,9 +8,15 @@ Type=oneshot
 WorkingDirectory=/opt/devsolve
 EnvironmentFile=-/opt/devsolve/.env
 # Servis "active" olsa bile İŞ durursa (kuyruk 0 / yakıt 0 / form 0 / webchat
-# yanıtsız) yakalar: 2 tur üst üste kırmızıda ilgili birimi restart eder ve
-# sahibe tek Telegram mesajı atar (sinyal başına saatte 1 — spam yok).
+# yanıtsız) yakalar. 1 dk tarama; kırmızıda kök neden müdahalesi:
+#   * Chromium kilidi : 5 dk form yok → `pkill -9 -f chromium` + pipeline restart
+#   * Port kilidi     : `/health` yanıtsız → `fuser -k -9 <port>/tcp` +
+#                       `systemctl reset-failed` + restart
+#   * SQLite WAL      : kilitli DB → checkpoint + `-wal`/`-shm` sıfırlama
+# 5 dk içinde çözülürse TEK SATIR Telegram ("Kök Neden: X -> 5 dk içinde Otonom
+# Onarıldı"); çözülmezse izin/bildirim OLMADAN `sudo reboot` (sert tavan).
+# Döngü 5 dk sürebildiği için TimeoutStartSec=420.
 ExecStart=/opt/devsolve/.venv/bin/python -m nirvana.runner job_watchdog
 Nice=15
 IOSchedulingClass=idle
-TimeoutStartSec=180
+TimeoutStartSec=420

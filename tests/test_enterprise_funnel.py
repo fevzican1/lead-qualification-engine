@@ -49,7 +49,7 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(payment_safety, "PATH", tmp_path / "payment_readiness.json")
     monkeypatch.setattr(proof_card, "CACHE", tmp_path / "cards")
     monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL", "https://link.payoneer.com/example")
-    monkeypatch.setattr(config, "PRICE_USD", 2500)
+    monkeypatch.setattr(config, "PRICE_USD", 5000)
     monkeypatch.setattr(config, "PRICE_HIDDEN", True)
     monkeypatch.setattr(config, "SMB_LANE_ENABLED", False)
     monkeypatch.setattr(config, "ENTERPRISE_MODE", True)
@@ -186,10 +186,10 @@ def test_explicit_interest(text):
 
 def test_payment_readiness_bound_to_actual_url_and_amount(isolated):
     assert payment_safety.ready_request(42) is None
-    payment_safety.approve_link(chat_id=42, amount=2500, currency="USD", recipient="ExampleRecipient", reference="REQ-1", owner_id=12)
-    assert payment_safety.ready_request(42)["amount"] == 2500
+    payment_safety.approve_link(chat_id=42, amount=5000, currency="USD", recipient="ExampleRecipient", reference="REQ-1", owner_id=12)
+    assert payment_safety.ready_request(42)["amount"] == 5000
     assert payment_safety.ready_request(43) is None
-    config.PRICE_USD = 5000
+    config.PRICE_USD = 7500  # fiyat değişince onaylanmış link geçersizleşmeli
     assert payment_safety.ready_request(42) is None
 
 
@@ -198,11 +198,12 @@ def test_report_is_not_payment_and_fulfillment_requires_contract(isolated):
     sessions.mark_payment_confirmed(42)
     assert sessions._row(42)["payment_reported"]
     assert not sessions.fulfillment_ready(42)
-    sessions._put(42, payment_request={"amount": 2500, "currency": "EUR"})
+    sessions._put(42, payment_request={"amount": 5000, "currency": "EUR"})
     sessions.mark_payment(42)
     with pytest.raises(ValueError):
-        sessions.verify_payment(42, amount=5000, currency="EUR", reference="TX-1", owner_id=12)
-    sessions.verify_payment(42, amount=2500, currency="EUR", reference="TX-1", owner_id=12)
+        # kayıtlı istek 5000 → eşleşmeyen tutar reddedilmeli
+        sessions.verify_payment(42, amount=2500, currency="EUR", reference="TX-1", owner_id=12)
+    sessions.verify_payment(42, amount=5000, currency="EUR", reference="TX-1", owner_id=12)
     assert not sessions.fulfillment_ready(42)
     sessions.approve_contract(42, contract_ref="C1", scope_ref="S1", access_ref="A1", owner_id=12)
     assert sessions.fulfillment_ready(42)
@@ -218,14 +219,14 @@ def test_enterprise_followup_stops(isolated):
 
 def test_hidden_price_is_shown_when_explicit(isolated):
     assert config.price_label() == ""
-    assert config.price_label(explicit=True) == "€2.500"
+    assert config.price_label(explicit=True) == "€5.000"
 
 
 def test_non_owner_cannot_verify_payment(isolated, monkeypatch):
     monkeypatch.setattr(bot, "_is_owner", lambda cid: False)
     update = SimpleNamespace(effective_chat=SimpleNamespace(id=42, type="private"),
                              effective_user=SimpleNamespace(id=42), message=SimpleNamespace(reply_text=AsyncMock()))
-    asyncio.run(bot.cmd_verifypayment(update, SimpleNamespace(args=["42", "2500", "EUR", "TX1"])))
+    asyncio.run(bot.cmd_verifypayment(update, SimpleNamespace(args=["42", "5000", "EUR", "TX1"])))
     assert sessions._row(42) == {}
 
 
@@ -239,7 +240,7 @@ def test_explicit_price_and_interest_paths_skip_model(isolated, monkeypatch):
                              effective_user=SimpleNamespace(id=999, language_code="en", username="test"),
                              message=SimpleNamespace(text="How much?", reply_text=reply))
     asyncio.run(bot.on_text(update, SimpleNamespace(bot=None)))
-    assert "€2.500" in reply.call_args.args[0]
+    assert "€5.000" in reply.call_args.args[0]
     update.message.text = "I want to buy and pay."
     asyncio.run(bot.on_text(update, SimpleNamespace(bot=None)))
     assert "link.payoneer.com" not in reply.call_args.args[0]

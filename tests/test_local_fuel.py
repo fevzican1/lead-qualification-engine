@@ -202,7 +202,7 @@ def test_job_watchdog_sweep_spares_service_and_self(monkeypatch):
     assert 555 not in killed  # servis süreci korunur
     assert os.getpid() not in killed  # kendini vurma yok
     assert 556 in killed  # elle başlatılmış kopya (bash -c) temizlenir
-    assert out == ["auto_runner_manual:556"]
+    assert out == ["auto_runner_stray:556"]
 
 
 def test_job_watchdog_sweep_runs_every_cycle(tmp_path, monkeypatch):
@@ -237,23 +237,184 @@ def test_job_watchdog_dry_run_no_sweep(tmp_path, monkeypatch):
     assert report["swept"] == []
 
 
-def test_job_watchdog_cooldown_message_is_autonomous(tmp_path, monkeypatch):
-    """Soğuma penceresindeki mesaj 'elle müdahale gerekli' değil, otonom olmalı."""
+def _signals_red(**overrides):
+    """Deterministik kırmızı sinyal sözlüğü; override ile kalemler yeşile çekilir."""
+    sig = {
+        "queue_depth": 0,
+        "fuel_ready": 500,
+        "fuel_target": 2000,
+        "forms_today": 0,
+        "forms_hour": 0,
+        "forms_cap": 400,
+        "forms_expected": 10,
+        "webchat_health": True,
+        "webchat": {"sessions_today": 0, "sessions_total": 0, "last_seen_s": None},
+    }
+    sig.update(overrides)
+    return sig
+
+
+def _green_verdict():
+    checks = {
+        "queue": {"ok": True, "detail": "ok"},
+        "fuel": {"ok": True, "detail": "ok"},
+        "forms": {"ok": True, "detail": "ok"},
+        "webchat": {"ok": True, "detail": "ok"},
+    }
+    return {"checks": checks, "red": [], "ok": True,
+            "webchat_sessions_today": 0, "webchat_last_seen_s": None}
+
+
+def _red_verdict():
+    checks = {
+        "queue": {"ok": True, "detail": "ok"},
+        "fuel": {"ok": True, "detail": "ok"},
+        "forms": {"ok": True, "detail": "ok"},
+        "webchat": {"ok": False, "detail": "yanıtsız"},
+    }
+    return {"checks": checks, "red": ["webchat"], "ok": False,
+            "webchat_sessions_today": 0, "webchat_last_seen_s": None}
+
+
+def test_job_watchdog_autonomous_success_single_line_message(tmp_path, monkeypatch):
+    """İş 5 dk içinde otonom çözülürse SADECE tek satır 'Kök Neden' bildirimi gider."""
     _isolate(tmp_path, monkeypatch)
-    monkeypatch.setattr(domain_store, "queue_depth", lambda: 0)
-    monkeypatch.setattr(job_watchdog, "WEBCHAT_PORT", 9)
-    monkeypatch.setattr(job_watchdog, "STREAK", 1)
-    monkeypatch.setattr(job_watchdog, "systemd_available", lambda: True)
-    state = {"signals": {"queue": {"streak": 1, "last_restart": time.time() - 60}}}
-    state_path("job_watchdog.json").write_text(json.dumps(state), encoding="utf-8")
+    monkeypatch.setattr(job_watchdog, "STREAK", 99)  # hızlı streak restart devre dışı
     messages: list[str] = []
     report = job_watchdog.run_batch(
-        dry_run=False, notify=True,
+        dry_run=False, notify=True, checks=_signals_red(), auto_loop=True,
         sweep_fn=lambda **kwargs: [],
+        sleep_fn=lambda seconds: None,
+        probe_fn=lambda: (_signals_red(queue_depth=500), _green_verdict()),
         restart_fn=lambda unit: {"unit": unit, "ok": True},
+        cmd_fn=lambda cmd: {"ok": True},
+        db_fn=lambda path: False,
+        kill_fn=lambda **kwargs: {"ok": True},
+        wal_fn=lambda path: {"ok": True},
         notify_fn=lambda msg: messages.append(msg) or True,
     )
-    # Soğuma penceresi: kuyruk sinyali için yeni restart yok (diğer sinyaller bağımsız).
-    assert all(row.get("signal") != "queue" for row in report["restarts"])
-    joined = "\n".join(messages)
-    assert "otomatik" in joined and "elle müdahale gerekmez" in joined
+    recovery = report["recovery"]
+    assert recovery["resolved"] is True and recovery["rebooted"] is False
+    assert len(messages) == 1, "başarıda tek mesaj"
+    line = messages[0]
+    assert "\n" not in line, "tek satır olmalı"
+    assert "Kök Neden:" in line and "-> 5 dk içinde Otonom Onarıldı" in line
+
+
+def test_job_watchdog_chromium_lock_kills_and_restarts(tmp_path, monkeypatch):
+    """5 dk form yok + iş kırmızı → pkill -9 -f chromium + pipeline restart."""
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(job_watchdog, "STREAK", 99)
+    state = {"forms_last_count": 0, "forms_last_ts": time.time() - 400}
+    state_path("job_watchdog.json").write_text(json.dumps(state), encoding="utf-8")
+    killed: list[dict] = []
+    restarted: list[str] = []
+    report = job_watchdog.run_batch(
+        dry_run=False, notify=True, checks=_signals_red(), auto_loop=True,
+        sweep_fn=lambda **kwargs: [],
+        sleep_fn=lambda seconds: None,
+        probe_fn=lambda: (_signals_red(queue_depth=500), _green_verdict()),
+        restart_fn=lambda unit: restarted.append(unit) or {"unit": unit, "ok": True},
+        kill_fn=lambda **kwargs: killed.append(kwargs) or {"ok": True},
+        db_fn=lambda path: False,
+        cmd_fn=lambda cmd: {"ok": True},
+        notify_fn=lambda msg: True,
+    )
+    assert killed, "5 dk form yok → Chromium süreçleri indirilmeliydi"
+    assert "nirvana-pipeline.service" in restarted
+    assert report["recovery"]["root_cause"] == job_watchdog.RC_CHROMIUM
+
+
+def test_job_watchdog_port_lock_clears_port_and_resets_unit(tmp_path, monkeypatch):
+    """WebChat yanıtsız: fuser -k -9 <port>/tcp + reset-failed + restart."""
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(job_watchdog, "STREAK", 99)
+    monkeypatch.setattr(job_watchdog, "WEBCHAT_PORT", 9)
+    cmds: list[list[str]] = []
+    restarted: list[str] = []
+    killed: list[dict] = []
+    report = job_watchdog.run_batch(
+        dry_run=False, notify=True, auto_loop=True,
+        checks=_signals_red(queue_depth=500, forms_expected=0, webchat_health=False),
+        sweep_fn=lambda **kwargs: [],
+        sleep_fn=lambda seconds: None,
+        probe_fn=lambda: (_signals_red(queue_depth=500, forms_expected=0,
+                                       webchat_health=False), _green_verdict()),
+        restart_fn=lambda unit: restarted.append(unit) or {"unit": unit, "ok": True},
+        cmd_fn=lambda cmd: cmds.append(cmd) or {"ok": True},
+        kill_fn=lambda **kwargs: killed.append(kwargs) or {"ok": True},
+        db_fn=lambda path: False,
+        notify_fn=lambda msg: True,
+    )
+    assert ["fuser", "-k", "-9", "9/tcp"] in cmds
+    assert ["systemctl", "reset-failed", "nirvana-webchat.service"] in cmds
+    assert "nirvana-webchat.service" in restarted
+    assert not killed, "Port kilidinde chromium indirilmez"
+    assert report["recovery"]["root_cause"].startswith("Port Kilidi")
+
+
+def test_job_watchdog_wal_reset_on_sqlite_lock(tmp_path, monkeypatch):
+    """SQLite kilitliyse WAL sıfırlanır; kök neden etiketi DB kilidi olur."""
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(job_watchdog, "STREAK", 99)
+    reset_paths: list = []
+    report = job_watchdog.run_batch(
+        dry_run=False, notify=True, auto_loop=True,
+        checks=_signals_red(queue_depth=500, forms_expected=0),
+        sweep_fn=lambda **kwargs: [],
+        sleep_fn=lambda seconds: None,
+        probe_fn=lambda: (_signals_red(queue_depth=500, forms_expected=0),
+                          _green_verdict()),
+        restart_fn=lambda unit: {"unit": unit, "ok": True},
+        db_fn=lambda path: True,
+        wal_fn=lambda path: reset_paths.append(path) or {"ok": True},
+        notify_fn=lambda msg: True,
+    )
+    assert reset_paths, "kilitli DB'de WAL sıfırlama çağrılmalı"
+    assert report["recovery"]["root_cause"] == job_watchdog.RC_DB
+
+
+def test_job_watchdog_hard_cap_reboots_without_notify(tmp_path, monkeypatch):
+    """5 dk içinde çözülmezse: izin/bildirim OLMADAN reboot; Telegram YOK."""
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(job_watchdog, "STREAK", 99)
+    messages: list[str] = []
+    reboots: list[dict] = []
+    report = job_watchdog.run_batch(
+        dry_run=False, notify=True, auto_loop=True, budget_s=0.0,
+        checks=_signals_red(queue_depth=500, forms_expected=0, webchat_health=False),
+        sweep_fn=lambda **kwargs: [],
+        sleep_fn=lambda seconds: None,
+        probe_fn=lambda: (_signals_red(queue_depth=500, forms_expected=0,
+                                       webchat_health=False), _red_verdict()),
+        restart_fn=lambda unit: {"unit": unit, "ok": True},
+        cmd_fn=lambda cmd: {"ok": True},
+        kill_fn=lambda **kwargs: {"ok": True},
+        db_fn=lambda path: False,
+        reboot_fn=lambda **kwargs: reboots.append(kwargs) or {"ok": True,
+                                                              "cmd": "sudo reboot"},
+        notify_fn=lambda msg: messages.append(msg) or True,
+    )
+    assert reboots, "sert tavan dolunca reboot çalışmalı"
+    assert messages == [], "reboot durumunda Telegram mesajı YOK"
+    assert report["recovery"]["resolved"] is False
+    assert report["recovery"]["rebooted"] is True
+    assert report["notified"] == []
+
+
+def test_job_watchdog_source_has_no_manual_intervention_text():
+    """Kod kazıması: 'elle kontrol/manuel' kod ve mesajları kaynakta YOK."""
+    import inspect
+
+    src = inspect.getsource(job_watchdog).lower()
+    for banned in ("elle kontrol", "elle müdahale", "manuel", "manual"):
+        assert banned not in src, f"yasaklı ifade kaynakta: {banned}"
+
+
+def test_job_watchdog_timer_scans_every_minute():
+    """Tarama 1 dk; servis 5 dk otonom onarım tavanına göre zaman aşımı taşır."""
+    timer = (config.ROOT / "oracle" / "nirvana-jobwatch.timer").read_text(encoding="utf-8")
+    service = (config.ROOT / "oracle" / "nirvana-jobwatch.service").read_text(encoding="utf-8")
+    assert "OnCalendar=*:0/1" in timer
+    assert "TimeoutStartSec=420" in service
+    assert "sudo reboot" in service

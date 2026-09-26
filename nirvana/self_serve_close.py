@@ -132,7 +132,7 @@ def payment_mention(*, turkish: bool = True, retainer: str | None = None) -> str
     """Short payment mention for inline use (price only when explicitly asked)."""
     retainer = retainer or retainer_label()
     if turkish:
-        return f"2.500 EUR (tek seferlik retainer)" if not retainer else retainer
+        return f"5.000 EUR (tek seferlik retainer)" if not retainer else retainer
     return f"2,500 EUR (one-time retainer)" if not retainer else retainer
 
 

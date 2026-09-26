@@ -4,7 +4,7 @@
 nirvana:
   version: 1
   payment:
-    amount: 2500
+    amount: 5000
     currency: EUR
     link_env: PAYONEER_PAYMENT_URL
     link_placeholder: "[BURAYA_YENI_PAYONEER_LINKINI_EKLEYIN]"
@@ -63,7 +63,7 @@ nirvana:
       letter: H
       schedule: "17 9 1 * *"
       entrypoint: "python -m nirvana.runner retention_agent"
-      description: "Monthly value report + 2.500 EUR renewal Payoneer link."
+      description: "Monthly value report + 5.000 EUR renewal Payoneer link."
       heavy: false
     watchdog_quota_agent:
       host: oracle

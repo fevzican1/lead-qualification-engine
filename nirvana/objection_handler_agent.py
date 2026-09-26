@@ -118,7 +118,7 @@ def solution_walkthrough(*, turkish: bool = True, metric: str = "olculen gecikme
                          root: str = "kopuk webhook/event akisi") -> str:
     if turkish:
         tpl = SOLUTION_WALKTHROUGH_TR
-        return tpl.format(metric=metric, root=root, retainer="2.500 EUR")
+        return tpl.format(metric=metric, root=root, retainer="5.000 EUR")
     return SOLUTION_WALKTHROUGH_EN
 
 
@@ -145,7 +145,7 @@ def run_batch() -> dict[str, Any]:
                "plan_line": PLAN_LINE_TR,
                "plan_line_en": PLAN_LINE_EN,
                "solution_walkthrough": solution_walkthrough(turkish=True),
-               "retainer": "2.500 EUR"}
+               "retainer": "5.000 EUR"}
     tmp = out_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(out_path)

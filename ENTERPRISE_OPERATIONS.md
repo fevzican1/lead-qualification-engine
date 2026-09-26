@@ -68,7 +68,7 @@ request. No percentage acceptance or guaranteed income is promised.
    request amount/currency and request expiration. Create/update a request there
    if necessary. Do not append invented amount parameters to the URL.
 2. After the customer has started the bot, attest the actual request:
-   `/payready CHATID 2500 EUR RECIPIENT_LABEL PROVIDER_REQUEST_REFERENCE`
+   `/payready CHATID 5000 EUR RECIPIENT_LABEL PROVIDER_REQUEST_REFERENCE`
    (single-token labels/references). This is owner attestation, not provider API
    verification. It is bound to one chat and the URL hash, and expires in 30 days.
 3. After checking signed scope and access authorization:
@@ -76,7 +76,7 @@ request. No percentage acceptance or guaranteed income is promised.
    This binds the contract to the currently configured USD amount.
 4. Only a subsequent explicit purchase request can receive the link.
 5. Check **settled** payment on the provider dashboard, then:
-   `/verifypayment CHATID 2500 EUR UNIQUE_PROVIDER_TRANSACTION_REF`
+   `/verifypayment CHATID 5000 EUR UNIQUE_PROVIDER_TRANSACTION_REF`
    The reference cannot be used for a second payment. Screenshots/customer text
    alone are not sufficient. Check `fulfillment_ready` before manual kickoff.
 

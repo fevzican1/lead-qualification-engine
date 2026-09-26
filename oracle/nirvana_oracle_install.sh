@@ -40,17 +40,18 @@ if [ -n "${PAYONEER_LINK:-}" ]; then
     printf 'PAYONEER_PAYMENT_URL=%s\n' "${PAYONEER_LINK}" >> "$APP_DIR/.env"
   fi
   grep -q '^PAYMENT_CURRENCY=' "$APP_DIR/.env" || printf 'PAYMENT_CURRENCY=EUR\n' >> "$APP_DIR/.env"
-  grep -q '^PAYMENT_AMOUNT=' "$APP_DIR/.env" || printf 'PAYMENT_AMOUNT=2500\n' >> "$APP_DIR/.env"
+  # Tutar 5000 EUR: hem yeni kurulumda yazılır hem mevcut .env güncellenir (sed).
+  grep -q '^PAYMENT_AMOUNT=' "$APP_DIR/.env" && sed -i 's|^PAYMENT_AMOUNT=.*|PAYMENT_AMOUNT=5000|' "$APP_DIR/.env" || printf 'PAYMENT_AMOUNT=5000\n' >> "$APP_DIR/.env"
   echo "PAYONEER_PAYMENT_URL güncellendi."
 else
   echo "PAYONEER_LINK verilmedi — .env'deki mevcut link korunuyor."
 fi
 
-echo "[3/6] Payoneer linki doğrulaması (2.500 EUR)"
+echo "[3/6] Payoneer linki doğrulaması (5.000 EUR)"
 "$APP_DIR/.venv/bin/python" - <<'PY'
 from nirvana.payment import retainer_amount, retainer_currency, retainer_label
 import config
-assert retainer_amount() == 2500 and retainer_currency() == "EUR", "PAYMENT_AMOUNT/PAYMENT_CURRENCY .env'de 2500/EUR olmalı"
+assert retainer_amount() == 5000 and retainer_currency() == "EUR", "PAYMENT_AMOUNT/PAYMENT_CURRENCY .env'de 5000/EUR olmalı"
 assert "[BURAYA_YENI_PAYONEER_LINKINI_EKLEYIN]" not in config.PAYONEER_PAYMENT_URL, "PAYONEER_PAYMENT_URL hâlâ yer tutucu"
 print("OK — retainer:", retainer_label())
 PY
@@ -145,7 +146,8 @@ systemctl enable --now nirvana-captcha.timer
 systemctl enable --now nirvana-dispatch.timer
 # İÇ YAKIT: dış (GitHub/CDN) feed'e bağımlı olmadan Tranco/CDX/tohum beslemesi.
 systemctl enable --now nirvana-fuel.timer
-# İŞ BEKÇİSİ: servis "active" olsa bile iş durursa yakalar, restart eder, haber verir.
+# İŞ BEKÇİSİ: 1 dk tarama; kök neden müdahalesi (chromium/port/WAL);
+# 5 dk otonom onarım, çözülmezse sert reboot.
 systemctl enable --now nirvana-jobwatch.timer
 # İlk tur hemen çalışsın: rezervuar taze kurulumda da dolu başlar.
 systemctl start nirvana-fuel.service 2>/dev/null || true

@@ -1,13 +1,13 @@
-"""Tests for Payoneer retainer config: 2.500 EUR retainer + live URL presence."""
+"""Tests for Payoneer retainer config: 5.000 EUR retainer + live URL presence."""
 
 import config
 import nirvana.payment as p
 
 
-def test_retainer_amount_is_2500_eur():
-    assert config.PAYMENT_AMOUNT == 2500
+def test_retainer_amount_is_5000_eur():
+    assert config.PAYMENT_AMOUNT == 5000
     assert config.PAYMENT_CURRENCY == "EUR"
-    assert p.retainer_amount() == 2500
+    assert p.retainer_amount() == 5000
     assert p.retainer_currency() == "EUR"
 
 
@@ -17,9 +17,9 @@ def test_payoneer_link_is_live():
     assert p.PLACEHOLDER not in url
 
 
-def test_payment_label_contains_eur_2500():
+def test_payment_label_contains_eur_5000():
     label = p.retainer_label()
-    assert "2500" in label or "2.500" in label
+    assert "5000" in label or "5.000" in label
     assert "EUR" in label
 
 

@@ -10,7 +10,7 @@ süreci bir kullanım kotası + kabul protokolü olarak yönetir:
                          bu sohbette adınıza rezerve; onay = Payoneer + SLA
 
 Kural her dilde aynı: "Kodunuza dokunmadan Oracle üstünde izliyoruz, slot sınırlı,
-fiyat 2.500 EUR sabit, alıyorsan şartları onayla linki atayım" — yüksek otorite.
+fiyat 5.000 EUR sabit, alıyorsan şartları onayla linki atayım" — yüksek otorite.
 Ödeme öncesi hiçbir teknik işlem teklif edilmez; link SSK'sı self_serve_close'ta.
 """
 from __future__ import annotations
@@ -50,7 +50,7 @@ def diagnostic_gate(*, turkish: bool = True, row: dict[str, Any] | None = None,
                     chat_id: int = 0, slot_left: int = SLOT_LEFT) -> str:
     """G1 — Karantina & Slot kapanışı. 'Fiyat nedir?' ve niyet yolunda kullanılır."""
     rid = _report_id(row, chat_id)
-    retainer = price_retainer()  # "€2.500" — açık fiyat (fiyat-sorusu yolu)
+    retainer = price_retainer()  # "€5.000" — açık fiyat (fiyat-sorusu yolu)
     who = _company(row)
     if turkish:
         return (

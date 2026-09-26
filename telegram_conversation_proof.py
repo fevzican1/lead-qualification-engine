@@ -59,7 +59,7 @@ show("4) SÖZLEŞME + SLA + NDA (ödeme öncesi güven)", [
 show("5) PAYONEER LİNKİ — yalnızca net satın alma niyetinde", [
     ("user", "Anlaştık, ödeme yapalım."),
     ("bot", "Talep onayınız sonrası Payoneer retainer talebi oluşturulur.\n\n"
-            "Tutar: €2.500 aylık sabit retainer • Referans: RPT-7A3F-TechVision\n"
+            "Tutar: €5.000 aylık sabit retainer • Referans: RPT-7A3F-TechVision\n"
             "Alıcı hesabımızla (payoneer@…, tutar bununla eşleşen) kontrol edip ödeme yapabilirsiniz.\n"
             "Ödeme webhook'u 'PAID' doğrulanana dek teslimat başlamaz; teyit sonrası SLA aktif olur."),
 ])
@@ -67,7 +67,7 @@ show("5) PAYONEER LİNKİ — yalnızca net satın alma niyetinde", [
 show("6) ÖDEME TEYİDİ -> HİZMET BAŞLADI", [
     ("bot", "Ödemeniz doğrulandı (PAY-2026-88471). Hoş geldiniz TechVision.\n"
             "1) Haftalık zamanlanmış altyapı turları; hata, kesinti ve performans bulguları raporlanır.\n"
-            "2) Retainer: aylık 2.500 EUR, her ay yenilenir.\n"
+            "2) Retainer: aylık 5.000 EUR, her ay yenilenir.\n"
             "3) Yalnızca okunur izleme erişimi; yönetici şifresi asla paylaşılmaz.\n"
             "4) İlk tur 24 saat içinde başlar; raporlar bu sohbete düşer."),
 ])
@@ -125,11 +125,11 @@ show("S4: Sozlesme + SLA + NDA (Odeme oncesi)", [
 
 show("S5: Payoneer linki — ALINMA NIYETI sonrasi", [
     ("user", "Anlastik, odeme yapalim."),
-    ("bot", "Onay icin Payoneer retainer talebi olusturuluyor...\n\nPayoneer odeme linki:\nhttps://payment.payoneer.com/.../inv_TechVision_2500EUR\n\nTutar: €2.500 (aylik retainer, her ay yenilenir)\nReferans: RPT-7A3F-TechVision\n\nOdeme dogrulandigi an SLA aktif olur ve ilk tur 24 saat icinde baslar."),
+    ("bot", "Onay icin Payoneer retainer talebi olusturuluyor...\n\nPayoneer odeme linki:\nhttps://payment.payoneer.com/.../inv_TechVision_5000EUR\n\nTutar: €5.000 (aylik retainer, her ay yenilenir)\nReferans: RPT-7A3F-TechVision\n\nOdeme dogrulandigi an SLA aktif olur ve ilk tur 24 saat icinde baslar."),
 ])
 
 show("S6: Odeme teyit -> Hizmet basliyor", [
-    ("bot", "Odemeniz dogrulandi (Payoneer ref: PAY-2026-88471).\n\nHos geldiniz TechVision.\n\n1) Hizmet sartlari: haftalik zamanlanmis altyapu turlari; hata, kesinti ve performans bulgularu raporlanir.\n2) Retainer: aylik 2.500 EUR, aylik yenilenir.\n3) Erisim klavuzu: bize yalnizca okunur izleme erisimini verin. Yonetici sifresi asla paylasilmaz.\n4) Ilk tur 24 saat icinde baslar; raporlar bu sohbete duser."),
+    ("bot", "Odemeniz dogrulandi (Payoneer ref: PAY-2026-88471).\n\nHos geldiniz TechVision.\n\n1) Hizmet sartlari: haftalik zamanlanmis altyapu turlari; hata, kesinti ve performans bulgularu raporlanir.\n2) Retainer: aylik 5.000 EUR, aylik yenilenir.\n3) Erisim klavuzu: bize yalnizca okunur izleme erisimini verin. Yonetici sifresi asla paylasilmaz.\n4) Ilk tur 24 saat icinde baslar; raporlar bu sohbete duser."),
 ])
 
 show("S7: Musteri patron isterse -> REPLY BILDIRIMI", [

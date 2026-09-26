@@ -31,13 +31,13 @@ def isolated_state(tmp_path, monkeypatch):
     return tmp_path
 
 
-# --- payment (2.500 EUR Payoneer) ------------------------------------------
+# --- payment (5.000 EUR Payoneer) ------------------------------------------
 
-def test_retainer_label_is_2500_eur():
-    assert config.PAYMENT_AMOUNT == 2500 and config.PAYMENT_CURRENCY == "EUR"
-    assert nirvana_payment.retainer_amount() == 2500
+def test_retainer_label_is_5000_eur():
+    assert config.PAYMENT_AMOUNT == 5000 and config.PAYMENT_CURRENCY == "EUR"
+    assert nirvana_payment.retainer_amount() == 5000
     assert nirvana_payment.retainer_currency() == "EUR"
-    assert nirvana_payment.retainer_label() == "2.500 EUR"
+    assert nirvana_payment.retainer_label() == "5.000 EUR"
 
 
 def test_payment_link_refuses_placeholder(monkeypatch):
@@ -50,14 +50,14 @@ def test_payment_link_refuses_placeholder(monkeypatch):
 
 
 def test_payment_safety_accepts_eur_request(isolated_state, monkeypatch):
-    monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL", "https://link.payoneer.com/eur-2500")
+    monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL", "https://link.payoneer.com/eur-5000")
     monkeypatch.setattr(payment_safety, "PATH", isolated_state / "payment_readiness.json")
-    payment_safety.approve_link(chat_id=7, amount=2500, currency="EUR",
+    payment_safety.approve_link(chat_id=7, amount=5000, currency="EUR",
                                 recipient="ExampleRecipient", reference="REQ-EUR-1", owner_id=12)
     row = payment_safety.ready_request(7)
-    assert row is not None and row["currency"] == "EUR" and row["amount"] == 2500
+    assert row is not None and row["currency"] == "EUR" and row["amount"] == 5000
     # legacy USD lane still works
-    payment_safety.approve_link(chat_id=8, amount=2500, currency="USD",
+    payment_safety.approve_link(chat_id=8, amount=5000, currency="USD",
                                 recipient="ExampleRecipient", reference="REQ-USD-1", owner_id=12)
     assert payment_safety.ready_request(8)["currency"] == "USD"
 
@@ -65,7 +65,7 @@ def test_payment_safety_accepts_eur_request(isolated_state, monkeypatch):
 def test_renewal_message_carries_link_and_amount(monkeypatch):
     monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL", "https://www.payoneer.com/req/REN1")
     msg = nirvana_payment.renewal_message("Acme")
-    assert "2.500 EUR" in msg and "payoneer.com/req/REN1" in msg
+    assert "5.000 EUR" in msg and "payoneer.com/req/REN1" in msg
 
 
 # --- A. discovery -----------------------------------------------------------
@@ -254,7 +254,7 @@ def test_onboarding_is_gated_on_fulfillment(monkeypatch):
     monkeypatch.setattr(telegram_sessions, "fulfillment_ready", lambda cid: True)
     monkeypatch.setattr(telegram_sessions, "_row", lambda cid: {"chat_id": 42, "company": "Acme"})
     packet = onboarding.packet_for(42)
-    assert "Erişim kılavuzu" in packet and "read-only" in packet and "2.500 EUR" in packet
+    assert "Erişim kılavuzu" in packet and "read-only" in packet and "5.000 EUR" in packet
 
 
 # --- G. delivery (Oracle) ---------------------------------------------------
@@ -305,7 +305,7 @@ def test_retention_monthly_stats_and_renewal_link(tmp_path, monkeypatch):
     result = retention.run_batch(history_path=history, notify=False, client="Acme")
     assert result["stats"]["sweeps"] == 1
     assert result["stats"]["blocked_outages"] == 1
-    assert "2.500 EUR" in result["report"]
+    assert "5.000 EUR" in result["report"]
     assert "payoneer.com/req/REN2" in result["report"]
 
 
@@ -511,7 +511,7 @@ def test_contract_pack_contains_sla_nda_ip_and_disclaimer():
     text = cp.pack_text(company="Acme", domain="acme.com")
     assert "SLA" in text and "Gizlilik" in text and "mülkiyet" in text
     assert "hukuki danışmanlık değildir" in text
-    assert "2.500 EUR" in text
+    assert "5.000 EUR" in text
 
 
 def test_onboarding_packet_includes_contract_pack(monkeypatch):
@@ -576,8 +576,8 @@ def test_semantic_cache_roundtrip_and_ttl(isolated_state, monkeypatch):
     monkeypatch.setattr(sc, "DB_PATH", isolated_state / "cache.db")
     msgs = [{"role": "system", "content": "s"}, {"role": "user", "content": "Fiyat nedir?"}]
     assert sc.get(msgs) is None
-    assert sc.put(msgs, "2.500 EUR") is True
-    assert sc.get(msgs) == "2.500 EUR"
+    assert sc.put(msgs, "5.000 EUR") is True
+    assert sc.get(msgs) == "5.000 EUR"
     # farklı soru → farklı anahtar
     assert sc.get([{"role": "user", "content": "SLA var mı?"}]) is None
     # TTL: eski kayıt dönmez
@@ -621,7 +621,7 @@ def test_ssc_message_carries_identity_and_retainer(monkeypatch):
     monkeypatch.setattr(config, "OWNER_LINKEDIN_URL", "https://www.linkedin.com/in/fevzican-aytekin-0b5501105")
     r = ssc.evaluate(1, "şartları kabul ediyorum", brief={"report_id": "DS-9"}, row={},
                      link="https://link.payoneer.com/live")
-    assert "2.500 EUR" in r["message"] and "linkedin.com/in/fevzican-aytekin" in r["message"]
+    assert "5.000 EUR" in r["message"] and "linkedin.com/in/fevzican-aytekin" in r["message"]
 
 
 def test_ssc_find_report_url_from_state(isolated_state):
@@ -637,7 +637,7 @@ def test_bot_self_serve_close_sends_link_without_reply(isolated_state, monkeypat
     import telegram_sales_bot as bot
     import telegram_sessions
     monkeypatch.setattr(telegram_sessions, "PATH", isolated_state / "sessions.json")
-    monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL", "https://link.payoneer.com/live-2500eur")
+    monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL", "https://link.payoneer.com/live-5000eur")
     monkeypatch.setattr(bot, "_is_owner", lambda cid: False)
     monkeypatch.setattr(bot, "_hot_ping", AsyncMock())
     monkeypatch.setattr(bot.owner_notify, "send", lambda *a, **kw: True)
@@ -650,7 +650,7 @@ def test_bot_self_serve_close_sends_link_without_reply(isolated_state, monkeypat
                                                      reply_text=reply))
     asyncio.run(bot.on_text(update, SimpleNamespace(bot=None)))
     sent = reply.call_args.args[0]
-    assert "link.payoneer.com/live-2500eur" in sent
+    assert "link.payoneer.com/live-5000eur" in sent
     assert telegram_sessions._row(55).get("self_serve_link_sent")
 
 
@@ -658,7 +658,7 @@ def test_bot_terms_question_gets_pack_not_link(isolated_state, monkeypatch):
     import telegram_sales_bot as bot
     import telegram_sessions
     monkeypatch.setattr(telegram_sessions, "PATH", isolated_state / "sessions.json")
-    monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL", "https://link.payoneer.com/live-2500eur")
+    monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL", "https://link.payoneer.com/live-5000eur")
     monkeypatch.setattr(bot, "_is_owner", lambda cid: False)
     monkeypatch.setattr(bot, "_hot_ping", AsyncMock())
     monkeypatch.setattr(bot.owner_notify, "send", lambda *a, **kw: True)
@@ -683,7 +683,7 @@ def test_linkedin_outreach_draft_turkish(monkeypatch):
     monkeypatch.setattr(config, "OWNER_LINKEDIN_URL", "https://www.linkedin.com/in/fevzican-aytekin-0b5501105")
     draft = lr.build_outreach_draft("acme.com", "Acme", turkish=True)
     assert "Acme" in draft
-    assert "2.500 EUR/ay" in draft
+    assert "5.000 EUR/ay" in draft
     assert "linkedin.com/in/fevzican-aytekin" in draft
     # Ücretsiz iş yok: kanıt gösterilir, uygulama doğrulanmış ödeme sonrası başlar
     assert "ücretsiz" not in draft.lower()
@@ -695,7 +695,7 @@ def test_linkedin_outreach_draft_english(monkeypatch):
     monkeypatch.setattr(config, "OWNER_LINKEDIN_URL", "")
     draft = lr.build_outreach_draft("acme.com", "Acme", turkish=False)
     assert "Acme" in draft
-    assert "2.500 EUR/ay" in draft
+    assert "5.000 EUR/ay" in draft
     assert "free" not in draft.lower()
     assert "verified payment" in draft
 
@@ -1140,7 +1140,7 @@ def test_self_serve_send_close_to_turkish():
     msg = ssc.send_close_to("https://link.payoneer.com/x", turkish=True)
     assert "Anlaştık" in msg
     assert "link.payoneer.com" in msg
-    assert "2.500" in msg
+    assert "5.000" in msg
 
 
 def test_self_serve_send_close_to_english():
@@ -1148,7 +1148,7 @@ def test_self_serve_send_close_to_english():
     msg = ssc.send_close_to("https://link.payoneer.com/x", turkish=False)
     assert "Agreed" in msg
     assert "link.payoneer.com" in msg
-    assert "2.500" in msg
+    assert "5.000" in msg
 
 
 def test_self_serve_payment_mention():

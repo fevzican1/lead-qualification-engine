@@ -39,7 +39,7 @@ def test_loss_framing_never_invents_and_uses_live_price():
     from nirvana.conversion_maximizer import loss_framing
 
     line = loss_framing(None, turkish=True)
-    assert "2500" in line  # tek kaynak: nirvana.payment
+    assert "5000" in line  # tek kaynak: nirvana.payment
     assert "amorti" in line
 
 

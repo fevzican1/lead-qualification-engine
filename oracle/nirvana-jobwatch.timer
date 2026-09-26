@@ -1,10 +1,10 @@
 [Unit]
-Description=Nirvana Lane AO schedule — iş bekçisi her 5 dakika
+Description=Nirvana Lane AO schedule — iş bekçisi her 1 dakika (5 dk otonom onarım tavanı)
 
 [Timer]
-OnCalendar=*:0/5
+OnCalendar=*:0/1
 Persistent=true
-AccuracySec=20s
+AccuracySec=5s
 Unit=nirvana-jobwatch.service
 
 [Install]

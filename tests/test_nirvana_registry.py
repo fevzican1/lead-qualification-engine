@@ -106,10 +106,10 @@ def test_idleguard_unit_low_priority_and_bounded():
     assert "idle_guard" in text
 
 
-def test_payment_defaults_are_2500_eur():
+def test_payment_defaults_are_5000_eur():
     row = load_registry()["payment"]
-    assert row["amount"] == 2500 and row["currency"] == "EUR"
-    assert config.PAYMENT_AMOUNT == 2500
+    assert row["amount"] == 5000 and row["currency"] == "EUR"
+    assert config.PAYMENT_AMOUNT == 5000
     assert config.PAYMENT_CURRENCY == "EUR"
 
 

@@ -84,7 +84,7 @@ def loss_framing(brief: str | None, *, turkish: bool) -> str:
         dom_ms = 0
     loss = estimate_loss(dom_ms=dom_ms)
     line = loss_line(loss, turkish=turkish)
-    price = 2500
+    price = 5000
     currency = "EUR"
     try:
         from nirvana.payment import retainer_amount, retainer_currency
