@@ -797,6 +797,54 @@ def pending_urls(*, limit: int = 40) -> list[str]:
     return [str(row["url"]) for row in pending_rows(limit=limit)]
 
 
+def cooling_rows(*, limit: int = 100) -> list[dict[str, Any]]:
+    """SOĞUMA HAVUZU: ``next_try`` süresi henüz dolmamış (dinlenen) hedefler.
+
+    Ana motor bu satırları GÖRMEZ (``pending_rows`` yalnız hazırları verir);
+    süre dolduğunda hedef sessizce yeniden deneme havuzuna döner. Bu okuma
+    hiçbir şeyi değiştirmez (güvenli teşhis).
+    """
+    data = _queue()
+    now = datetime.now(timezone.utc)
+    out: list[dict[str, Any]] = []
+    for item in data.get("urls") or []:
+        if not isinstance(item, dict):
+            continue
+        nxt = _parse_ts(str(item.get("next_try") or ""))
+        if nxt is None or nxt <= now:
+            continue
+        out.append({
+            "url": origin_url(str(item.get("url") or "")),
+            "host": host_of(str(item.get("url") or "")),
+            "reason": str(item.get("defer_reason") or "deferred"),
+            "next_try": item.get("next_try"),
+        })
+        if len(out) >= int(limit):
+            break
+    return out
+
+
+def cooling_stats() -> dict[str, Any]:
+    """Soğuma havuzu özeti: toplam, neden dağılımı, en yakın dönüş (sn)."""
+    rows = cooling_rows()
+    now = datetime.now(timezone.utc)
+    reasons: dict[str, int] = {}
+    soonest: float | None = None
+    for row in rows:
+        reasons[row["reason"]] = reasons.get(row["reason"], 0) + 1
+        nxt = _parse_ts(str(row.get("next_try") or ""))
+        if nxt is None:
+            continue
+        secs = (nxt - now).total_seconds()
+        if secs > 0 and (soonest is None or secs < soonest):
+            soonest = secs
+    return {
+        "cooling": len(rows),
+        "reasons": reasons,
+        "soonest_return_s": round(soonest, 1) if soonest is not None else None,
+    }
+
+
 def prune_noise_queue() -> int:
     """Drop demo / hash-Shopify / gov junk already sitting in the live queue."""
     data = _queue()

@@ -119,6 +119,7 @@ def test_job_watchdog_red_when_work_stopped(tmp_path, monkeypatch):
 
 
 def test_job_watchdog_restart_after_streak(tmp_path, monkeypatch):
+    """Servis ÖLÜYSE (inactive) streak restart'ı ayağa kaldırır; ana hat durmaz."""
     _isolate(tmp_path, monkeypatch)
     monkeypatch.setattr(domain_store, "queue_depth", lambda: 0)
     monkeypatch.setattr(job_watchdog, "WEBCHAT_PORT", 9)
@@ -128,6 +129,7 @@ def test_job_watchdog_restart_after_streak(tmp_path, monkeypatch):
         dry_run=False,
         notify=False,
         restart_fn=lambda unit: restarted.append(unit) or {"unit": unit, "ok": True},
+        cmd_fn=lambda cmd: {"ok": True, "out": "inactive", "code": 3},
     )
     assert "nirvana-pipeline.service" in restarted
 
@@ -276,10 +278,33 @@ def _red_verdict():
             "webchat_sessions_today": 0, "webchat_last_seen_s": None}
 
 
+def test_job_watchdog_success_is_silent_by_default(tmp_path, monkeypatch):
+    """PROTOKOL: akış yeniden işliyorsa kimse rahatsız edilmez (sessiz onarım)."""
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(job_watchdog, "STREAK", 99)
+    monkeypatch.delenv("JOB_WATCHDOG_NOTIFY_ON_FIX", raising=False)
+    messages: list[str] = []
+    report = job_watchdog.run_batch(
+        dry_run=False, notify=True, checks=_signals_red(), auto_loop=True,
+        sweep_fn=lambda **kwargs: [],
+        sleep_fn=lambda seconds: None,
+        probe_fn=lambda: (_signals_red(queue_depth=500), _green_verdict()),
+        restart_fn=lambda unit: {"unit": unit, "ok": True},
+        cmd_fn=lambda cmd: {"ok": True},
+        db_fn=lambda path: False,
+        kill_fn=lambda **kwargs: {"ok": True},
+        wal_fn=lambda path: {"ok": True},
+        notify_fn=lambda msg: messages.append(msg) or True,
+    )
+    assert report["recovery"]["resolved"] is True
+    assert messages == [], "sessiz onarım: Telegram YOK"
+
+
 def test_job_watchdog_autonomous_success_single_line_message(tmp_path, monkeypatch):
-    """İş 5 dk içinde otonom çözülürse SADECE tek satır 'Kök Neden' bildirimi gider."""
+    """JOB_WATCHDOG_NOTIFY_ON_FIX=1 ise SADECE tek satır 'Kök Neden' bilgisi gider."""
     _isolate(tmp_path, monkeypatch)
     monkeypatch.setattr(job_watchdog, "STREAK", 99)  # hızlı streak restart devre dışı
+    monkeypatch.setenv("JOB_WATCHDOG_NOTIFY_ON_FIX", "1")
     messages: list[str] = []
     report = job_watchdog.run_batch(
         dry_run=False, notify=True, checks=_signals_red(), auto_loop=True,
@@ -301,8 +326,8 @@ def test_job_watchdog_autonomous_success_single_line_message(tmp_path, monkeypat
     assert "Kök Neden:" in line and "-> 5 dk içinde Otonom Onarıldı" in line
 
 
-def test_job_watchdog_chromium_lock_kills_and_restarts(tmp_path, monkeypatch):
-    """5 dk form yok + iş kırmızı → pkill -9 -f chromium + pipeline restart."""
+def test_job_watchdog_chromium_lock_kill_does_not_stop_pipeline(tmp_path, monkeypatch):
+    """5 dk form yok → pkill -9 -f chromium; ANA PIPELINE DURDURULMAZ (servis restart yok)."""
     _isolate(tmp_path, monkeypatch)
     monkeypatch.setattr(job_watchdog, "STREAK", 99)
     state = {"forms_last_count": 0, "forms_last_ts": time.time() - 400}
@@ -317,12 +342,67 @@ def test_job_watchdog_chromium_lock_kills_and_restarts(tmp_path, monkeypatch):
         restart_fn=lambda unit: restarted.append(unit) or {"unit": unit, "ok": True},
         kill_fn=lambda **kwargs: killed.append(kwargs) or {"ok": True},
         db_fn=lambda path: False,
-        cmd_fn=lambda cmd: {"ok": True},
+        cmd_fn=lambda cmd: {"ok": True, "out": "active", "code": 0},
         notify_fn=lambda msg: True,
     )
     assert killed, "5 dk form yok → Chromium süreçleri indirilmeliydi"
-    assert "nirvana-pipeline.service" in restarted
+    assert restarted == [], "ana pipeline bir saniye bile durdurulmaz"
     assert report["recovery"]["root_cause"] == job_watchdog.RC_CHROMIUM
+
+
+def test_job_watchdog_quarantine_moves_stuck_host_to_cooling_pool(tmp_path, monkeypatch):
+    """Takılan submit hedefi soğuma havuzuna taşınır; ana motor onu görmez."""
+    _isolate(tmp_path, monkeypatch)
+    queue = {
+        "urls": [
+            {"url": "https://takilan.example/iletisim", "source": "queue",
+             "queued_at": "2021-01-01T00:00:00+00:00", "fails": 0, "easy_score": 90,
+             "defer_reason": "submit_in_progress_guard",
+             "next_try": "2021-01-01T00:00:01+00:00"},
+            {"url": "https://saglikli.example/iletisim", "source": "queue",
+             "queued_at": "2021-01-01T00:00:00+00:00", "fails": 0, "easy_score": 80},
+        ],
+        "updated_at": "2021-01-01T00:00:00+00:00",
+    }
+    (tmp_path / "queue.json").write_text(json.dumps(queue), encoding="utf-8")
+    moved = job_watchdog.quarantine_stuck_hosts()
+    assert moved == ["takilan.example"]
+    stats = domain_store.cooling_stats()
+    assert stats["cooling"] == 1
+    ready = [row["url"] for row in domain_store.pending_rows(limit=10)]
+    assert all("takilan.example" not in url for url in ready), "ana motor soğuyanı görmez"
+    assert any("saglikli.example" in url for url in ready)
+
+
+def test_job_watchdog_keepalive_starts_dead_pipeline(tmp_path, monkeypatch):
+    """Motor ölüyse anında ayağa kaldırılır: ana hat hiç durmaz."""
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(job_watchdog, "STREAK", 99)
+    restarted: list[str] = []
+    report = job_watchdog.run_batch(
+        dry_run=False, notify=False,
+        checks=_signals_red(queue_depth=500, forms_expected=0),
+        restart_fn=lambda unit: restarted.append(unit) or {"unit": unit, "ok": True},
+        cmd_fn=lambda cmd: {"ok": True, "out": "inactive", "code": 3},
+        sweep_fn=lambda **kwargs: [],
+    )
+    assert "nirvana-pipeline.service" in restarted
+    assert any(r.get("signal") == "keepalive" for r in report["restarts"])
+
+
+def test_job_watchdog_alive_pipeline_is_never_restarted(tmp_path, monkeypatch):
+    """Servis ayaktaysa hiçbir koşulda restart edilmez (motor durmaz)."""
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(job_watchdog, "STREAK", 1)
+    restarted: list[str] = []
+    job_watchdog.run_batch(
+        dry_run=False, notify=False,
+        checks=_signals_red(queue_depth=0, forms_expected=100, forms_today=0),
+        restart_fn=lambda unit: restarted.append(unit) or {"unit": unit, "ok": True},
+        cmd_fn=lambda cmd: {"ok": True, "out": "active", "code": 0},
+        sweep_fn=lambda **kwargs: [],
+    )
+    assert "nirvana-pipeline.service" not in restarted
 
 
 def test_job_watchdog_port_lock_clears_port_and_resets_unit(tmp_path, monkeypatch):
@@ -374,12 +454,11 @@ def test_job_watchdog_wal_reset_on_sqlite_lock(tmp_path, monkeypatch):
     assert report["recovery"]["root_cause"] == job_watchdog.RC_DB
 
 
-def test_job_watchdog_hard_cap_reboots_without_notify(tmp_path, monkeypatch):
-    """5 dk içinde çözülmezse: izin/bildirim OLMADAN reboot; Telegram YOK."""
+def test_job_watchdog_never_reboots_engine_continues(tmp_path, monkeypatch):
+    """Çözülemeyen kırmızıda bile REBOOT YOK; motor kesintisiz çalışır, Telegram susar."""
     _isolate(tmp_path, monkeypatch)
     monkeypatch.setattr(job_watchdog, "STREAK", 99)
     messages: list[str] = []
-    reboots: list[dict] = []
     report = job_watchdog.run_batch(
         dry_run=False, notify=True, auto_loop=True, budget_s=0.0,
         checks=_signals_red(queue_depth=500, forms_expected=0, webchat_health=False),
@@ -391,15 +470,14 @@ def test_job_watchdog_hard_cap_reboots_without_notify(tmp_path, monkeypatch):
         cmd_fn=lambda cmd: {"ok": True},
         kill_fn=lambda **kwargs: {"ok": True},
         db_fn=lambda path: False,
-        reboot_fn=lambda **kwargs: reboots.append(kwargs) or {"ok": True,
-                                                              "cmd": "sudo reboot"},
         notify_fn=lambda msg: messages.append(msg) or True,
     )
-    assert reboots, "sert tavan dolunca reboot çalışmalı"
-    assert messages == [], "reboot durumunda Telegram mesajı YOK"
+    assert messages == [], "çözülmeyen kırmızıda Telegram YOK"
     assert report["recovery"]["resolved"] is False
-    assert report["recovery"]["rebooted"] is True
-    assert report["notified"] == []
+    assert report["recovery"].get("rebooted") is False
+    assert not any("reboot" in n.lower() and "yok" not in n.lower()
+                   for n in report["notes"]), "reboot notu yok"
+    assert any("port_clear" in a for a in report["recovery"]["applied"])
 
 
 def test_job_watchdog_source_has_no_manual_intervention_text():
@@ -411,10 +489,20 @@ def test_job_watchdog_source_has_no_manual_intervention_text():
         assert banned not in src, f"yasaklı ifade kaynakta: {banned}"
 
 
+def test_job_watchdog_source_never_calls_reboot():
+    """Kod kazıması: bu bekçi sunucuyu ASLA yeniden başlatmaz (REBOOT YOK)."""
+    import inspect
+
+    src = inspect.getsource(job_watchdog)
+    assert '"sudo", "reboot"' not in src
+    assert '"systemctl", "reboot"' not in src
+    assert "hard_reboot" not in src
+
+
 def test_job_watchdog_timer_scans_every_minute():
-    """Tarama 1 dk; servis 5 dk otonom onarım tavanına göre zaman aşımı taşır."""
+    """Tarama 1 dk; servis 5 dk onarım penceresine göre zaman aşımı taşır."""
     timer = (config.ROOT / "oracle" / "nirvana-jobwatch.timer").read_text(encoding="utf-8")
     service = (config.ROOT / "oracle" / "nirvana-jobwatch.service").read_text(encoding="utf-8")
     assert "OnCalendar=*:0/1" in timer
     assert "TimeoutStartSec=420" in service
-    assert "sudo reboot" in service
+    assert "reboot yok" in service.lower()

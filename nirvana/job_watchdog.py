@@ -12,12 +12,19 @@ Bu lane SERVİSİN DEĞİL İŞİN sağlığına bakar:
 
 Otonom onarım döngüsü (1 dk'da bir tarama; MAKSİMUM 5 dakika; kök neden odaklı):
 
-- Chromium kilidi : 5 dk boyunca form yoksa ``pkill -9 -f chromium`` + servis restart.
+- Chromium kilidi : 5 dk boyunca form yoksa ``pkill -9 -f chromium``; aynı
+  durgunluk döneminde ikinci kez indirilmez (uçuştaki iş kesilmez).
 - Port kilidi     : WebChat ``/health`` yanıtsızsa ``fuser -k -9 <port>/tcp`` +
   ``systemctl reset-failed`` + ``systemctl restart``.
 - SQLite WAL kilidi: kilitli veritabanında checkpoint + ``-wal``/``-shm`` sıfırlama.
 - Asılı süreçler  : yaş tavanını aşan pipeline / boru sarmalayıcı süreçler süpürülür.
-- SERT TAVAN      : 5 dakika içinde çözülmezse izin/bildirim OLMADAN ``sudo reboot``.
+- MOTOR KESİNTİSİZ: pipeline servisi ölüyse anında ayağa kaldırılır; form hattı
+  hiçbir koşulda bekletilmez (soğuma yok, duraklama yok).
+- REBOOT YOK     : bu bekçi sunucuyu ASLA yeniden başlatmaz. Nokta atışı onarım
+  sorunu kaynağında bir kez kesin çözer; motor kesintisiz form basar.
+
+GÜN TAMAM: 400/400 kota dolduysa iş hattı yeşil sayılır; yakıt (15 dk) + feed
+(saatlik) timer'ları yarını hazırlar; gece boyunca da kesinti olmaz.
 
 Bildirim SADECE iş otonom çözüldüğünde, tek satır:
 ``Kök Neden: [X] -> 5 dk içinde Otonom Onarıldı`` (spam yok; operatör beklenmez).
@@ -51,12 +58,21 @@ FORMS_GRACE_HOUR = int(os.getenv("JOB_WATCHDOG_FORMS_GRACE_HOUR", "3") or 3)
 # 2026-09-25: cgroup dışında başlatılan `pipeline.py --targets ... | tail -n 50`
 # süreci 9 saat asılı kaldı; `systemctl restart` onu öldüremedi.
 STUCK_PROC_MAX_AGE_S = float(os.getenv("JOB_WATCHDOG_STUCK_MAX_AGE_S", "2700") or 2700)
-# Otonom müdahale döngüsü (MAKSİMUM 5 dk sert tavan): timer 1 dk'da bir tarar;
-# tavan dolduğunda ve iş hâlâ kırmızıysa `sudo reboot` (izin/bildirim yok).
+# Otonom müdahale döngüsü: timer 1 dk'da bir tarar; teşhis 0-30 sn, yerinde
+# ameliyat 30-90 sn, doğrulama 90-120 sn. Ana pipeline bir saniye bile durmaz;
+# servis komple kapatılmaz, SOĞUMA ve REBOOT YOKTUR.
 HARD_CAP_S = float(os.getenv("JOB_WATCHDOG_HARD_CAP_S", "300") or 300)
 VERIFY_WAIT_S = float(os.getenv("JOB_WATCHDOG_VERIFY_WAIT_S", "20") or 20)
 FORM_IDLE_S = float(os.getenv("JOB_WATCHDOG_FORM_IDLE_S", "300") or 300)
 MAX_ROUNDS = int(os.getenv("JOB_WATCHDOG_MAX_ROUNDS", "12") or 12)
+# ZOMBİ EŞİĞİ: bu sayının üstündeki chromium süreç yığını RAM'i şişiren zombidir
+# → yerinde ameliyat: süreçler indirilir (servis durdurulmaz).
+CHROMIUM_MAX_PROCS = int(os.getenv("JOB_WATCHDOG_CHROMIUM_MAX_PROCS", "24") or 24)
+# MOTOR ASLA DURMAZ: aynı durgunluk döneminde (form sayacı değişmeden) ikinci
+# chromium kill yapılmaz — uçuştaki iş kesilmez. Form gelince dönem tazelenir.
+# Onarımlar her turda ANINDA uygulanır; bekleme/soğuma/reboot YOKTUR. Canlı
+# arıza 2026-09-28: 1 dk arayla tekrarlanan kill + 4-5 dk'lık reboot döngüsü
+# form hattını günlerce felç etti; bu iki hata bir daha imkânsız.
 
 # Kök neden etiketleri: tek satır başarı bildiriminde kullanılır.
 RC_DB = "SQLite WAL Kilidi"
@@ -412,29 +428,6 @@ def reset_wal(path: Path) -> dict[str, Any]:
     return out
 
 
-def reboot_enabled() -> bool:
-    """Sert tavan reboot anahtarı: varsayılan AÇIK; bakım için env ile kapatılır."""
-    if os.name != "posix":
-        return False
-    raw = str(os.getenv("JOB_WATCHDOG_REBOOT", "1")).strip().lower()
-    return raw not in {"0", "false", "no", "off"}
-
-
-def hard_reboot(*, cmd_fn: Any = None) -> dict[str, Any]:
-    """5 dk sert tavan doldu: izin/BİLDİRİM YOK — sunucu baştan başlatılır."""
-    if cmd_fn is None and not reboot_enabled():
-        return {"ok": False, "skipped": "JOB_WATCHDOG_REBOOT=0"}
-    last: dict[str, Any] = {"ok": False}
-    for cmd in (["sudo", "reboot"], ["systemctl", "reboot"]):
-        last = _run(cmd, timeout=15, cmd_fn=cmd_fn)
-        if last.get("ok"):
-            logger.warning("5 dk sert tavan — sunucu yeniden başlatılıyor: %s",
-                           " ".join(cmd))
-            return {**last, "cmd": " ".join(cmd)}
-    return {**last, "cmd": "sudo reboot",
-            "error": last.get("error") or "reboot başarısız"}
-
-
 def form_idle_update(
     state: dict[str, Any], sig: dict[str, Any], *, now: float | None = None,
 ) -> float | None:
@@ -658,6 +651,73 @@ def _idle_from_state(state: dict[str, Any]) -> float | None:
         return None
 
 
+def unit_active(unit: str, *, cmd_fn: Any = None) -> bool | None:
+    """``systemctl is-active``: True/False; okunamazsa None (fail-open)."""
+    out = _run(["systemctl", "is-active", unit], timeout=10, cmd_fn=cmd_fn)
+    text = str(out.get("out") or "").strip()
+    if not text:
+        return None
+    return text == "active"
+
+
+def chromium_processes(*, rows: list[tuple[int, int, str]] | None = None) -> int:
+    """Canlı chromium süreç sayısı — zombi teşhisi (posix-dışı: 0)."""
+    if rows is None:
+        if os.name != "posix":
+            return 0
+        rows = _ps_rows()
+    return sum(1 for _pid, _age, args in rows if "chromium" in args)
+
+
+def fix_notify_enabled() -> bool:
+    """Sessiz onarım varsayılanı: yalnız env ile açılırsa tek satır gönderilir."""
+    raw = str(os.getenv("JOB_WATCHDOG_NOTIFY_ON_FIX", "0")).strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def quarantine_stuck_hosts(*, limit: int = 3) -> list[str]:
+    """Takılan submit host'unu SOĞUMA HAVUZUNA taşı — ana motor durmaz.
+
+    ``submit_in_progress_guard`` kirası asılı kalan hedef 30 dk dinlenmeye
+    alınır; ana hat o ölü hedefte takılı kalmaz, kuyruktaki diğer taze
+    lead'lere saniyesinde devam eder. Süre dolunca hedef sessizce yeniden
+    denenir (``domain_store.pending_rows`` otomatik geri alır).
+    """
+    out: list[str] = []
+    try:
+        import domain_store
+
+        rows = domain_store.pending_rows(limit=50)
+    except Exception:  # noqa: BLE001 — kuyruk okunamazsa karantina atlanır
+        return out
+    minutes = float(os.getenv("JOB_WATCHDOG_COOLING_MINUTES", "30") or 30)
+    for row in rows:
+        try:
+            if str(row.get("defer_reason") or "") != "submit_in_progress_guard":
+                continue
+            url = str(row.get("url") or "")
+            if not url:
+                continue
+            domain_store.defer(url, hours=minutes / 60.0,
+                               reason="cooling:stuck_submit", count_fail=False)
+            out.append(domain_store.host_of(url) or url)
+        except Exception:  # noqa: BLE001 — tek host hatası karantinayı düşürmez
+            continue
+        if len(out) >= limit:
+            break
+    return out
+
+
+def cooling_stats() -> dict[str, Any]:
+    """Soğuma havuzu özeti (teşhis görünürlüğü; hata halinde boş)."""
+    try:
+        import domain_store
+
+        return dict(domain_store.cooling_stats())
+    except Exception:  # noqa: BLE001
+        return {"cooling": 0, "reasons": {}, "soonest_return_s": None}
+
+
 def autonomous_recover(
     sig: dict[str, Any],
     verdict: dict[str, Any],
@@ -665,15 +725,20 @@ def autonomous_recover(
     state: dict[str, Any],
     **kw: Any,
 ) -> dict[str, Any]:
-    """Kök nedene göre otonom müdahale; MAKSİMUM 5 dk sonra çözülmezse sert reboot.
+    """Kök nedene göre otonom müdahale; MOTOR ASLA DURMAZ, soğuma yoktur.
 
-    Sıra (kök neden odaklı):
-      1. SQLite WAL kilidi varsa checkpoint + ``-wal``/``-shm`` sıfırla.
-      2. WebChat yanıtsızsa ``fuser -k -9 <port>/tcp`` + reset-failed + restart.
-      3. 5 dk form yoksa Chromium'u ``-9`` ile indir + pipeline restart + süpürge.
-      4. Kırmızı süren diğer iş sinyallerinde kaçak süpürge + pipeline restart.
-    Tur sonunda ölçüm yinelenir; iş yeşile dönerse TEK SATIR bildirim gider.
-    Süre dolduğunda hâlâ kırmızıysa izin/bildirim olmadan ``sudo reboot``.
+    NOKTA ATIŞI ONARIM — tek seferde kesin çözüm, aynı turda doğrulama:
+
+    1. SQLite kilidi  : checkpoint + ``-wal``/``-shm`` sıfırla (kilit kırılır).
+    2. WebChat ölü    : ``fuser -k -9 <port>/tcp`` + reset-failed + restart
+                        (port boşalır, kapı aynı turda açılır).
+    3. Chromium kilidi: ``pkill -9 -f chromium`` + süpürge + pipeline tazeleme
+                        (yeni tarayıcı oturumu anında ayağa kalkar).
+    4. Servis ölü     : pipeline anında başlatılır (motor hiç durmaz).
+    Her müdahale sonrası ölçüm aynı tur içinde yinelenir; iş yeşile dönerse TEK
+    SATIR bildirim gider. Çözüm uygulanamıyorsa tur biter — motor kesintisiz
+    çalışmaya devam eder. REBOOT YOKTUR, bekleme YOKTUR: onarım tekrarlanmaz,
+    sorun kaynağında bir kez kesin çözülür.
     """
     now = kw.get("now_fn") or _now
     sleep = kw.get("sleep_fn") or time.sleep
@@ -727,6 +792,8 @@ def autonomous_recover(
             break
         if applied and float(now()) - started >= budget * 0.98:
             break  # tavan doldu: yeni müdahale yok, karar aşağıda verilir
+        applied_before = len(applied)
+        now_ts = float(now())
         db_paths = _locked_dbs(kw.get("db_fn"))
         if db_paths and once("wal"):
             wal = kw.get("wal_fn") or reset_wal
@@ -749,20 +816,27 @@ def autonomous_recover(
                 applied.append("restart:webchat")
         if red & {"queue", "fuel", "forms"}:
             idle_now = _idle_from_state(state)
-            if idle_now is not None and idle_now >= FORM_IDLE_S and once("chromium"):
-                # 5 dk form yok → Chromium kilidi: tüm chromium süreçleri indirilir.
+            episode = int(sig.get("forms_today") or 0)
+            # TEŞHİS (0-30 sn): zombi tarayıcı yığını veya 5 dk form yokluğu
+            # kilit kanıtıdır; asılı submit kirası da ölü hedefi işaretler.
+            zombies = chromium_processes()
+            heavy = (zombies > CHROMIUM_MAX_PROCS and idle_now is not None
+                     and idle_now >= 120)
+            lock = idle_now is not None and idle_now >= FORM_IDLE_S
+            # AMELİYAT (30-90 sn): YALNIZ alt bileşen resetlenir; ana hat durmaz.
+            # Aynı durgunluk döneminde ikinci kill yok (uçuştaki iş kesilmez).
+            if ((lock or heavy) and once("chromium")
+                    and int(state.get("chromium_kill_episode") or -1) != episode):
                 (kw.get("kill_fn") or kill_chromium)(cmd_fn=cmd_fn)
-                applied.append(f"chromium_kill(idle={int(idle_now)}s)")
-            if once("pipeline"):
-                try:
-                    swept = (kw.get("sweep_fn") or sweep_stuck_processes)(
-                        max_age_s=kw.get("sweep_max_age_s"))
-                except Exception:  # noqa: BLE001 — süpürge hatası döngüyü düşürmez
-                    swept = []
-                if swept:
-                    applied.append(f"stray_sweep:{len(swept)}")
-                (kw.get("restart_fn") or restart_unit)(PIPELINE_UNIT)
-                applied.append("restart:pipeline")
+                state["chromium_kill_episode"] = episode
+                applied.append(f"chromium_kill(idle={int(idle_now or 0)}s,zombi={zombies})")
+            # Takılan hedef SOĞUMA HAVUZUNA taşınır (30 dk); ana motor kuyruktaki
+            # taze lead'lerle kesintisiz devam eder, ölü host hat'ı tıkamaz.
+            if lock and once("quarantine") and applied_before == 0:
+                stuck = [h for h in (kw.get("quarantine_fn")
+                                     or quarantine_stuck_hosts)() if h]
+                if stuck:
+                    applied.append(f"cooling_pool:{','.join(stuck[:3])}")
         remaining = deadline - float(now())
         if remaining <= 0:
             break
@@ -771,6 +845,8 @@ def autonomous_recover(
         if not verdict.get("red"):
             resolved = True
             break
+        if len(applied) == applied_before:
+            break  # nokta atışı tamam; yapılacak kalmadı — motor çalışmaya devam
         if float(now()) >= deadline:
             break
 
@@ -778,17 +854,23 @@ def autonomous_recover(
     if not resolved and not verdict.get("red"):
         resolved = True  # son ölçüm temiz: iş kurtuldu
     if resolved:
+        # PROTOKOL: akış yeniden tıkır tıkır işliyorsa kimse rahatsız edilmez
+        # (sessiz onarım). Tek satır bilgi yalnız
+        # JOB_WATCHDOG_NOTIFY_ON_FIX=1 iken gönderilir.
         msg = f"[DevSolve Ops] Kök Neden: {label} -> 5 dk içinde Otonom Onarıldı"
-        sent = bool((kw.get("notify_fn") or _notify)(msg))
-        if sent:
-            notified.append(label)
+        if fix_notify_enabled():
+            sent = bool((kw.get("notify_fn") or _notify)(msg))
+            if sent:
+                notified.append(label)
         return {**base, "resolved": True, "rebooted": False, "message": msg,
-                "waited_s": waited}
-    reboot = (kw.get("reboot_fn") or hard_reboot)(cmd_fn=cmd_fn)
-    rebooted = bool(isinstance(reboot, dict) and reboot.get("ok"))
-    logger.warning("5 dk sert tavan doldu (%s) — OTONOM REBOOT, bildirim YOK", label)
-    return {**base, "resolved": False, "rebooted": rebooted, "reboot": reboot,
-            "waited_s": waited}
+                "notified_sent": bool(notified), "waited_s": waited}
+    # REBOOT YOK: motor kesintisiz çalışır. Kırmızı sürse bile sunucu asla
+    # yeniden başlatılmaz; onarımlar bir sonraki turda yinelenir ve form hattı
+    # kesintisiz form basmaya devam eder (canlı arıza 2026-09-28: 4-5 dk'lık
+    # otomatik reboot döngüsü form hattını felç etmişti).
+    logger.warning("5 dk penceresi doldu (%s) — onarım sürüyor, motor çalışmaya "
+                   "devam ediyor (reboot YOK)", label)
+    return {**base, "resolved": False, "rebooted": False, "waited_s": waited}
 def _acquire_singleton() -> Any:
     """Canlı turlar için tek örnek kilidi (timer 1 dk; döngü 5 dk sürebilir).
 
@@ -845,10 +927,11 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def run_batch(**kwargs: Any) -> dict[str, Any]:
-    """Ölç → kırmızı say → (streak dolunca) restart → 5 dk otonom onarım döngüsü.
+    """Ölç → teşhis → yerinde ameliyat (1-2 dk) → doğrula → kesintisiz devam.
 
-    Bildirim YALNIZCA döngü işi otonom çözdüğünde tek satır gider; sorun 5 dk
-    içinde çözülmezse sert tavan devreye girer: izin/bildirim olmadan reboot.
+    Ana motor (pipeline) ASLA durdurulmaz: teşhis 0-30 sn, müdahale 30-90 sn
+    (chromium zombisi / takılan hedef → soğuma havuzu / port / WAL), doğrulama
+    90-120 sn. Akış işliyorsa sessiz devam edilir; REBOOT ve SOĞUMA YOKTUR.
     """
     notify = bool(kwargs.get("notify", True))
     dry_run = bool(kwargs.get("dry_run", False))
@@ -876,6 +959,33 @@ def run_batch(**kwargs: Any) -> dict[str, Any]:
     restarts: list[dict[str, Any]] = []
     notified: list[str] = []
     notes: list[str] = []
+    # GÜN TAMAM (400/400): iş hattı bugünlük bitti → kuyruk/yakıt/form yeşil
+    # sayılır; restart/kill/reboot YOK. Yakıt (15 dk) + feed (saatlik) timer'ları
+    # yarını hazırlar; auto_runner gece cap bekleyip sabah taze kuyrukla başlar.
+    daily_done = False
+    daily_cap_seen = 0
+    forms_seen = sig.get("forms_today")
+    try:
+        import knowledge as _knowledge
+
+        daily_cap_seen = int(_knowledge.daily_cap())
+        daily_done = bool(
+            daily_cap_seen > 0 and forms_seen is not None
+            and int(forms_seen) >= daily_cap_seen)
+    except Exception:  # noqa: BLE001 — kota okunamazsa normal akış sürer
+        daily_done = False
+    if daily_done:
+        for _name in ("queue", "fuel", "forms"):
+            verdict["checks"][_name] = {
+                "ok": True,
+                "detail": (f"günlük kota tamam ({int(forms_seen)}/{daily_cap_seen})"
+                           " — yarın hazırlığı"),
+            }
+        verdict["red"] = [n for n in verdict["red"] if n not in {"queue", "fuel", "forms"}]
+        verdict["ok"] = not verdict["red"]
+        notes.append(
+            f"Günlük kota tamam ({int(forms_seen)}/{daily_cap_seen}) — "
+            "yarın için yakıt/kuyruk beslemesi timer'larda sürüyor")
     test_mode = kwargs.get("restart_fn") is not None and not systemd_available()
     # OTONOM TEMİZLİK (her turda, systemd'ye bağımsız): systemd cgroup'u dışında
     # asılı kalmış pipeline/tail kaçaklarını yaş tavanıyla öldür. 2026-09-25
@@ -907,6 +1017,11 @@ def run_batch(**kwargs: Any) -> dict[str, Any]:
                 and (systemd_available() or test_mode)
                 and now - float(row.get("last_restart") or 0) >= RESTART_COOLDOWN_S
             )
+            if can_restart and unit == PIPELINE_UNIT:
+                # ANA HAT DURMAZ: servis yalnızca ÖLÜYSE ayağa kaldırılır;
+                # sağlıklı motor asla kesilmez (yerinde ameliyat kuralı).
+                if unit_active(unit, cmd_fn=kwargs.get("cmd_fn")) is not False:
+                    can_restart = False
             if can_restart:
                 result = (kwargs.get("restart_fn") or restart_unit)(unit)
                 row["last_restart"] = now
@@ -918,6 +1033,19 @@ def run_batch(**kwargs: Any) -> dict[str, Any]:
                 )
         signals[name] = row
 
+    # MOTOR KESİNTİSİZ: form hattı servisi ölüyse ANINDA ayağa kaldırılır.
+    # Bu denetim her turda çalışır; kırmızı beklemez, duraklama/soğuma yoktur.
+    if allow_restart and not dry_run:
+        try:
+            alive = unit_active(PIPELINE_UNIT, cmd_fn=kwargs.get("cmd_fn"))
+            if alive is False:
+                result = (kwargs.get("restart_fn") or restart_unit)(PIPELINE_UNIT)
+                restarts.append({"signal": "keepalive", **result})
+                notes.append("motor keep-alive: nirvana-pipeline.service "
+                             "ayağa kaldırıldı")
+        except Exception:  # noqa: BLE001 — denetim hatası bekçiyi düşürmez
+            logger.warning("keep-alive denetimi atlandı", exc_info=True)
+
     # 5 DAKİKALIK OTONOM MÜDAHALE DÖNGÜSÜ (kök neden odaklı; sert tavanlı).
     # Canlı turlarda (bildirim açık) varsayılan olarak çalışır; testler
     # auto_loop/probe_fn/sleep_fn enjeksiyonlarıyla döngüyü deterministik kılar.
@@ -928,7 +1056,7 @@ def run_batch(**kwargs: Any) -> dict[str, Any]:
     if auto_loop and allow_restart and verdict["red"]:
         injected = {key: kwargs[key] for key in (
             "now_fn", "sleep_fn", "probe_fn", "cmd_fn", "restart_fn", "sweep_fn",
-            "kill_fn", "wal_fn", "db_fn", "notify_fn", "reboot_fn",
+            "kill_fn", "wal_fn", "db_fn", "notify_fn", "quarantine_fn",
             "budget_s", "wait_s", "sweep_max_age_s",
         ) if key in kwargs}
         recovery = autonomous_recover(sig, verdict, state=state, **injected)
@@ -937,8 +1065,15 @@ def run_batch(**kwargs: Any) -> dict[str, Any]:
             notes.append(f"kök neden: {recovery['root_cause']}")
         for action in recovery.get("applied") or []:
             notes.append(f"otonom müdahale: {action}")
-        if recovery.get("rebooted"):
-            notes.append("5 dk sert tavan: OTONOM REBOOT (bildirim yok)")
+        if not recovery.get("resolved") and recovery.get("applied"):
+            notes.append("nokta atışı onarım uygulandı; motor kesintisiz sürüyor "
+                         "(reboot yok)")
+
+    cool = cooling_stats()
+    if int(cool.get("cooling") or 0) > 0:
+        notes.append(
+            f"soğuma havuzu: {int(cool['cooling'])} hedef dinleniyor "
+            f"(en yakın dönüş {cool.get('soonest_return_s')}s)")
 
     state["signals"] = signals
     state["last_run"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
@@ -970,9 +1105,10 @@ def run_batch(**kwargs: Any) -> dict[str, Any]:
         "forms_expected": sig.get("forms_expected"),
         "forms_idle_s": state.get("forms_idle_s"),
         "recovery": recovery,
+        "cooling": cool,
         "hard_cap_s": HARD_CAP_S,
         "state": str(state_path(STATE_NAME)),
         "note": ("İş seviyesi bekçi: kuyruk+yakıt+form+webchat. 1 dk tarama; "
-                 "kırmızıda kök neden müdahalesi (chromium/port/WAL); 5 dk "
-                 "içinde çözülmezse otonom reboot."),
+                 "nokta atışı onarım (chromium/port/WAL) anında uygulanır, "
+                 "motor asla durmaz, REBOOT YOK."),
     }
