@@ -419,6 +419,14 @@ FEED_RAW_URL: str = _get(
 FEED_URL: str = _get("FEED_URL")
 FEED_GITHUB_TOKEN: str = _get("FEED_GITHUB_TOKEN")
 SITE_TIMEOUT_SECONDS: int = _get_int("SITE_TIMEOUT_SECONDS", 45)
+# KURAL 3 — 30 sn HARD WALL: tek form gönderim denemesinin duvar-saati tavanı.
+# Site 30 sn'de yanıt vermez/kilitlenirse İPTAL + karantina + sıradaki taze
+# lead: sistem beklemez, soğumaya geçmez, reboot YOK. pipeline'daki
+# _arm_hard_kill bunu kesinleştirir (duvar-saati dolan an tarayıcı pkill ile
+# imha edilir; ana motor/systemd asla durmaz).
+SUBMIT_HARD_TIMEOUT_SECONDS: float = _get_float("SUBMIT_HARD_TIMEOUT_SECONDS", 30.0)
+# Hard timeout ile karantinaya alınan host'un dokunulmazlık süresi (saat).
+SUBMIT_QUARANTINE_HOURS: float = _get_float("SUBMIT_QUARANTINE_HOURS", 6.0)
 # Max hosts per pipeline --submit invocation (~5–15 min wall time). 24 → with the
 # ~22% confirm rate, up to ~5-6 confirmed posts per visit batch — enough to fill
 # the 40/hour floor in fewer cycles while the per-provider pacing still protects.

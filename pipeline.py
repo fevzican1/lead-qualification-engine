@@ -22,6 +22,8 @@ import json
 import logging
 import os
 import sys
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -324,9 +326,69 @@ def _reusable_lead(leads: list[dict[str, Any]], url: str, min_score: int) -> dic
     return None
 
 
-def _collect_one(page: Page, url: str, probe: dict[str, Any]) -> dict[str, Any]:
+def _chromium_alive(bundle: dict[str, Any]) -> bool:
+    """Paket hâlâ ayakta mı? (kilitlenme/öldürme sonrası False → taze paket)."""
     try:
-        lead = scan_one(page, url, timeout_ms=config.NAV_TIMEOUT_MS)
+        return bool(bundle["chromium"].is_connected())
+    except Exception:  # noqa: BLE001 — sağlık sorunu = ölmüş sayılır
+        return False
+
+
+def _arm_hard_kill(seconds: float, *, grace_s: float = 3.0) -> dict[str, Any]:
+    """KURAL 3 — 30 sn bekçisi: duvar-saati dolan an tarayıcıyı ANINDA imha et.
+
+    Playwright çağrıları her zaman kendi timeout'unda dönmez (takılan bir UI
+    işlemi dakikalarca sürebilir). Bu bekçi süre dolduğunda kendi işlem
+    ağacımızdaki tüm Chromium'ları ``browser.purge_chromium()`` (kill -9) ile
+    imha eder; içinde bulunduğu çağrı hata verir ve ``_submit_with_page`` dönüp
+    motor sıradaki lead'e geçer. systemd servisi/ana motor ASLA durmaz.
+
+    ``grace_s``: iç duvar-saati (form_submitter) önce temiz iptal edebilsin
+    diye küçük bir pay; bu bekçi yalnızca GERÇEK asılı kalmalarda devreye girer.
+    """
+    box: dict[str, Any] = {"fired": False, "stop": threading.Event()}
+
+    def _watch() -> None:
+        if box["stop"].wait(max(0.1, float(seconds) + float(grace_s))):
+            return
+        box["fired"] = True
+        try:
+            browser.purge_chromium()
+        except Exception:  # noqa: BLE001 — bekçi hatası hattı düşürmez
+            logger.warning("Hard-timeout imhasi basarisiz", exc_info=True)
+
+    threading.Thread(target=_watch, daemon=True, name="submit-hard-wall").start()
+    return box
+
+
+def quarantine_hard_timeout(url: str) -> None:
+    """KURAL 3 — kilitlenen lead'i karantinaya al (fail-open, hattı düşürmez)."""
+    if not url:
+        return
+    try:
+        domain_store.defer(
+            url,
+            hours=float(getattr(config, "SUBMIT_QUARANTINE_HOURS", 6.0) or 6.0),
+            reason="submit_hard_timeout_30s",
+            count_fail=False,
+        )
+        logger.warning("Karantina (30s hard timeout): %s", url)
+    except Exception:  # noqa: BLE001 — karantina hatası motoru düşürmez
+        logger.warning("Karantina yazilamadi (hatti dusurmez): %s", url, exc_info=True)
+
+
+def _hard_timeout_hit(arm: dict[str, Any], result: dict[str, Any]) -> bool:
+    """30 sn duvar-saati aşıldı mı? (başarılı gönderim asla karantinaya girmez)."""
+    if str(result.get("status") or "").startswith("submitted"):
+        return False
+    return bool(arm.get("fired")) or bool(result.get("hard_timeout"))
+
+
+def _collect_one(
+    page: Page, url: str, probe: dict[str, Any], *, timeout_ms: int | None = None,
+) -> dict[str, Any]:
+    try:
+        lead = scan_one(page, url, timeout_ms=timeout_ms or config.NAV_TIMEOUT_MS)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Collector failed for %s", url)
         return {
@@ -760,13 +822,57 @@ def _run_browser_pipeline(
     cap_hourly = knowledge.hourly_cap()
 
     with sync_playwright() as playwright:
-        chromium = browser.launch_browser(playwright, headless=headless)
-        collect_ctx = browser.collect_context(chromium)
-        collect_page = browser.new_page(collect_ctx)
-        submit_ctx = browser.submit_context(chromium) if submitting else None
-        submit_page = browser.new_page(submit_ctx) if submit_ctx else None
+
+        def _open_bundle() -> dict[str, Any]:
+            """Taze Chromium paketi (KULLAN-AT): her paket sıfırdan açılır."""
+            chromium = browser.launch_browser(playwright, headless=headless)
+            collect_ctx = browser.collect_context(chromium)
+            collect_page = browser.new_page(collect_ctx)
+            submit_ctx = browser.submit_context(chromium) if submitting else None
+            submit_page = browser.new_page(submit_ctx) if submit_ctx else None
+            return {
+                "chromium": chromium,
+                "collect_ctx": collect_ctx,
+                "collect_page": collect_page,
+                "submit_ctx": submit_ctx,
+                "submit_page": submit_page,
+            }
+
+        def _dispose_bundle(bundle: dict[str, Any] | None) -> None:
+            """KURAL 2 — KULLAN-AT: browser.close() + pkill + gc (fail-open).
+
+            Her form gönderim denemesinden sonra (başarılı ya da başarısız) tüm
+            Chromium süreçleri imha edilir: bellek taze kalır, zombi birikmez,
+            sunucu kilitlenmez. Reboot YOK — yalnızca bu paket imha edilir ve
+            bir sonraki lead taze tarayıcıyla devam eder.
+            """
+            if not bundle:
+                return
+            for key in ("submit_page", "collect_page", "submit_ctx", "collect_ctx",
+                        "chromium"):
+                target = bundle.get(key)
+                if target is None:
+                    continue
+                try:
+                    target.close()
+                except Exception:  # noqa: BLE001 — kapanış hatası hattı düşürmez
+                    pass
+            try:
+                browser.purge_chromium()
+            except Exception:  # noqa: BLE001 — süpürme hatası hattı düşürmez
+                pass
+            gc.collect()
+
+        bundle: dict[str, Any] | None = _open_bundle()
         try:
             while (idx[0] < len(urls) or prefetch["lead"] is not None) and not daily_stop:
+                # KULLAN-AT paket kontrolü: tarayıcı yok/ölüyse artıkları süpür
+                # ve taze paket aç — hiçbir koşulda bekleme/soğuma YOK.
+                if bundle is None or not _chromium_alive(bundle):
+                    _dispose_bundle(bundle)
+                    bundle = _open_bundle()
+                collect_page = bundle["collect_page"]
+                submit_page = bundle["submit_page"]
                 if prefetch["lead"] is not None:
                     item = prefetch["lead"]
                     prefetch["lead"] = None
@@ -859,14 +965,26 @@ def _run_browser_pipeline(
                     continue
 
                 waf = bool(qualified.get("waf_strict"))
+                # KURAL 3 — 30 sn duvar-saati: form_submitter iç guard'ları +
+                # _arm_hard_kill kesinleştirir. Prefetch de bu duvar-saatinin
+                # içinde bitmeli; kalan süre yetmiyorsa prefetch ATLANIR.
+                hard_s = float(getattr(config, "SUBMIT_HARD_TIMEOUT_SECONDS", 30.0) or 30.0)
+                wall0 = time.monotonic()
 
                 def during_delay() -> None:
+                    left = hard_s - (time.monotonic() - wall0)
+                    if left < 20.0:
+                        return
                     if idx[0] >= len(urls):
                         return
                     nurl = urls[idx[0]]
                     idx[0] += 1
                     logger.info("Prefetch collect during WAF jitter: %s", nurl)
-                    prefetch["lead"] = _collect_one(collect_page, nurl, meta.get(nurl) or {})
+                    prefetch["lead"] = _collect_one(
+                        collect_page, nurl, meta.get(nurl) or {},
+                        timeout_ms=int(min(config.NAV_TIMEOUT_MS,
+                                           max(4_000, (left - 12.0) * 1000))),
+                    )
 
                 # Persist a short lease before entering Playwright. If the
                 # outer runner kills a hung site, the next cycle must not pick
@@ -878,11 +996,28 @@ def _run_browser_pipeline(
                     easy_score=easy_score.from_lead(qualified),
                 )
                 logger.info("Submitting %s", qualified.get("url"))
-                submitted = submit_lead(
-                    qualified,
-                    page=submit_page,
-                    during_delay=during_delay if waf else None,
-                )
+                arm = _arm_hard_kill(hard_s)
+                try:
+                    submitted = submit_lead(
+                        qualified,
+                        page=submit_page,
+                        during_delay=during_delay if waf else None,
+                    )
+                finally:
+                    arm["stop"].set()
+                if _hard_timeout_hit(arm, submitted):
+                    # KURAL 3 — KARANTINA: kilitlenen host 6 saat dokunulmaz;
+                    # motor sıradaki TAZE lead'e geçer. Bekleme/soğuma/reboot YOK.
+                    submitted["hard_timeout"] = True
+                    submitted["status"] = "skipped_submit_failed"
+                    submitted["error"] = (
+                        str(submitted.get("error") or "").strip() or "hard_timeout_30s"
+                    )
+                    quarantine_hard_timeout(str(qualified.get("url") or ""))
+                    logger.warning(
+                        "30s hard timeout → tarayıcı imha + karantina: %s",
+                        qualified.get("url"),
+                    )
                 if str(submitted.get("status") or "") in {"failed", "skipped_submit_failed"}:
                     attempts = int(qualified.get("submit_attempts") or submitted.get("submit_attempts") or 0) + 1
                     submitted["submit_attempts"] = attempts
@@ -892,12 +1027,14 @@ def _run_browser_pipeline(
                 leads = upsert(leads, submitted)
                 save_leads(leads_path, leads)
                 processed.append(submitted)
+                # KURAL 2 — KULLAN-AT: gönderim denemesi bitti (başarılı/başarısız):
+                # tüm Chromium'lar browser.close() + pkill ile imha edilir; bir
+                # sonraki lead TAZE tarayıcıyla başlar. RAM asla şişmez.
+                _dispose_bundle(bundle)
+                bundle = None
                 gc.collect()
         finally:
-            collect_ctx.close()
-            if submit_ctx is not None:
-                submit_ctx.close()
-            chromium.close()
+            _dispose_bundle(bundle)
 
     return processed
 

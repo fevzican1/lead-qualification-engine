@@ -242,6 +242,9 @@ def submit_lead(
         finally:
             context.close()
             chromium.close()
+            # KURAL 2 — KULLAN-AT: deneme bitti (başarılı/başarısız) → artıkları
+            # da pkill ile imha et; bir sonraki deneme taze Chromium ile başlar.
+            browser.purge_chromium()
 
 
 def submit_leads(
@@ -249,21 +252,14 @@ def submit_leads(
     *,
     headless: Optional[bool] = None,
 ) -> list[dict[str, Any]]:
-    """Submit many leads, reusing one browser. Applies the inter-submit delay."""
-    headless = config.HEADLESS if headless is None else headless
-    updated: list[dict[str, Any]] = []
-    with sync_playwright() as playwright:
-        chromium = browser.launch_browser(playwright, headless=headless)
-        context = browser.submit_context(chromium)
-        page = browser.new_page(context)
-        try:
-            for index, lead in enumerate(leads):
-                logger.info("Submitting %s (%s/%s)", lead.get("url"), index + 1, len(leads))
-                updated.append(_submit_with_page(page, lead))
-        finally:
-            context.close()
-            chromium.close()
-    return updated
+    """Submit many leads — her deneme KULLAN-AT tarayıcıyla (kural 2).
+
+    Eski model tek tarayıcıyı tüm partide tutuyordu (RAM şişip sunucuyu
+    kilitleyebiliyordu); artık her lead kendi taze Chromium'uyla çalışır ve
+    deneme sonunda tamamen imha edilir. Aradaki gönderim gecikmesi
+    ``_submit_with_page`` içinde uygulanır.
+    """
+    return [submit_lead(lead, headless=headless) for lead in leads]
 
 
 def _fast_fail(lead: dict[str, Any]) -> bool:
@@ -506,8 +502,20 @@ def _submit_with_page(
 
     busy_start = time.monotonic()
     paused = 0.0
-    budget = _site_budget(lead)
+    # KURAL 3 — 30 sn HARD WALL: gönderim denemesinin duvar-saati tavanı.
+    # Site 30 sn'de yanıt vermez/kilitlenirse SİSTEM BEKLEMEZ: iptal, karantina
+    # ve sıradaki taze lead (pipeline'daki _arm_hard_kill bunu kesinleştirir).
+    hard_s = max(0.1, float(getattr(config, "SUBMIT_HARD_TIMEOUT_SECONDS", 30.0) or 30.0))
+    budget = min(_site_budget(lead), hard_s)
     fast = _fast_fail(lead)
+
+    def wall_left() -> float:
+        return hard_s - (time.monotonic() - busy_start)
+
+    def wall_guard() -> None:
+        """Duvar-saati dolduysa anında iptal — asla soğumaya/beklemeye geçme."""
+        if wall_left() <= 0:
+            raise TimeoutError(f"hard_timeout: {int(round(hard_s))}s wall clock")
 
     def busy_used() -> float:
         return time.monotonic() - busy_start - paused
@@ -526,13 +534,16 @@ def _submit_with_page(
         if fast:
             logger.info("Fast-fail %.0fs window for %s", budget, lead.get("url"))
         # FAIL-FAST: Max 10 saniye timeout (takilan/yanit vermeyen sitelerde vakit kaybetme)
-        cap_ms = max(4_000, min(int(budget * 1000), 10_000))
+        # KURAL 3: navigation bütçesi kalan duvar-saatiyle de sınırlıdır.
+        cap_ms = max(1_000, min(int(budget * 1000), 10_000,
+                                int(max(1.0, wall_left()) * 1000)))
         try:
             page.set_default_timeout(cap_ms)
             page.set_default_navigation_timeout(cap_ms)
         except Exception:  # noqa: BLE001
             pass
         goto_page(page, form_url, cap_ms)
+        wall_guard()
         dismiss_cookie_banner(page)
         # Enterprise pages (heavy JS application forms) need a wider fingerprint
         # window so a dynamic form is not misread as "no form on page".
@@ -564,6 +575,7 @@ def _submit_with_page(
             return result
         if busy_used() > budget:
             raise TimeoutError("site budget before fill")
+        wall_guard()
 
         filled = _fill_form(page, message, subject=subject, last_field=last_field)
         if filled < 2 and not fast:
@@ -579,6 +591,9 @@ def _submit_with_page(
             return result
 
         needed = 0.0 if fast else delay_seconds_for(lead)
+        # KURAL 3: jitter bekleme de 30 sn duvar-saatine sayılır — site asla
+        # duvar-saatinin ötesinde bekletilmez.
+        needed = min(float(needed), max(0.0, wall_left() - 1.0))
         jitter_started = time.monotonic()
         if during_delay and needed > 8:
             def _safe_prefetch() -> None:
@@ -593,6 +608,7 @@ def _submit_with_page(
             logger.info("Waiting %.1fs more before submit", remaining)
             pause(lambda: time.sleep(remaining))
 
+        wall_guard()
         if busy_used() > budget:
             raise TimeoutError("site budget before click")
 
@@ -601,7 +617,8 @@ def _submit_with_page(
         success_dom = _looks_successful(page)
         net = bool(watcher.hit)
         if not net:
-            watcher.wait(2.5)
+            # KURAL 3: onay bekleyişi de kalan duvar-saatini aşamaz.
+            watcher.wait(max(0.5, min(2.5, wall_left())))
             net = bool(watcher.hit)
             success_dom = success_dom or _looks_successful(page)
 
@@ -636,26 +653,33 @@ def _submit_with_page(
         logger.warning("Timeout submitting %s: %s", lead.get("url"), exc)
         result["status"] = "skipped_submit_failed"
         result["error"] = f"timeout: {exc}"
+        if wall_left() <= 0:
+            result["hard_timeout"] = True
         return result
     except TimeoutError as exc:
         logger.warning("Site budget submitting %s: %s", lead.get("url"), exc)
         result["status"] = "skipped_submit_failed"
         result["error"] = f"timeout: {exc}"
+        if "hard_timeout" in str(exc) or wall_left() <= 0:
+            result["hard_timeout"] = True
         return result
     except Exception as exc:  # noqa: BLE001
         logger.exception("Submit failed for %s", lead.get("url"))
         result["status"] = "skipped_submit_failed"
         result["error"] = str(exc)
+        if wall_left() <= 0:
+            result["hard_timeout"] = True
         return result
     finally:
         if watcher is not None:
             watcher.close()
-        _release_page(page)
+        # KALAN DUVAR-SAATİ: sayfa sıfırlama bile 30 sn'yi aşamaz.
+        _release_page(page, timeout_ms=int(min(5_000, max(500, wall_left() * 1000))))
 
 
-def _release_page(page: Page) -> None:
+def _release_page(page: Page, *, timeout_ms: int = 5_000) -> None:
     try:
-        page.goto("about:blank", wait_until="domcontentloaded", timeout=5_000)
+        page.goto("about:blank", wait_until="domcontentloaded", timeout=timeout_ms)
     except Exception:  # noqa: BLE001
         pass
 

@@ -147,7 +147,7 @@ systemctl enable --now nirvana-dispatch.timer
 # İÇ YAKIT: dış (GitHub/CDN) feed'e bağımlı olmadan Tranco/CDX/tohum beslemesi.
 systemctl enable --now nirvana-fuel.timer
 # İŞ BEKÇİSİ: 1 dk tarama; kök neden müdahalesi (chromium/port/WAL);
-# 5 dk otonom onarım, çözülmezse sert reboot.
+# 5 dk otonom onarım; REBOOT YOK — tıkalı servis yalnızca systemctl restart.
 systemctl enable --now nirvana-jobwatch.timer
 # İlk tur hemen çalışsın: rezervuar taze kurulumda da dolu başlar.
 systemctl start nirvana-fuel.service 2>/dev/null || true
