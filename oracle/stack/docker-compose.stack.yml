@@ -1,0 +1,105 @@
+# Rapor 2.1 / 2.2: $0 musteri-hatti servisleri (Oracle Always Free, ARM64)
+# SearXNG + Crawl4AI + Documenso + Formbricks; yalnizca loopback'e acilir,
+# dis kapi mevcut nginx'tir (bkz. nginx-stack.conf ornegi).
+# RAM butcesi: ~4.2 GB; disk ~2.5 GB. Ana motor (systemd) ile cakismaz.
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: nv-searxng
+    restart: unless-stopped
+    volumes:
+      - ./searxng:/etc/searxng:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - SEARXNG_BASE_URL=http://127.0.0.1:8080/
+    deploy:
+      resources:
+        limits: { cpus: "0.20", memory: 700M }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
+    container_name: nv-crawl4ai
+    restart: unless-stopped
+    shm_size: "1gb"
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "127.0.0.1:11235:11235"
+    deploy:
+      resources:
+        limits: { cpus: "0.35", memory: 1800M, pids: 512 }
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  documenso:
+    image: documenso/documenso:latest
+    container_name: nv-documenso
+    restart: unless-stopped
+    depends_on:
+      - documenso-db
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://documenso:${DOCUMENSO_DB_PASSWORD:-degistir}@documenso-db:5432/documenso
+      - NEXTAUTH_SECRET=${DOCUMENSO_NEXTAUTH_SECRET:-degistir-bunu}
+      - NEXTAUTH_URL=${DOCUMENSO_PUBLIC_URL:-http://127.0.0.1:3001}
+      - NEXT_PUBLIC_WEBAPP_URL=${DOCUMENSO_PUBLIC_URL:-http://127.0.0.1:3001}
+      - SECRET=${DOCUMENSO_SECRET:-degistir-bunu-da}
+    ports:
+      - "127.0.0.1:3001:3000"
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 1000M }
+
+  documenso-db:
+    image: postgres:16-alpine
+    container_name: nv-documenso-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=documenso
+      - POSTGRES_PASSWORD=${DOCUMENSO_DB_PASSWORD:-degistir}
+      - POSTGRES_DB=documenso
+    volumes:
+      - documenso-db:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits: { cpus: "0.10", memory: 512M }
+
+  formbricks:
+    image: formbricks/formbricks:latest
+    container_name: nv-formbricks
+    restart: unless-stopped
+    depends_on:
+      - formbricks-db
+    environment:
+      - DATABASE_URL=postgresql://formbricks:${FORMBRICKS_DB_PASSWORD:-degistir}@formbricks-db:5432/formbricks
+      - NEXTAUTH_SECRET=${FORMBRICKS_NEXTAUTH_SECRET:-degistir-bunu}
+      - NEXTAUTH_URL=${FORMBRICKS_PUBLIC_URL:-http://127.0.0.1:3002}
+      - WEBAPP_URL=${FORMBRICKS_PUBLIC_URL:-http://127.0.0.1:3002}
+    ports:
+      - "127.0.0.1:3002:3000"
+    deploy:
+      resources:
+        limits: { cpus: "0.20", memory: 1000M }
+
+  formbricks-db:
+    image: postgres:16-alpine
+    container_name: nv-formbricks-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=formbricks
+      - POSTGRES_PASSWORD=${FORMBRICKS_DB_PASSWORD:-degistir}
+      - POSTGRES_DB=formbricks
+    volumes:
+      - formbricks-db:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits: { cpus: "0.10", memory: 512M }
+
+volumes:
+  documenso-db:
+  formbricks-db:

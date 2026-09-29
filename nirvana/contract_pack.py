@@ -41,9 +41,22 @@ def build_pack(*, company: str = "", domain: str = "") -> dict[str, str]:
     }
 
 
-def pack_text(*, company: str = "", domain: str = "") -> str:
+def pack_text(*, company: str = "", domain: str = "", email: str = "", name: str = "") -> str:
     pack = build_pack(company=company, domain=domain)
-    return "\n\n".join([pack["sla"], pack["nda"], pack["ip"], pack["disclaimer"]])
+    text = "\n\n".join([pack["sla"], pack["nda"], pack["ip"], pack["disclaimer"]])
+    # Rapor 2.2 / 4.3: Documenso v2 hazirsa gercek e-imza baglantisi eklenir.
+    # Yapilandirilmamisken (veya hata halinde) metin aynen kalir — fail-open.
+    link = ""
+    try:
+        from nirvana import esign_documenso
+
+        if email:
+            link = esign_documenso.signing_link(company=company, email=email, name=name)
+    except Exception:  # noqa: BLE001 — sozlesme akisini asla dusurmez
+        link = ""
+    if link:
+        text += f"\n\nE-imza baglantisi (Documenso): {link}"
+    return text
 
 
 def run_batch(*, company: str = "", domain: str = "") -> dict[str, Any]:

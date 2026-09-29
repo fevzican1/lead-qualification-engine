@@ -363,6 +363,25 @@ RESILIENCE_AUTO_RECYCLE: bool = _get_bool("RESILIENCE_AUTO_RECYCLE", True)
 # --- Rapor: WebChat satış motoru (SPIN + Challenger + n8n + takvim) --------
 BOOKING_URL: str = _get("BOOKING_URL") or _get("CALCOM_BOOKING_URL") or _get("GOOGLE_BOOKING_URL")
 N8N_WEBHOOK_URL: str = _get("N8N_WEBHOOK_URL") or _get("CRM_WEBHOOK_URL")
+# --- Rapor entegrasyonu: e-imza, onboarding anketi, $0 zenginlestirme ---------
+# Documenso v2 (envelope API): POST /envelope/create -> POST /envelope/distribute
+DOCUMENSO_URL: str = _get("DOCUMENSO_URL")
+DOCUMENSO_API_KEY: str = _get("DOCUMENSO_API_KEY")
+DOCUMENSO_TEMPLATE_ID: str = _get("DOCUMENSO_TEMPLATE_ID")
+DOCUMENSO_CREATE_PATH: str = _get("DOCUMENSO_CREATE_PATH", "/envelope/create")
+DOCUMENSO_DISTRIBUTE_PATH: str = _get("DOCUMENSO_DISTRIBUTE_PATH", "/envelope/distribute")
+# Formbricks onboarding (Rapor 4.3 adim 4)
+FORMBRICKS_URL: str = _get("FORMBRICKS_URL") or _get("FORMBRICKS_HOST_URL", "")
+FORMBRICKS_SURVEY_ID: str = (
+    _get("FORMBRICKS_SURVEY_ID") or _get("FORMBRICKS_ONBOARDING_SURVEY_ID", "")
+)
+# $0 zenginlestirme (Rapor 2.1): yerel SearXNG + Crawl4AI (docker agi/loopback)
+SEARXNG_URL: str = _get("SEARXNG_URL", "http://127.0.0.1:8080")
+CRAWL4AI_URL: str = _get("CRAWL4AI_URL", "http://127.0.0.1:11235")
+# Feed tarama butcesi (sn): kuyruk dolu/depo yeterliyken tur basina ~14 dk
+# bosa giden taramayi sinirlar (canli teshis 2026-09-29).
+FEED_SCAN_BUDGET_S: float = _get_float("FEED_SCAN_BUDGET_S", 45.0)
+
 # WebChat hızlı model (Ampere A1'de 4 vCPU için küçük kuantize model önerilir).
 OLLAMA_FAST_MODEL: str = _get("OLLAMA_FAST_MODEL", "")
 SPIN_SELLING_ENABLED: bool = _get_bool("SPIN_SELLING_ENABLED", True)

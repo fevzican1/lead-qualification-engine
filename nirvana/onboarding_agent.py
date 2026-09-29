@@ -28,6 +28,18 @@ def welcome_packet(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
             pack_text(company=name)[:900]
     except Exception:
         contract_line = ""
+    # Rapor 4.3 adim 4: Formbricks onboarding anketi (logo, erisim, oncelikler).
+    survey_line = ""
+    try:
+        from nirvana.formbricks_onboarding import welcome_block
+        survey_line = welcome_block(
+            email=str(row.get("email") or ""),
+            name=str(row.get("name") or ""),
+            company=name,
+            turkish=turkish,
+        )
+    except Exception:
+        survey_line = ""
     if turkish:
         return (
             f"{hello}ödemeniz doğrulandı, hoş geldiniz. Karşılama protokolü:\n"
@@ -37,7 +49,7 @@ def welcome_packet(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
             "3) Erişim kılavuzu: bize yalnızca okunur izleme erişimi verin (read-only API "
             "anahtarı veya durum sayfası). Yönetici şifresi asla paylaşılmaz.\n"
             "4) İlk tur 24 saat içinde başlar; raporlar bu sohbete düşer.\n"
-            "Kapsam sorunuz olursa buradan yazmanız yeterli." + contract_line
+            "Kapsam sorunuz olursa buradan yazmanız yeterli." + contract_line + survey_line
         )
     return (
         f"{hello}payment verified, welcome aboard. Onboarding protocol:\n"
@@ -47,7 +59,7 @@ def welcome_packet(row: dict[str, Any] | None, *, turkish: bool = True) -> str:
         "3) Access guide: provide read-only monitoring access only (read-only API key or a "
         "status page). Never share admin passwords.\n"
         "4) First sweep starts within 24h; reports land in this chat.\n"
-        "Reply here with any scope questions." + contract_line
+        "Reply here with any scope questions." + contract_line + survey_line
     )
 
 

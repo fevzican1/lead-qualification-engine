@@ -18,6 +18,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -58,6 +59,20 @@ def _run(script: str, extra: list[str] | None = None, *, timeout: int | None = N
     logger.info("Running: %s", " ".join(args))
     env = os.environ.copy()
     env.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(config.ROOT / ".playwright"))
+    # systemd WatchdogSec kesmesini onle: ALT SUREC kosarken de WATCHDOG=1 gonder.
+    # Canli ariza (2026-09-29): 1 saati asan pipeline kosusu watchdog tarafindan
+    # SIGABRT ile kesiliyor, tur yarida kaliyor ve gunluk 400 hedefi dusuyordu.
+    stop = threading.Event()
+
+    def _pulse_loop() -> None:
+        while not stop.wait(30.0):
+            try:
+                heartbeat.pulse("auto_runner")
+            except Exception:  # noqa: BLE001
+                pass
+
+    pulse_thread = threading.Thread(target=_pulse_loop, daemon=True)
+    pulse_thread.start()
     try:
         if timeout:
             proc = subprocess.Popen(
@@ -82,6 +97,12 @@ def _run(script: str, extra: list[str] | None = None, *, timeout: int | None = N
     except Exception:
         logger.exception("Failed to launch %s", script)
         return 1
+    finally:
+        stop.set()
+        try:
+            heartbeat.pulse("auto_runner")
+        except Exception:  # noqa: BLE001
+            pass
 
 
 _starve_pinged_hour: list[str] = []

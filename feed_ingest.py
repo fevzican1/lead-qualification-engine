@@ -294,6 +294,16 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
     # Starvation = tank empty (fuel 0) or queue near-empty: allow immediate
     # recycle of no-send hosts so a single 5-minute feed-sync tops the tank.
     starve = (fuel_now <= 0 or low_queue) and force
+    # --- 400/gun hatti (canli teshis 2026-09-29): kuyruk dolu ve depo yeterliyken
+    # 12k+ satirlik feed taramasi tur basina ~14 dakika bosa gidiyordu; hicbir
+    # satir kuyruga giremedigi icin (room=0) tarama tamamen atlanir ve o sure
+    # form gonderim hattina kalir.
+    if room <= 0 and not starve:
+        logger.info(
+            "Feed ingest skip: queue full %s/%s fuel %s/%s — no room, no starvation",
+            domain_store.queue_depth(), cap, fuel_now, fuel_target_now,
+        )
+        return 0
     scan_cap = _burst_scan_cap(room, force=force, fuel=fuel_now, fuel_target=fuel_target_now)
 
     file_rows, file_meta = _load_file()
@@ -315,7 +325,11 @@ def ingest(*, limit: int | None = None, force_low: bool = False) -> int:
         cursor = int(state.get("ingest_cursor") or 0) % len(scan_rows)
         scan_rows = scan_rows[cursor:] + scan_rows[:cursor]
 
+    deadline = time.monotonic() + float(getattr(config, "FEED_SCAN_BUDGET_S", 45.0) or 45.0)
     for row in scan_rows:
+        if time.monotonic() > deadline:
+            logger.info("Feed scan time budget reached — next cycle resumes from cursor")
+            break
         candidate = _row_to_candidate(row, min_score=min_score)
         if not candidate:
             continue
