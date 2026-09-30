@@ -14,6 +14,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -98,6 +99,50 @@ def _cache_save(data: dict[str, Any]) -> None:
         tmp.replace(CACHE_PATH)
     except OSError:
         pass
+
+
+def cached_profile(key: str) -> dict[str, Any]:
+    """Sadece dosya onbellegi — AG YOK (sicak okuma). Miss/TTL => {} (Rapor 4.1)."""
+    key = (key or "").strip().lower()
+    if not key:
+        return {}
+    row = _cache_load().get(key)
+    if not isinstance(row, dict):
+        return {}
+    try:
+        age = time.time() - float(row.get("at") or 0)
+    except (TypeError, ValueError):
+        return {}
+    return row if age < CACHE_TTL_S else {}
+
+
+def warm(domain: str = "", company: str = "") -> None:
+    """Arka planda zenginlestirme isitma; istisnalar yutulur (fail-open)."""
+    try:
+        profile(domain=domain, company=company)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("enrich warm atlandi: %s", exc)
+
+
+_MD_NOISE_RE = re.compile(r"[#*>`_\[\]()!]+")
+_MD_SKIP_PREFIX = ("http", "skip", "menu", "cookie", "accept", "subscribe")
+
+
+def insight(md: str, *, limit: int = 160) -> str:
+    """Markdown govdesinden tek satirlik SMM ozeti cikar (Rapor 4.1 kisisellestirme).
+
+    Bos/kisa satirlar, URL'ler ve menu gibi gurultu atlanir; ilk anlamli satir
+    (>=24 karakter) doner. Bulunamazsa "" (fail-open).
+    """
+    for raw in (md or "").splitlines():
+        line = _MD_NOISE_RE.sub(" ", str(raw)).strip()
+        line = re.sub(r"\s{2,}", " ", line)
+        if len(line) < 24:
+            continue
+        if line.lower().startswith(_MD_SKIP_PREFIX):
+            continue
+        return line[:limit]
+    return ""
 
 
 def profile(domain: str, *, company: str = "", fresh: bool = False) -> dict[str, Any]:

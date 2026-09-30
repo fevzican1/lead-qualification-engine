@@ -216,7 +216,9 @@ async def _brain_reply(session, user_text):
     history = list(session.get("history") or []) + [{"role": "user", "content": (user_text or "")[:1200]}]
     history = history[-MAX_HISTORY:]
     scored = score_lead(user_text or "")
-    system = build_system_prompt(name=name, lang=lang, score=scored, brief=str(session.get("brief") or ""), history=history)
+    system = build_system_prompt(name=name, lang=lang, score=scored, brief=str(session.get("brief") or ""),
+                                 history=history, profile_key=str(session.get("profile_key") or ""),
+                                 source=str(session.get("source") or ""))
     msgs = [{"role": "system", "content": system}] + history
     reply = ""
     try:
@@ -291,6 +293,7 @@ from webchat_core import (  # noqa: E402
     mark_drip as _core_mark_drip,
     notify_admin as _core_notify_admin,
     pop_inbox as _core_pop_inbox,
+    profile_insight as _core_profile_insight,
     push_inbox as _core_push_inbox,
     put_session as _core_put_session,
     score_lead as _core_score_lead,
@@ -329,6 +332,7 @@ greeting = _core_greeting
 mark_drip = _core_mark_drip
 notify_admin = _core_notify_admin
 pop_inbox = _core_pop_inbox
+profile_insight = _core_profile_insight
 push_inbox = _core_push_inbox
 put_session = _core_put_session
 score_lead = _core_score_lead
@@ -364,17 +368,25 @@ def _lazy_app():
         name = str(data.get("name") or "")[:48]; lang = str(data.get("lang") or "")[:8]
         brief = str(data.get("brief") or "")[:2000]
         form = data.get("form") if isinstance(data.get("form"), dict) else {}
+        # CRO (v1 §4.1): UTM/referrer kaynagi ve sirket ipuclari oturuma islenir.
+        utm = data.get("utm") if isinstance(data.get("utm"), dict) else {}
+        source = str(utm.get("source") or utm.get("utm_source") or data.get("source") or "")[:40]
+        profile_key = str(data.get("profile_key") or data.get("domain") or data.get("company") or "")[:80]
         # Form linkindeki token (dsXXXXXXXX) veya hazir sid: oturum AYNI id ile acilir
         # ve handoff kaydindan (sirket/teshis/dil) tohumlanir.
         wanted = str(data.get("sid") or data.get("token") or "")[:64]
-        row = ensure_session(wanted, name=name, lang=lang, brief=brief, form=form) if wanted \
-            else create_session(name=name, lang=lang or "tr", brief=brief, form=form)
+        row = ensure_session(wanted, name=name, lang=lang, brief=brief, form=form,
+                             profile_key=profile_key, source=source) if wanted \
+            else create_session(name=name, lang=lang or "tr", brief=brief, form=form,
+                                profile_key=profile_key, source=source)
         sid = str(row.get("sid"))
         base = WEBCHAT_PUBLIC_URL or f"http://127.0.0.1:{WEBCHAT_PORT}"
         seeded = bool(row.get("brief"))
+        insight = profile_insight(str(row.get("profile_key") or ""))
         greet = row.get("greeting") or greeting(name=str(row.get("name") or ""),
                                                 lang=str(row.get("lang") or "tr"),
-                                                seeded=seeded)
+                                                seeded=seeded, insight=insight,
+                                                source=str(row.get("source") or ""))
         if not row.get("greeting"):
             append_history(sid, "assistant", greet)
             put_session(sid, greeting=greet)
@@ -409,7 +421,9 @@ def _reg_ws(f):
                 row = ensure_session(sid)
                 greet = greeting(name=str(row.get("name") or ""),
                                  lang=str(row.get("lang") or "tr"),
-                                 seeded=bool(row.get("brief")))
+                                 seeded=bool(row.get("brief")),
+                                 insight=profile_insight(str(row.get("profile_key") or "")),
+                                 source=str(row.get("source") or ""))
                 append_history(sid, "assistant", greet)
                 put_session(sid, greeting=greet)
                 await ws.send_json({"type": "agent", "text": greet, "kind": "greeting"})

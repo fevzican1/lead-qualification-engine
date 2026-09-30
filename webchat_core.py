@@ -87,19 +87,89 @@ def _rag_block():
         return knowledge.assistant_context(limit=10)
     except Exception:
         return "Hizmet: e-ticaret/CRM/ERP entegrasyonu, odeme webhook onarimi."
-def _tactic_block(user_text="", brief=""):
+def _norm_profile_key(value):
+    """Sirket/domain anahtarini tek forma indir (kucuk harf, semasiz, yol yok)."""
+    key = re.sub(r"\s+", " ", str(value or "").strip().lower())
+    key = re.sub(r"^https?://", "", key).split("/")[0].strip()
+    return key[:80]
+def derive_profile_key(*, name="", brief="", form=None):
+    """Oturum verisinden profil anahtari turet: form(company/domain) > brief > ad (v2 §8.5)."""
+    form = form or {}
+    for cand in (form.get("company"), form.get("domain"), form.get("host"), form.get("website")):
+        key = _norm_profile_key(cand)
+        if key:
+            return key
+    m = re.search(r"(?:şirket|sirket|company)\s*[:=]\s*([^\n,;]{2,80})", brief or "", re.I)
+    if m:
+        key = _norm_profile_key(m.group(1))
+        if key:
+            return key
+    m = re.search(r"https?://([^/\s]+)", brief or "")
+    if m:
+        return _norm_profile_key(m.group(1))
+    return _norm_profile_key(name)
+def _enrich_enabled():
     try:
-        from nirvana import conversion_maximizer as cm  # type: ignore
-        return cm.close_block(user_text=user_text or "", brief=brief or None, chat_id=None)
+        return bool(getattr(config, "ENRICH_WEBCHAT_ENABLED", True)) if config is not None else True
+    except Exception:
+        return True
+def profile_insight(key):
+    """Sirket profili onbelleginden tek satirlik icgoru — AG YOK; Miss/TTL => "" (fail-open)."""
+    if not key or not _enrich_enabled():
+        return ""
+    try:
+        from nirvana import enrich_web  # type: ignore
+        row = enrich_web.cached_profile(str(key))
+        if not row:
+            return ""
+        return enrich_web.insight(str(row.get("markdown") or ""))
     except Exception:
         return ""
-def build_prompt(*, name="", lang="tr", score=None, brief="", history=None):
+def warm_profile_async(key):
+    """Arka planda zenginlestirme isit; satis hattini ASLA bloklamaz (daemon thread)."""
+    if not key or not _enrich_enabled():
+        return
+    def _run():
+        try:
+            from nirvana import enrich_web  # type: ignore
+            k = str(key)
+            enrich_web.warm(domain=k if "." in k else "", company="" if "." in k else k)
+        except Exception:
+            pass
+    try:
+        _th.Thread(target=_run, daemon=True, name="enrich-warm").start()
+    except Exception:
+        pass
+def _tactic_block(user_text="", brief="", lang="tr", history=None):
+    out = ""
+    try:
+        from nirvana import conversion_maximizer as cm  # type: ignore
+        out = cm.close_block(user_text=user_text or "", brief=brief or None, chat_id=None)
+    except Exception:
+        out = ""
+    # Rapor §4.2 — SPIN + Challenger + Voss katmanı (bayrak: SPIN_SELLING_ENABLED)
+    try:
+        import config as _cfg  # type: ignore
+        if getattr(_cfg, "SPIN_SELLING_ENABLED", True):
+            from nirvana import spin_engine  # type: ignore
+            block = spin_engine.spin_block(lang=lang, history=history)
+            if block:
+                out = (out + "\n" + block).strip()
+    except Exception:
+        pass
+    return out
+def build_prompt(*, name="", lang="tr", score=None, brief="", history=None, profile_key="", source=""):
     score = score or {"tone": "educate"}
     rag = _rag_block(); last = ""
     for m in reversed(history or []):
         if (m or {}).get("role") == "user":
             last = str(m.get("content") or ""); break
-    tac = _tactic_block(last, brief)
+    tac = _tactic_block(last, brief, lang=lang, history=history)
+    ins = profile_insight(profile_key)
+    src = (source or "").strip()[:40]
+    prof = f"[SIRKET PROFILI] {profile_key}: {ins}" if ins else ""
+    src_line = f"[KAYNAK] {src} üzerinden geldi" if src else ""
+    tactic = "\n".join(x for x in (tac, prof, src_line) if x)
     who = (name or "misafir").strip()[:40] or "misafir"
     ctx = (brief or "-")[:800]
     if (lang or "tr") == "tr":
@@ -113,7 +183,7 @@ def build_prompt(*, name="", lang="tr", score=None, brief="", history=None):
             f"Dil: Turkce (mukemmel dil bilgisi). {rule}\n"
             f"KURALLAR: ucretsiz deneme/indirim ASLA; uydurma metrik yok; tek CTA; "
             f"kendini bot/yapay zeka diye tanitma (sorulmadikca); STOP'a saygi.\n"
-            f"[DIS KAYNAK/RAG]\n{rag}\n{tac}\n[FORM BAGLAMI]\n{ctx}")
+            f"[DIS KAYNAK/RAG]\n{rag}\n{tactic}\n[FORM BAGLAMI]\n{ctx}")
     rule_en = ("VIP CLOSE: one clear CTA, loss framing, close to contract+payment."
         if score.get("tone") == "vip_close" else
         "EDUCATOR TONE: teach first, evidence, one scoping question; never open payment."
@@ -121,7 +191,7 @@ def build_prompt(*, name="", lang="tr", score=None, brief="", history=None):
         "CONSULTANT TONE: short diagnosis + evidence + one next step.")
     return (f"You are DevSolve senior sales engineer. Customer: {who}. {rule_en}\n"
         f"RULES: never free trial/discount; no invented metrics; single CTA; honor STOP.\n"
-        f"[RAG]\n{rag}\n{tac}\n[CONTEXT]\n{ctx}")
+        f"[RAG]\n{rag}\n{tactic}\n[CONTEXT]\n{ctx}")
 def audit_reply(text, *, lang="tr"):
     try:
         from nirvana import language_auditor as la  # type: ignore
@@ -212,14 +282,23 @@ def put_session(sid, **f):
         r.setdefault("created_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
         _sessions[str(sid)] = r; _save_disk(_sessions)
         return _clone(r)
-def create_session(*, name="", lang="tr", brief="", form=None, worker="", sid=""):
-    """Oturum ac (form token'i verilirse AYNI sid kullanilir — link kimligi sabit)."""
+def create_session(*, name="", lang="tr", brief="", form=None, worker="", sid="", profile_key="", source=""):
+    """Oturum ac (form token'i verilirse AYNI sid kullanilir — link kimligi sabit).
+
+    v2 §8.5: profil anahtari turetilir ve zenginlestirme arka planda isitilir;
+    karşılama/prompt sirket profilini kullanir (fail-open — hat ASLA durmaz).
+    """
     clean = re.sub(r"[^A-Za-z0-9_-]", "", str(sid or ""))[:32]
     sid = clean or uuid.uuid4().hex[:16]
-    return put_session(sid, name=(name or "")[:48], lang=(lang or "tr")[:8] or "tr",
+    key = _norm_profile_key(profile_key) or derive_profile_key(name=name, brief=brief, form=form)
+    row = put_session(sid, name=(name or "")[:48], lang=(lang or "tr")[:8] or "tr",
         brief=(brief or "")[:2000], form=form or {}, worker=worker or worker_for(sid),
+        profile_key=key, source=(source or "")[:40],
         history=[], inbox=[], drips_sent=[], score=20, tone="educate",
         last_at=time.time(), vip_notified=False, payment_notified=False)
+    if key:
+        warm_profile_async(key)
+    return row
 def seed_from_handoff(token):
     """Form token'ini (dsXXXXXXXX) web sohbet oturumuna bagla: sirket + teshis + dil.
 
@@ -241,14 +320,25 @@ def seed_from_handoff(token):
     company = str(row.get("company") or row.get("host") or row.get("target_domain") or "")
     return {"name": company[:48], "brief": brief[:2000],
             "lang": "tr" if row.get("turkish") else "en", "token": tok}
-def ensure_session(sid, *, name="", lang="", brief="", form=None):
+def ensure_session(sid, *, name="", lang="", brief="", form=None, profile_key="", source=""):
     """Var olan oturumu doner; yoksa verilen sid ile ACAR (form linki → oturum).
 
     Form linkindeki token (dsXXXXXXXX) icin oturum, handoff kaydindan
     (sirket/teshis/dil) tohumlanir — musteri tek satir yazmadan baglam hazir olur.
+    Kimlik alanlari (profile_key/source) eski oturumlarda eksikse sessizce tamamlanir.
     """
     existing = get_session(sid)
     if existing is not None:
+        key = _norm_profile_key(profile_key)
+        patch = {}
+        if key and not existing.get("profile_key"):
+            patch["profile_key"] = key
+        if source and not existing.get("source"):
+            patch["source"] = source[:40]
+        if patch:
+            existing = put_session(sid, **patch)
+            if patch.get("profile_key"):
+                warm_profile_async(patch["profile_key"])
         return existing
     seed = seed_from_handoff(sid) if (not name and not brief) else {}
     return create_session(
@@ -257,24 +347,36 @@ def ensure_session(sid, *, name="", lang="", brief="", form=None):
         lang=lang or seed.get("lang") or "tr",
         brief=brief or seed.get("brief") or "",
         form=form or ({"token": seed.get("token")} if seed.get("token") else {}),
+        profile_key=profile_key or _norm_profile_key(seed.get("name") or ""),
+        source=source,
     )
-def greeting(*, name="", lang="tr", seeded=False):
-    """Karsilama metni: tohumlanmis oturumda sirket adi ve teshis gecirilir."""
+def greeting(*, name="", lang="tr", seeded=False, insight="", source=""):
+    """Karsilama metni: tohumlanmis oturumda sirket adi, teshis, kaynak ve site icgorusu.
+
+    v2 §8.5: `insight` doluysa (onbellekteki sirket profili) ilk mesaj kisisellesir;
+    bosken eski davranis aynen korunur (fail-open).
+    """
     first = (name or "").strip().split()[0][:24] if (name or "").strip() else ""
+    ins = (insight or "").strip()[:160]
+    src = (source or "").strip()[:40]
     if lang == "tr":
+        ins_line = f"Sitenizi kısaca inceledim — “{ins}”. " if ins else ""
+        src_note = f"({src} üzerinden geldiğinizi not ettim) " if src else ""
         if seeded:
             ref = f"{first} ekibi, " if first else ""
-            return (f"Merhaba {ref}ben DevSolve Teknik Ekip. Formunuzdaki akis notunu "
+            return (f"Merhaba {ref}{src_note}ben DevSolve Teknik Ekip. {ins_line}Formunuzdaki akis notunu "
                     "inceledim; tek soru: hangi adımda tıkanıyor (sipariş → CRM, ödeme callback)?")
         who = f"{first} " if first else ""
-        return (f"Merhaba {who}— ben DevSolve Teknik Ekip. Akışınızı tek akışta kapatmak için "
+        return (f"Merhaba {who}— {src_note}ben DevSolve Teknik Ekip. {ins_line}Akışınızı tek akışta kapatmak için "
                 "buradayım; platformunuzu tek satırla yazın.")
+    ins_line = f"Quick note from your site — “{ins}”. " if ins else ""
+    src_note = f"(noted you came from {src}) " if src else ""
     if seeded:
         ref = f"{first} team, " if first else ""
-        return (f"Hello {ref}DevSolve technical team here. I read the flow note from your form — "
+        return (f"Hello {ref}{src_note}DevSolve technical team here. {ins_line}I read the flow note from your form — "
                 "one question: where does it break (order → CRM, payment callback)?")
     who = f"{first} — " if first else ""
-    return (f"Hello {who}DevSolve technical team here. Write your platform in one line "
+    return (f"Hello {who}{src_note}DevSolve technical team here. {ins_line}Write your platform in one line "
             "and I'll outline the measurement plan.")
 
 def append_history(sid, role, content):

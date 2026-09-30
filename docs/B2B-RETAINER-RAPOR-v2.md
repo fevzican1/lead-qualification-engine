@@ -13,6 +13,9 @@
 - Eksik olan 4 entegrasyon bu güncellemeyle koda bağlandı:
   **Documenso v2 e-imza**, **Formbricks onboarding**, **SearXNG + Crawl4AI $0
   zenginleştirme**, **FEED tarama bütçesi + watchdog kalp atışı (400/gün onarımı)**.
+- **v2.1 (bu dosyanın son güncellemesi):** webchat ilk mesaj kişiselleştirme
+  köprüsü (`enrich_web` → karşılama + prompt) ve CRO magnet'leri (ROI
+  hesaplayıcı, exit-intent, dwell, UTM) canlı koda bağlandı — bkz. §9.
 - Canlı teşhis (2026-09-29): günlük form gönderimi **59–75** (hedef 400);
   kök nedenler ölçüldü ve üç yama ile kesildi (bkz. §3).
 
@@ -128,6 +131,46 @@ crontab -l                                                             # idle-gu
 2. İlk gün `daily_form_count` ve watchdog kesme sayacını izle; 400'e tırmanışı doğrula.
 3. `compact_leads.py --apply` sonucu 20 MB üzerindeyse `--keep-days 14` ile tekrarla.
 4. Haftalık cron önerisi: `scripts/compact_leads.py --apply` (Pazartesi 05:30).
-5. Sıradaki dönüşüm itici (v1 §4.1): webchat ilk mesajına `enrich_web.profile()`
-   verisini ekleyen kişiselleştirme — hazır modül, tek köprü kaldı.
+5. ~~Sıradaki dönüşüm itici (v1 §4.1): webchat ilk mesajına `enrich_web.profile()`
+   verisini ekleyen kişiselleştirme — hazır modül, tek köprü kaldı.~~
+   **TAMAMLANDI (v2.1):** `enrich_web` profil köprüsü karşılama + prompt'a bağlandı;
+   ROI hesaplayıcı, exit-intent/dwell ve UTM kişiselleştirmesi chat.html'de — §9.
+
+## 9. v2.1 — CRO Köprüsü ve Magnet'ler (bu güncellemede eklendi)
+
+### 9.1 Webchat ilk mesaj kişiselleştirmesi (v1 §4.2 "görünmez zenginleştirme")
+
+- `nirvana/enrich_web.py`: `cached_profile()` (ağsız sıcak okuma), `warm()`
+  (arka plan ısıtma), `insight()` (markdown → tek satır SMM özeti, gürültü atlar).
+- `webchat_core.py`: `derive_profile_key()` (form > brief > ad),
+  `profile_insight()` (önbellek-only, fail-open), `warm_profile_async()`
+  (daemon thread — satış hattı asla bloklanmaz); `create_session/ensure_session`
+  `profile_key` + `source` saklar (eski oturumlara sessiz tamamlama);
+  `greeting()` ilk mesajı site içgörüsü + kaynakla kişiselleştirir;
+  `build_prompt()` `[SIRKET PROFILI]` bloğunu ajana taşır.
+- `webchat_server.py`: `/api/session`, WS karşılama ve `_brain_reply` aynı
+  veriyi kullanır; `utm/domain/company` payload alanları kabul edilir.
+- Bayrak: `ENRICH_WEBCHAT_ENABLED` (varsayılan 1). Önbellek TTL: 168 saat.
+  Servis yokken davranış aynen eskisidir (fail-open — hat durmaz).
+
+### 9.2 CRO magnet'leri (v1 §4.1) — `templates/chat.html`
+
+- **ROI hesaplayıcı (Value Gate):** aylık kazanç/kayıp + yatırım girişinden
+  yıllık net, ROI % (net/maliyet×100) ve geri ödeme süresi (maliyet/kazanç)
+  anında hesaplanır; "Detaylı dökümü sohbetten isteyin" CTA'sı hesabı sohbete
+  yazar → kapatıcı ajan kayıp çerçevesi + VIP kapanış tonuna geçer.
+- **Exit-intent:** fare üst kenardan çıkınca (mouseleave y≤8) tek seferlik teklif
+  kartı; **dwell:** 20 sn hareketsizlikte aynı kart. Kullanıcı yazdıysa gösterilmez.
+- **UTM/referrer:** `utm_source/utm_campaign` + `document.referrer` host'u oturuma
+  kaynak olarak işlenir; karşılama "(linkedin.com üzerinden geldiğiniz not edildi)"
+  der.
+
+### 9.3 Doğrulama
+
+- Yeni test dosyası: `tests/test_cro_personalization.py` (anahtar türetimi,
+  önbellek TTL, karşılama kişiselleştirme, prompt bloğu, oturum backfill,
+  chat.html işaretleri, config bayrağı).
+- Canlı izleme: `sudo journalctl -u nirvana-webchat -f` (kişiselleşen
+  karşılamalar), sunucuda `nirvana/state/enrich_cache.json` doluluğu ve günlük
+  `owner_notify.lead_digest()` form sayacı (hedef 400).
 

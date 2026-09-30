@@ -378,6 +378,9 @@ FORMBRICKS_SURVEY_ID: str = (
 # $0 zenginlestirme (Rapor 2.1): yerel SearXNG + Crawl4AI (docker agi/loopback)
 SEARXNG_URL: str = _get("SEARXNG_URL", "http://127.0.0.1:8080")
 CRAWL4AI_URL: str = _get("CRAWL4AI_URL", "http://127.0.0.1:11235")
+# Webchat ilk mesaj kisisellestirme koprusu (v2 raporu §8.5): oturum acilinca
+# kaynakli sirket profili (onbellek + arka plan isitma) karsilamaya/prompta girer.
+ENRICH_WEBCHAT_ENABLED: bool = _get_bool("ENRICH_WEBCHAT_ENABLED", True)
 # Feed tarama butcesi (sn): kuyruk dolu/depo yeterliyken tur basina ~14 dk
 # bosa giden taramayi sinirlar (canli teshis 2026-09-29).
 FEED_SCAN_BUDGET_S: float = _get_float("FEED_SCAN_BUDGET_S", 45.0)

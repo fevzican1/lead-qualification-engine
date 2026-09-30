@@ -1569,6 +1569,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         system_prompt += close_block(user_text=user_text, brief=brief, chat_id=chat_id)
     except Exception:
         logger.exception("conversion close_block failed")
+    # Rapor §4.2 — SPIN + Challenger + Voss (bayrak: SPIN_SELLING_ENABLED)
+    if getattr(config, "SPIN_SELLING_ENABLED", True):
+        try:
+            from nirvana import spin_engine
+            _tr_chars = "çğıöşüÇĞİÖŞÜ"
+            _lang = "tr" if any(ch in (user_text or "") for ch in _tr_chars) else "en"
+            system_prompt += "\n" + spin_engine.spin_block(
+                lang=_lang, history=_histories.get(chat_id) or [])
+        except Exception:
+            logger.exception("spin_block failed")
     messages = [
         {"role": "system", "content": system_prompt},
         *_histories[chat_id],
