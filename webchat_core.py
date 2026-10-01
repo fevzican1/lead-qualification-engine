@@ -46,6 +46,45 @@ _NEG_RE = re.compile(r"\b(not|no|never|don't|do not|can't|cannot|won't|if|whethe
 def wants_to_buy(t: str) -> bool:
     c = (t or "").strip()
     return bool(_BUY_RE.search(c) and not _NEG_RE.search(c))
+# Odeme adimi tespiti (wants_to_buy'nin '?' kapisini TAMAMLAR): musteri odeme
+# linkini/faturasini SORU formunda istese bile bu gercek bir satin alma adimidir
+# ("odeme linkini atar misiniz?"). Acik reddetme/iptal ifadeleri haric tutulur.
+_LINK_REQ_RE = re.compile(
+    r"\u00f6deme\s*link|odeme\s*link|payment\s*link|pay\s*link|paylink|"
+    r"link\s*(atar|atabilir|g[o\u00f6]nder|yolla|ver)|"
+    r"send\s+(me\s+)?(the\s+)?(link|invoice|proforma|payment\s+details)|"
+    r"\binvoice\b|proforma|fatura|"
+    r"nas\u0131l\s*\u00f6deme|nasil\s*odeme|how\s+(do|can|should)\s+i\s+pay|how\s+to\s+pay|"
+    r"where\s+(do|can)\s+i\s+pay|payment\s+(details|instructions|info)|"
+    r"\u00f6deme\s*(bilgi|yapmak istiyorum|yapal\u0131m|yapalim)|"
+    r"odeme\s*(bilgi|yapmak istiyorum|yapalim)|"
+    r"i\s+(want|would\s+like|'?d\s+like)\s+to\s+pay|ready\s+to\s+pay|"
+    r"\biban\b|\bpayoneer\b|havale|\beft\b|kredi\s*kart|credit\s*card|wire\s*transfer|"
+    r"wie\s+bezahle|comment\s+payer|c[o\u00f3]mo\s+pago|"
+    r"\u00f6deme\s*talebi|odeme\s*talebi|checkout\s*link|check\s*out\s*link",
+    re.I,
+)
+_REFUSE_RE = re.compile(
+    r"istemiyorum|not\s+interested|no\s+thanks|vazge\u00e7|vazgec|iptal|"
+    r"g[o\u00f6]ndermeyin|don'?t\s+send|para\s+yok|kredi\s*kart[ıi]m\s+yok|"
+    r"too\s+expensive|\u00e7ok\s*pahal|can'?t\s+afford|beni\s+aramay",
+    re.I,
+)
+def payment_link_request(t: str) -> bool:
+    """Musteri odeme adimini istiyor mu? Soru formu sayilir; red/iptal sayilmaz."""
+    c = (t or "").strip()
+    return bool(c and _LINK_REQ_RE.search(c) and not _REFUSE_RE.search(c))
+def payment_stage(t: str) -> dict:
+    """Odeme adimi karari (saf/test edilebilir): buy / link_req / stage.
+
+    buy    : acik satin alma niyeti (wants_to_buy — soru formu HARIC, guvenlik).
+    link_req: dogrudan odeme linki/fatura talebi (soru formu DAHIL) — gercek
+              satin alma adimidir, musteri link bekliyor.
+    stage  : ikisinden biri — link gonder + sahibe yuksek oncelikli bildirim.
+    """
+    buy = bool(wants_to_buy(t))
+    link_req = bool((not buy) and payment_link_request(t))
+    return {"buy": buy, "link_req": link_req, "stage": bool(buy or link_req)}
 def detect_lang(text: str) -> str:
     try:
         from nirvana import language_auditor as la  # type: ignore
@@ -76,7 +115,7 @@ def score_lead(text):
         s += 25; sig.append("budget:vip")
     elif _BUDGET_RE.search(t):
         s += 10; sig.append("budget:mentioned")
-    if wants_to_buy(t):
+    if wants_to_buy(t) or payment_link_request(t):
         s += 10; sig.append("buy:explicit")
     s = max(0, min(100, s))
     tone = "vip_close" if s >= 70 else ("educate" if s < 40 else "consult")

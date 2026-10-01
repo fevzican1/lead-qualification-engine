@@ -465,6 +465,8 @@ def run_pipeline(args: argparse.Namespace) -> int:
     if pruned:
         logger.info("Pruned %s dead captcha/no-form host(s) from queue", pruned)
     leads = _retry_map_fails(leads)
+    # Sinyalsiz submit fail'leri soguma sonrasi TEK kez yeniden dene (retry yolu).
+    leads = _retry_transient_submit_fails(leads)
     try:
         file_targets = load_targets(_resolve(args.targets))
     except (FileNotFoundError, ValueError):
@@ -1070,6 +1072,66 @@ def _retry_map_fails(leads: list[dict[str, Any]]) -> list[dict[str, Any]]:
         pass
     if n:
         logger.info("Retrying %s submit-map failures with deeper DOM fill", n)
+    return leads
+
+
+_TRANSIENT_SUBMIT_ERRORS = (
+    # Hicbir POST/DOM kaniti uretmeyen hatalar: host'a mesaj gitmedi -> retry guvenli.
+    "map any visible",              # Could not map any visible form fields
+    "No visible submit",            # No visible submit control found
+    "did not produce a form POST",  # Submit click did not produce a form POST/thanks
+)
+
+
+def _transient_retry_eligible(lead: dict[str, Any], *, now_ts: float, hours: float) -> bool:
+    """Retry hakki var mi: yalniz sinyalsiz hata, max 1 kez, 12s soguma sonrasi."""
+    if str(lead.get("status") or "") != "skipped_submit_failed":
+        return False
+    err = str(lead.get("error") or "")
+    if not any(tok in err for tok in _TRANSIENT_SUBMIT_ERRORS):
+        return False
+    if int(lead.get("transient_requeues") or 0) >= 1:
+        return False
+    if int(lead.get("submit_attempts") or 0) > 1:
+        return False
+    stamp = str(lead.get("updated_at") or lead.get("submitted_at") or "")
+    if not stamp:
+        return False
+    try:
+        ts = datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return False
+    return (now_ts - ts) >= hours * 3600.0
+
+
+def _retry_transient_submit_fails(leads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sinyalsiz submit fail'leri SOGUMA sonrasi TEK kez yeniden kuyruga al.
+
+    Guvenli sinir: yalnizca hicbir POST/nav/DOM kaniti olmayan hatalar (host'a
+    mesaj gitmedi), lead basina max 1 retry (``transient_requeues``), tur basina
+    ``SUBMIT_TRANSIENT_RETRY_MAX`` tavan. POST ureten/belirsiz hatalar (timeout,
+    DOM success) KAPSAM DISI — mukerrer mesaj riskini onler.
+    """
+    max_n = int(getattr(config, "SUBMIT_TRANSIENT_RETRY_MAX", 120) or 0)
+    hours = float(getattr(config, "SUBMIT_TRANSIENT_RETRY_HOURS", 12.0) or 12.0)
+    if max_n <= 0 or hours < 0:
+        return leads
+    now_ts = datetime.now(timezone.utc).timestamp()
+    n = 0
+    for lead in leads:
+        if n >= max_n:
+            break
+        if not _transient_retry_eligible(lead, now_ts=now_ts, hours=hours):
+            continue
+        lead["status"] = "qualified"
+        lead["submit_attempts"] = 0
+        lead["transient_requeues"] = int(lead.get("transient_requeues") or 0) + 1
+        url = str(lead.get("url") or "")
+        domain_store.unmark(url)
+        domain_store.enqueue(url, source="submit-retry")
+        n += 1
+    if n:
+        logger.info("Transient submit-retry: %s lead yeniden kuyruga alindi", n)
     return leads
 
 

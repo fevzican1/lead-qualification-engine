@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 import webchat_core as core
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -211,4 +213,56 @@ def test_deploy_assets_cover_restart_health_and_git_push():
     nginx = (ROOT / "oracle" / "webchat-nginx.conf").read_text(encoding="utf-8")
     assert "proxy_set_header Upgrade $http_upgrade" in nginx
     assert "127.0.0.1:8765" in nginx
+
+
+# --- ODEME ADIMI: link + sahibe yuksek oncelikli bildirim garantisi ----------
+
+
+@pytest.mark.parametrize("text", [
+    "ödeme linkini atar mısınız?",
+    "Ödeme linki gönderebilir misiniz?",
+    "nasıl ödeme yapabilirim?",
+    "How can I pay?",
+    "fatura gönderir misiniz?",
+    "send me the payment link please",
+    "ödeme yapmak istiyorum",
+])
+def test_payment_link_request_catches_question_form(text):
+    assert core.payment_link_request(text) is True
+    assert core.payment_stage(text)["stage"] is True
+
+
+@pytest.mark.parametrize("text", [
+    "ödeme linki istemiyorum",
+    "not interested, send payment link",
+    "vazgeçtim, fatura göndermeyin",
+])
+def test_payment_link_request_respects_refusal(text):
+    assert core.payment_link_request(text) is False
+    assert core.payment_stage(text)["stage"] is False
+
+
+def test_payment_stage_keeps_question_guard_and_explicit_buy():
+    # Guvenlik kapisi korunur: soru tek basina 'buy' sayilmaz.
+    assert core.payment_stage("nasıl çalışıyor?") == {"buy": False, "link_req": False, "stage": False}
+    assert core.wants_to_buy("nasıl çalışıyor?") is False
+    # Acik niyet + dogrudan link talebi odeme adimidir.
+    assert core.payment_stage("satın almak istiyorum, başlayalım")["buy"] is True
+    assert core.payment_stage("ödeme linkini gönderin")["stage"] is True
+
+
+def test_worker_payment_and_load_shedding_wiring_locked():
+    """Canli isci: odeme linki + sahibe bildirim + hizli model + kuyruk tavani."""
+    import inspect
+
+    import webchat_server as server
+
+    src = inspect.getsource(server)
+    assert "ODEME ISTEGI (webchat)" in src
+    assert "pay_stage" in src and "payment_notified" in src
+    assert "webchat_url(sid)" in src, "odeme bildirimi oturum linki tasimali"
+    assert "chat_webchat" in src, "webchat hizli model (llama3.2:3b) kullanmali"
+    assert "WEBCHAT_LLM_CONCURRENCY" in src
+    assert "put_nowait" in src, "kuyruk tavani asilinca kibarca yanit verilmeli"
+    assert server.payment_stage is core.payment_stage
 

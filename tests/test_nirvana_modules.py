@@ -294,12 +294,19 @@ def test_delivery_run_batch_reports_and_respects_notify_off(tmp_path):
 
 def test_retention_monthly_stats_and_renewal_link(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PAYONEER_PAYMENT_URL", "https://www.payoneer.com/req/REN2")
+    # Tarih-bagimsiz: rapor HER ZAMAN icinde bulunulan takvim ayini toplar.
+    import time as _time
+
+    now = _time.gmtime()
+    this_month = f"{now.tm_year:04d}-{now.tm_mon:02d}-02T06:00:00Z"
+    prev_year, prev_mon = (now.tm_year - 1, 12) if now.tm_mon == 1 else (now.tm_year, now.tm_mon - 1)
+    prev_month = f"{prev_year:04d}-{prev_mon:02d}-02T06:00:00Z"
     history = tmp_path / "history.json"
     history.write_text(json.dumps([
-        {"at": "2026-09-02T06:00:00Z", "results": [
+        {"at": this_month, "results": [
             {"domain": "a.com", "status": "down", "ms": 0, "http": 0},
             {"domain": "b.com", "status": "ok", "ms": 100, "http": 200}]},
-        {"at": "2026-08-02T06:00:00Z", "results": [
+        {"at": prev_month, "results": [
             {"domain": "a.com", "status": "down", "ms": 0, "http": 0}]},
     ]), encoding="utf-8")
     result = retention.run_batch(history_path=history, notify=False, client="Acme")

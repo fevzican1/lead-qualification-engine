@@ -449,6 +449,18 @@ SITE_TIMEOUT_SECONDS: int = _get_int("SITE_TIMEOUT_SECONDS", 45)
 SUBMIT_HARD_TIMEOUT_SECONDS: float = _get_float("SUBMIT_HARD_TIMEOUT_SECONDS", 30.0)
 # Hard timeout ile karantinaya alınan host'un dokunulmazlık süresi (saat).
 SUBMIT_QUARANTINE_HOURS: float = _get_float("SUBMIT_QUARANTINE_HOURS", 6.0)
+# --- Submit verim kurtarma (2026-10 revizyonu) ------------------------------
+# Zorunlu select/radio doldurma + gecersiz alan kurtarma: HTML5 validation
+# submit'i sessizce bloke ettiginde ("click did not produce POST") devreye girer.
+FORM_SMART_FILL: bool = _get_bool("FORM_SMART_FILL", True)
+# filled==0 ise tek sayfa reload'i ile selector yenileme (taze DOM turu).
+FORM_FILL_RELOAD: bool = _get_bool("FORM_FILL_RELOAD", True)
+# Tik sonrasi gecersiz-zorunlu alan tamamlama + cascade'in tek tekrari.
+FORM_INVALID_RECOVERY: bool = _get_bool("FORM_INVALID_RECOVERY", True)
+# Kalici sinyal uretmeyen submit fail'lerini bu saat sonrasi TEK kez yeniden
+# kuyruga al (lead basina transient_requeues<=1; tur basina tavan asagida).
+SUBMIT_TRANSIENT_RETRY_HOURS: float = _get_float("SUBMIT_TRANSIENT_RETRY_HOURS", 12.0)
+SUBMIT_TRANSIENT_RETRY_MAX: int = _get_int("SUBMIT_TRANSIENT_RETRY_MAX", 120)
 # Max hosts per pipeline --submit invocation (~5–15 min wall time). 24 → with the
 # ~22% confirm rate, up to ~5-6 confirmed posts per visit batch — enough to fill
 # the 40/hour floor in fewer cycles while the per-provider pacing still protects.

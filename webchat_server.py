@@ -205,7 +205,12 @@ def notify_admin(text, *, high_priority=False):
 _ollama_sem = None
 def _sem():
     global _ollama_sem
-    if _ollama_sem is None: _ollama_sem = asyncio.Semaphore(1)
+    if _ollama_sem is None:
+        # Ampere A1 4 vCPU: varsayilan 1 eszamanli LLM (guvenli). Yogunluk artarsa
+        # WEBCHAT_LLM_CONCURRENCY ile kod degisikligi olmadan yukseltilir (max 4).
+        try: n = max(1, min(4, int(os.getenv("WEBCHAT_LLM_CONCURRENCY", "1") or 1)))
+        except Exception: n = 1
+        _ollama_sem = asyncio.Semaphore(n)
     return _ollama_sem
 async def _brain_reply(session, user_text):
     sid = str(session.get("sid") or ""); name = str(session.get("name") or "")
@@ -223,8 +228,21 @@ async def _brain_reply(session, user_text):
     reply = ""
     try:
         import ollama_client  # type: ignore
+        def _call() -> str:
+            """HIZLI MODEL (llama3.2:3b) — 4 vCPU'da kisa yanit hedefi.
+
+            chat_webchat hizli modeli secer; model diskte yoksa/duserse ana
+            modele KENDI icinde duser. Imza degisirse chat()'e guvenli gecis.
+            """
+            fn = getattr(ollama_client, "chat_webchat", None)
+            if callable(fn):
+                out = fn(msgs, temperature=0.6, max_tokens=280, timeout=60.0)
+                if isinstance(out, tuple):
+                    out = out[0] if out else ""
+                return str(out or "")
+            return str(ollama_client.chat(msgs, temperature=0.6, max_tokens=280) or "")
         async with _sem():
-            reply = await asyncio.wait_for(asyncio.to_thread(ollama_client.chat, msgs, temperature=0.6, max_tokens=280), timeout=120.0)
+            reply = await asyncio.wait_for(asyncio.to_thread(_call), timeout=95.0)
             reply = str(reply or "").strip()
     except Exception as exc: logger.warning("ollama down (sid=%s): %s - yedek", sid, exc); reply = ""
     if not reply: reply = fallback_reply(lang=lang, tone=str(scored.get("tone") or "educate"), name=name)
@@ -292,6 +310,8 @@ from webchat_core import (  # noqa: E402
     greeting as _core_greeting,
     mark_drip as _core_mark_drip,
     notify_admin as _core_notify_admin,
+    payment_link_request as _core_payment_link_request,
+    payment_stage as _core_payment_stage,
     pop_inbox as _core_pop_inbox,
     profile_insight as _core_profile_insight,
     push_inbox as _core_push_inbox,
@@ -331,6 +351,8 @@ get_session = _core_get_session
 greeting = _core_greeting
 mark_drip = _core_mark_drip
 notify_admin = _core_notify_admin
+payment_link_request = _core_payment_link_request
+payment_stage = _core_payment_stage
 pop_inbox = _core_pop_inbox
 profile_insight = _core_profile_insight
 push_inbox = _core_push_inbox
@@ -438,6 +460,10 @@ def _reg_ws(f):
             while True:
                 try: data = await ws.receive_json()
                 except _D: break
+                except Exception:
+                    # Bozuk kare oturumu DUSURMEZ (kesintisiz musteri deneyimi).
+                    await asyncio.sleep(0.05)
+                    continue
                 text = str((data or {}).get("text") or "")[:2000]
                 if not text.strip(): continue
                 if text.strip() == "/status":
@@ -445,7 +471,22 @@ def _reg_ws(f):
                 append_history(sid, "user", text)
                 fut = asyncio.get_event_loop().create_future()
                 idx = int(hashlib.md5(str(sid).encode()).hexdigest(), 16) % max(1, N_WORKERS)
-                await _queues[idx].put({"sid": sid, "text": text, "fut": fut})
+                s0 = get_session(sid) or {}
+                busy = False
+                try:
+                    # YOGUNLUK KAPISI: kuyruk tavani asilirsa bekletmeden kibarca
+                    # yanit ver — WS asili kalmaz, sunucu cokmez, oturum korunur.
+                    _queues[idx].put_nowait({"sid": sid, "text": text, "fut": fut})
+                except Exception:
+                    busy = True
+                if busy:
+                    await ws.send_json({
+                        "type": "agent", "busy": True,
+                        "text": fallback_reply(lang=str(s0.get("lang") or "tr"), tone="consult",
+                                               name=str(s0.get("name") or "")),
+                        "score": int(s0.get("score") or 20), "tone": str(s0.get("tone") or "consult"),
+                        "voice_url": None})
+                    continue
                 try: res = await asyncio.wait_for(fut, timeout=150.0)
                 except asyncio.TimeoutError:
                     s0 = get_session(sid) or {}
@@ -486,23 +527,36 @@ async def _worker_loop(idx, queue):
                 # sleep'i icerir — event loop'ta dogrudan cagrilirsa loop 30 sn
                 # bloklanir, sdnotify pulse atlamaz, systemd SIGABRT atardi.
                 # Bu yuzden tum admin bildirimleri thread'e alinir.
-                if (sc >= 80 or wants_to_buy(text)) and not s2.get("vip_notified"):
+                _st = payment_stage(text)
+                buy = bool(_st.get("buy"))
+                pay_stage = bool(_st.get("stage"))
+                if sc >= 80 and not pay_stage and not s2.get("vip_notified"):
                     await asyncio.to_thread(
                         notify_admin,
                         f"VIP LEAD (webchat) {who} skor={sc} son={(text or '')[:200]} sid={sid}",
                         high_priority=True)
                     put_session(sid, vip_notified=True)
-                if wants_to_buy(text) and not s2.get("payment_notified"):
+                if pay_stage and not s2.get("payment_notified"):
+                    # GERCEK ODEME ADIMI: acik niyet (buy) VEYA dogrudan link/
+                    # fatura talebi (link_req, soru formu dahil). Musteriye link
+                    # deterministik gider; sahibe oturum linkiyle yuksek oncelikli
+                    # bildirim duser (kacirilan musteri = kayip ciro).
                     link = ""
                     try:
                         from nirvana import payment as pm  # type: ignore
                         link = pm.payment_link()
                     except Exception: link = ""
-                    if link: reply = f"{reply}\n\nOdeme talebi: {link}"
-                    await asyncio.to_thread(notify_admin,
-                                            f"ODEME ISTEGI (webchat) {who} sid={sid}",
-                                            high_priority=True)
-                    put_session(sid, payment_notified=True)
+                    if link:
+                        reply = f"{reply}\n\nOdeme adimi: {link}"
+                    await asyncio.to_thread(
+                        notify_admin,
+                        (f"ODEME ISTEGI (webchat) {who} skor={sc}"
+                         f" | {'link GONDERILDI' if link else 'LINK YOK - PAYONEER_LINK kontrol'}"
+                         f" | talep={(text or '')[:160]}"
+                         f" | oturum={webchat_url(sid)}"),
+                        high_priority=True)
+                    put_session(sid, payment_notified=True, vip_notified=True,
+                                payment_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
             except Exception: logger.warning("admin notify skip", exc_info=True)
             url = await ensure_voice(sid, reply, lang=str((get_session(sid) or {}).get("lang") or "tr"))
             if fut is not None and not fut.done(): fut.set_result({"reply": reply, "score": scored, "voice_url": url})

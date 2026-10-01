@@ -163,16 +163,117 @@ MOUSE_CLICK_JS = """() => {
   return true;
 }"""
 
+REQUEST_SUBMIT_FORM_JS = """(f) => {
+  if (!f || typeof f.requestSubmit !== 'function') return false;
+  f.requestSubmit();
+  return true;
+}"""
+
+SUBMIT_BUTTON_ON_FORM_JS = """(f) => {
+  if (!f || !f.querySelectorAll) return false;
+  const sels = ['button[type=submit]', 'input[type=submit]', 'button:not([type])',
+                '.hs-button', '.hs-submit', '[role=button]', 'button'];
+  const re = /send|submit|contact|enquire|inquire|gönder|gonder|ilet|başvur|basvur|teklif|quote|message/i;
+  for (const s of sels) {
+    for (const b of f.querySelectorAll(s)) {
+      const style = window.getComputedStyle(b);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      const rect = b.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) continue;
+      const type = (b.getAttribute('type') || '').toLowerCase();
+      const tag = b.tagName.toLowerCase();
+      const label = ((b.innerText || b.value || b.getAttribute('aria-label') || '') + '').trim();
+      if (s === 'button' && tag === 'button' && type !== 'submit' && !re.test(label)) continue;
+      b.scrollIntoView({behavior: 'instant', block: 'center'});
+      b.click();
+      return true;
+    }
+  }
+  return false;
+}"""
+
+RADIO_RECOVER_JS = """() => {
+  const r = document.querySelector('input[type=radio]:invalid, input[type=checkbox]:invalid');
+  if (!r) return false;
+  r.click();
+  return true;
+}"""
+
+SELECT_RECOVER_JS = """() => Array.from(document.querySelectorAll('select')).find(
+  (s) => s.validity && !s.validity.valid && !(s.value || '').trim()
+) || null"""
+
+TEXT_RECOVER_JS = """() => {
+  const bad = Array.from(document.querySelectorAll('input, textarea')).find((e) => {
+    if (e.hasAttribute('data-nv-seen')) return false;
+    const tag = e.tagName.toLowerCase();
+    const type = (e.getAttribute('type') || 'text').toLowerCase();
+    if (tag !== 'textarea' && !['text', 'email', 'tel', 'url', 'search', 'number', ''].includes(type)) return false;
+    if (!e.willValidate || e.disabled) return false;
+    const style = window.getComputedStyle(e);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    const rect = e.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return false;
+    if (!(e.validity && !e.validity.valid)) return false;
+    if ((e.value || '').trim()) return false;
+    e.setAttribute('data-nv-seen', '1');
+    return true;
+  });
+  return bad || null;
+}"""
+
+NEUTRAL_OPTION_RE = re.compile(
+    r"please (select|choose)|^select\b|^choose\b|^\s*[-–—]|not (specified|sure)|"
+    r"prefer not|no preference|other|belirtmek istemiyorum|seçiniz|seciniz|"
+    r"lütfen seç|diğer|diger|hiçbiri|hicbiri|^yok$|^none$|unspecified",
+    re.I,
+)
+
 
 class FormNetWatcher:
-    """Watch for a real form POST/AJAX — ignore analytics beacons."""
+    """Watch for a real form POST/AJAX — ignore analytics beacons.
+
+    GET-form submit'leri ve thank-you yonlendirmeleri HICBIR POST uretmez;
+    bu yuzden submit sonrasi "yeni URL'e ana-dokuman GET'i" de dogrulama
+    sayilir. ``arm_navigation`` ile acilir, belirsiz tiklamalarda
+    (``disable_navigation``) kapatilir ki sayfa ici link yanlis pozitif olmasin.
+    """
 
     def __init__(self, page: Page) -> None:
         self.hit = False
         self.status: int | None = None
         self.url = ""
+        self.via = ""
         self._page = page
-        page.on("response", self._on_response)
+        self._armed_url = ""
+        self._expect_nav = False
+        self._target: Any = None
+        target: Any = None
+        try:  # context seviyesi: yeni sekmede acilan POST da yakalanir
+            target = page.context
+        except Exception:  # noqa: BLE001
+            target = None
+        try:
+            if target is not None:
+                target.on("response", self._on_response)
+            else:
+                page.on("response", self._on_response)
+        except Exception:  # noqa: BLE001
+            target = page
+            page.on("response", self._on_response)
+        self._target = target if target is not None else page
+
+    def arm_navigation(self) -> None:
+        """Bu andan sonra YENI URL'e GET dokuman navigasyonu dogrulamadir."""
+        self._expect_nav = True
+        try:
+            self._armed_url = (self._page.url or "").lower()
+        except Exception:  # noqa: BLE001
+            self._armed_url = ""
+
+    def disable_navigation(self) -> None:
+        """Belirsiz tiklama (or. sayfa ici 'a.button') icin nav saymayi kapat."""
+        self._expect_nav = False
 
     def _on_response(self, response: Any) -> None:
         if self.hit:
@@ -180,26 +281,41 @@ class FormNetWatcher:
         try:
             request = response.request
             method = (request.method or "").upper()
-            if method not in {"POST", "PUT", "PATCH"}:
-                return
-            resource_type = str(getattr(request, "resource_type", "") or "").lower()
-            if resource_type in {
-                "beacon",
-                "image",
-                "script",
-            }:
-                return
-            if resource_type and resource_type not in {"document", "fetch", "xhr"}:
-                return
             url = (request.url or "").lower()
-            if any(tok in url for tok in _NET_NOISE):
-                return
+            resource_type = str(getattr(request, "resource_type", "") or "").lower()
             code = int(response.status or 0)
-            if 200 <= code < 300:
+            if method in {"POST", "PUT", "PATCH"}:
+                if resource_type in {
+                    "beacon",
+                    "image",
+                    "script",
+                }:
+                    return
+                if resource_type and resource_type not in {"document", "fetch", "xhr"}:
+                    return
+                if any(tok in url for tok in _NET_NOISE):
+                    return
+                if 200 <= code < 300:
+                    self.hit = True
+                    self.status = code
+                    self.url = request.url or ""
+                    self.via = "post"
+                    logger.info("Form network confirm %s %s", code, self.url[:120])
+                return
+            if (
+                self._expect_nav
+                and method == "GET"
+                and resource_type == "document"
+                and 200 <= code < 400
+                and url
+                and url != self._armed_url
+                and not any(tok in url for tok in _NET_NOISE)
+            ):
                 self.hit = True
                 self.status = code
                 self.url = request.url or ""
-                logger.info("Form network confirm %s %s", code, self.url[:120])
+                self.via = "nav"
+                logger.info("Form navigation confirm %s %s", code, self.url[:120])
         except Exception:  # noqa: BLE001
             return
 
@@ -216,7 +332,7 @@ class FormNetWatcher:
 
     def close(self) -> None:
         try:
-            self._page.remove_listener("response", self._on_response)
+            self._target.remove_listener("response", self._on_response)
         except Exception:  # noqa: BLE001
             pass
 
@@ -585,6 +701,28 @@ def _submit_with_page(
         if filled < 2:
             filled = max(filled, _fill_formless(page, message, subject=subject, last_field=last_field))
         _tick_consent(page)
+        if getattr(config, "FORM_SMART_FILL", True):
+            filled += _tick_required_radios(page) or 0
+        if filled == 0 and getattr(config, "FORM_FILL_RELOAD", True) and wall_left() > 12.0:
+            # SELECTOR YENILEME: tek reload + taze DOM ile ikinci eslesme turu
+            # (43 'could not map any visible form fields' vakasinin kurtarma yolu).
+            try:
+                logger.info("Fill rescue reload for %s", lead.get("url"))
+                goto_page(page, form_url, cap_ms)
+                _wait_widgets(page)
+                _reveal_widgets(page)
+                dismiss_cookie_banner(page)
+                filled = _fill_form(page, message, subject=subject, last_field=last_field)
+                if filled < 2:
+                    filled = max(
+                        filled,
+                        _fill_formless(page, message, subject=subject, last_field=last_field),
+                    )
+                _tick_consent(page)
+                if getattr(config, "FORM_SMART_FILL", True):
+                    filled += _tick_required_radios(page) or 0
+            except Exception:  # noqa: BLE001
+                logger.debug("Fill rescue reload failed", exc_info=True)
         if filled == 0:
             result["status"] = "skipped_submit_failed"
             result["error"] = "Could not map any visible form fields"
@@ -613,6 +751,8 @@ def _submit_with_page(
             raise TimeoutError("site budget before click")
 
         watcher = FormNetWatcher(page)
+        # GET-form/thanks yonlendirmesi: POST gorunmese de nav dogrulamasi sayilir.
+        watcher.arm_navigation()
         clicked = _submit_cascade(page, watcher, last_field)
         success_dom = _looks_successful(page)
         net = bool(watcher.hit)
@@ -621,6 +761,31 @@ def _submit_with_page(
             watcher.wait(max(0.5, min(2.5, wall_left())))
             net = bool(watcher.hit)
             success_dom = success_dom or _looks_successful(page)
+        if not net and not success_dom and wall_left() > 6.0 and getattr(
+            config, "FORM_INVALID_RECOVERY", True
+        ):
+            # Tik gerceklesmediyse/validation acti: gecersiz zorunlu alanlari
+            # tamamla ve cascade'i TEK kez tekrarla (bounded).
+            try:
+                fixed = _fix_invalid_required(page, last_field=last_field)
+            except Exception:  # noqa: BLE001
+                fixed = 0
+            if fixed:
+                _tick_consent(page)
+                if getattr(config, "FORM_SMART_FILL", True):
+                    _tick_required_radios(page)
+                logger.info("Invalid-field recovery (%s fix) — cascade tekrari", fixed)
+                _submit_cascade(page, watcher, last_field)
+                watcher.wait(max(0.5, min(2.2, wall_left())))
+                net = bool(watcher.hit)
+                success_dom = success_dom or _looks_successful(page)
+        if not net and not success_dom:
+            # Tek ek bekleme turu: yavas POST / gec gelen tesekkur metni icin.
+            extra = min(6.0, max(0.0, wall_left() - 1.5))
+            if extra >= 1.0:
+                watcher.wait(extra)
+                net = bool(watcher.hit)
+                success_dom = success_dom or _looks_successful(page)
 
         result["submit_fields_filled"] = filled
         result["submitted_url"] = form_url
@@ -914,6 +1079,14 @@ def _fill_controls(
             except Exception:  # noqa: BLE001
                 tag = "input"
             if tag == "select":
+                if not getattr(config, "FORM_SMART_FILL", True):
+                    continue
+                # Zorunlu select bos kalirsa HTML5 validation submit'i sessizce
+                # bloke eder ("click did not produce POST"larin bir kismi).
+                if not _is_required(el):
+                    continue
+                if _select_neutral_option(el):
+                    filled += 1
                 continue
             kind = "textarea" if tag == "textarea" else el_type
             if contenteditable == "true" and tag not in {"input", "textarea"}:
@@ -1020,6 +1193,134 @@ def _tick_consent(page: Page) -> None:
                 continue
 
 
+def _form_handle(last_field: list[Any]) -> Any | None:
+    """Doldurdugumuz kontrolun ait oldugu FORM'un handle'i (dogru hedefleme)."""
+    if not last_field:
+        return None
+    try:
+        handle = last_field[0].evaluate_handle(
+            "e => (e.form || (e.closest ? e.closest('form') : null))"
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        return handle.as_element() if handle is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _is_required(el: Any) -> bool:
+    try:
+        return bool(
+            el.evaluate("e => !!(e.required || e.getAttribute('aria-required') === 'true')")
+        )
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _pick_select_option(options: list[dict[str, Any]]) -> int:
+    """Zorunlu select icin submit'i bloke etmeyen GERCEK secenek (DOM index).
+
+    Placeholder (value bos) secenek HTML5 'required' kilidini ACMAZ; atlanir.
+    Notr etiketli ('Other'/'Diger'/'Prefer not to say') varsa o tercih edilir.
+    """
+    first = -1
+    for opt in options:
+        if not isinstance(opt, dict):
+            continue
+        value = str(opt.get("value") or "")
+        label = str(opt.get("label") or "")
+        if not value or bool(opt.get("disabled")):
+            continue
+        if NEUTRAL_OPTION_RE.search(label):
+            return int(opt.get("i", -1))
+        if first < 0:
+            first = int(opt.get("i", -1))
+    return first
+
+
+def _select_neutral_option(el: Any) -> bool:
+    """Bos zorunlu select'e notr secenek sec (validation kilidini acar)."""
+    try:
+        options = el.evaluate(
+            """(e) => Array.from(e.options || []).map((o) => ({
+                i: o.index,
+                value: o.value,
+                label: (o.label || o.text || '').trim(),
+                disabled: !!o.disabled,
+            }))"""
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    idx = _pick_select_option(options if isinstance(options, list) else [])
+    if idx < 0:
+        return False
+    try:
+        el.select_option(index=int(idx), timeout=1500)
+        logger.info("Required select dolduruldu (notr secenek)")
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _tick_required_radios(page: Page) -> int:
+    """Bos zorunlu radio/checkbox gruplarini isaretle (submit'i bloke ediyorlardi)."""
+    n = 0
+    for scope in _scopes(page):
+        for _ in range(4):
+            try:
+                if not scope.evaluate(RADIO_RECOVER_JS):
+                    break
+                n += 1
+                logger.info("Ticked required radio/checkbox")
+            except Exception:  # noqa: BLE001
+                break
+        if n:
+            break
+    return n
+
+
+def _fix_invalid_required(page: Page, *, last_field: list[Any] | None = None) -> int:
+    """Tik sonrasi gecersiz-zorunlu alanlari tamamla (validation kilidini acar)."""
+    values = _sender_values("", "")
+    fixed = 0
+    for scope in _scopes(page):
+        for _ in range(4):
+            try:
+                if not scope.evaluate(RADIO_RECOVER_JS):
+                    break
+                fixed += 1
+            except Exception:  # noqa: BLE001
+                break
+        try:
+            handle = scope.evaluate_handle(SELECT_RECOVER_JS)
+            el = handle.as_element() if handle is not None else None
+            if el is not None and _select_neutral_option(el):
+                fixed += 1
+        except Exception:  # noqa: BLE001
+            pass
+        for _ in range(4):
+            el = None
+            try:
+                handle = scope.evaluate_handle(TEXT_RECOVER_JS)
+                el = handle.as_element() if handle is not None else None
+            except Exception:  # noqa: BLE001
+                el = None
+            if el is None:
+                break
+            try:
+                kind = (el.get_attribute("type") or "text").lower()
+            except Exception:  # noqa: BLE001
+                break
+            val = values.get({"email": "email", "tel": "phone", "url": "website"}.get(kind, "")) or ""
+            if not val or not _type_value(page, el, val, last_field=last_field):
+                continue
+            fixed += 1
+        if fixed:
+            break
+    return fixed
+
+
 def _find_submit_button(page: Page) -> Any | None:
     selectors = (
         "form button[type='submit']",
@@ -1064,14 +1365,38 @@ def _scroll_focus(page: Page, btn: Any) -> None:
 
 
 def _submit_cascade(page: Page, watcher: FormNetWatcher, last_field: list[Any]) -> bool:
-    """A requestSubmit, B MouseEvent click, C Enter. Stop as soon as a POST is seen."""
+    """A0 form-kapsamli requestSubmit/button, A requestSubmit, B click, C Enter.
+
+    Her adim oncesi ``arm_navigation`` cagrilir; boylece GET-form submit'i ve
+    thank-you yonlendirmesi de dogrulama sayilir. Belirsiz JS tiklama adiminda
+    (sayfa ici 'a.button' olabilir) nav sayimi kapatilir — yanlis pozitif yok.
+    """
+    form_el = _form_handle(last_field)
     btn = _find_submit_button(page)
     if btn is not None:
         _scroll_focus(page, btn)
 
+    # A0 — DOLDURDUGUMUZ formu hedefle: sayfadaki baska bir formu (newsletter,
+    # arama kutusu) tetiklemek yerine dogru forma gonder.
+    if form_el is not None:
+        for act in ("requestSubmit", "button"):
+            try:
+                watcher.arm_navigation()
+                if act == "requestSubmit":
+                    ok = form_el.evaluate(REQUEST_SUBMIT_FORM_JS)
+                else:
+                    ok = form_el.evaluate(SUBMIT_BUTTON_ON_FORM_JS)
+                if ok:
+                    logger.info("Submit cascade A0 scoped %s", act)
+                    if watcher.wait(1.8):
+                        return True
+            except Exception:  # noqa: BLE001
+                continue
+
     # A — requestSubmit (does not skip React/Vue listeners the way form.submit() does)
     for scope in _scopes(page):
         try:
+            watcher.arm_navigation()
             if scope.evaluate(REQUEST_SUBMIT_JS):
                 logger.info("Submit cascade A requestSubmit")
                 if watcher.wait(1.8):
@@ -1084,11 +1409,10 @@ def _submit_cascade(page: Page, watcher: FormNetWatcher, last_field: list[Any]) 
     clicked = False
     if btn is not None:
         try:
+            watcher.arm_navigation()
             btn.evaluate(
                 """(e) => {
                     e.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true, view: window}));
-            btn.click(timeout=10_000, force=True)
-
                 }"""
             )
             clicked = True
@@ -1098,6 +1422,7 @@ def _submit_cascade(page: Page, watcher: FormNetWatcher, last_field: list[Any]) 
         except Exception:  # noqa: BLE001
             pass
         try:
+            watcher.arm_navigation()
             btn.click(timeout=3000, force=True)
             clicked = True
             logger.info("Submit cascade B force click")
@@ -1107,6 +1432,8 @@ def _submit_cascade(page: Page, watcher: FormNetWatcher, last_field: list[Any]) 
             pass
     for scope in _scopes(page):
         try:
+            # Sayfa ici link olabilir: nav dogrulamasi bu adimda kapali.
+            watcher.disable_navigation()
             if scope.evaluate(MOUSE_CLICK_JS):
                 clicked = True
                 logger.info("Submit cascade B JS button click")
@@ -1119,6 +1446,7 @@ def _submit_cascade(page: Page, watcher: FormNetWatcher, last_field: list[Any]) 
     # C — Enter on the last filled control
     if last_field:
         try:
+            watcher.arm_navigation()
             last_field[0].focus()
             last_field[0].press("Enter")
             clicked = True
@@ -1127,6 +1455,7 @@ def _submit_cascade(page: Page, watcher: FormNetWatcher, last_field: list[Any]) 
                 return True
         except Exception:  # noqa: BLE001
             try:
+                watcher.arm_navigation()
                 page.keyboard.press("Enter")
                 clicked = True
                 if watcher.wait(1.8):
