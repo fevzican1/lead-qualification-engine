@@ -266,3 +266,38 @@ def test_worker_payment_and_load_shedding_wiring_locked():
     assert "put_nowait" in src, "kuyruk tavani asilinca kibarca yanit verilmeli"
     assert server.payment_stage is core.payment_stage
 
+
+def test_ws_route_accepts_and_greets(tmp_path, monkeypatch):
+    """Regression: /ws/{sid} kabul EDILMELI (annotation'siz ws -> HS 403 -> satis hatti olu).
+
+    Sunucu kaydinda `ws` parametresinin tipi yoksa FastAPI onu zorunlu QUERY
+    parami sanir; handshake validasyon hatasiyla 403 ile dusen musteri
+    (journal: "connection rejected (403 Forbidden)") — web kanali tamamen olur.
+    Bu test gercek FastAPI rotasina WS Baglantisi acar (TestClient).
+    """
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    import webchat_server as server
+
+    monkeypatch.setattr(core, "SESSIONS_PATH", tmp_path / "webchat_sessions.json")
+    monkeypatch.setattr(core, "_loaded", False)
+    monkeypatch.setattr(core, "_enrich_enabled", lambda: False)
+    core._sessions.clear()
+
+    async def _no_voice(sid, text, *, lang="tr"):
+        return None  # TTS ag istegi yapmasin
+
+    monkeypatch.setattr(server, "ensure_voice", _no_voice)
+
+    from fastapi.testclient import TestClient
+
+    app = server._lazy_app()
+    with TestClient(app).websocket_connect("/ws/wstest01") as ws:
+        first = ws.receive_json()
+        assert first.get("type") == "agent" and first.get("kind") == "greeting"
+        ready = ws.receive_json()
+        assert ready.get("type") == "ready"
+        ws.send_json({"text": "/status"})
+        st = ws.receive_json()
+        assert st.get("type") == "agent" and st.get("kind") == "status"
+

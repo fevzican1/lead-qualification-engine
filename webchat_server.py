@@ -431,9 +431,20 @@ def _lazy_app():
     app = f; return f
 # __PART5B__ ws
 def _reg_ws(f):
+    from fastapi import WebSocket as _WS  # type: ignore
     from fastapi.responses import JSONResponse as _J  # type: ignore
+    # __future__ annotations: imzalar STRING saklanir; FastAPI kayit aninda
+    # globals'ten cozer. WebSocket adini globals'e enjekte etmezsek `ws`
+    # annotation'siz sayilir -> zorunlu QUERY param -> HS 403 "Missing query
+    # parameter ws" -> hicbir musteri baglantisi kabul edilmez (journal'da
+    # "connection rejected (403 Forbidden)"). Metod __annotations__'i string
+    # oldugu icin degeri kayit ONCESINDE globals'e koymak zorundayiz.
+    globals()["WebSocket"] = _WS
+    # wrapper (_lazy_app) her cagirda ayni rotayi tekrar eklemesin.
+    if any(getattr(r, "path", "") == "/ws/{sid}" for r in getattr(f, "routes", [])):
+        return f
     @f.websocket("/ws/{sid}")
-    async def ws_chat(ws, sid: str):  # type: ignore
+    async def ws_chat(ws: WebSocket, sid: str):  # type: ignore[name-defined]
         await ws.accept(); _conns[str(sid)] = ws
         try:
             # Form linkiyle gelen musteri (dsXXXXXXXX token) icin oturum BURADA acilir:
