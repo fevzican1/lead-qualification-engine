@@ -97,11 +97,56 @@ jobs:
       - name: Deploy + canlı doğrulama
         run: |
           set -euo pipefail
+          # --- Deploy env dosyasi: secret'lar ssh KOMUT SATIRINDAN CIKARILDI ------
+          # Run 36861730471: yeni WEBCHAT_PUBLIC_URL degeri uzak komut string'ini
+          # bozdu (bash: syntax error near unexpected token `)`) ve deploy kapida
+          # dustu; hicbir adim calismadi. Artik secret'lar scp ile tasinir ve uzak
+          # tarafta `set -a; . /tmp/nirvana-deploy.env` ile yuklenir: deger icinde
+          # tirnak, yeni satir, parantez ne olursa olsun kabuk parse'i bozulmaz.
+          # printf %q: deger shell-quote'lanir (sourcing sirasinda $() ve tirnak
+          # yorumlanmaz). CR/LF ayiklanir (PowerShell/gh pipe'i \r\n ekleyebilir).
+          DEPLOY_ENV=/tmp/nirvana-deploy.env
+          : > "$DEPLOY_ENV"
+          write_env() {
+            local key="$1" val="${2:-}"
+            val="${val//$'\r'/}"
+            val="${val//$'\n'/}"
+            printf '%s=%s\n' "$key" "$(printf '%q' "$val")" >> "$DEPLOY_ENV"
+          }
+          write_env PAYONEER_LINK "${PAYONEER_LINK:-}"
+          write_env TG_BOT_TOKEN "${TG_BOT_TOKEN:-}"
+          write_env TG_BOT_TOKENS "${TG_BOT_TOKENS:-}"
+          write_env TG_OTHER_BOT_TOKENS "${TG_OTHER_BOT_TOKENS:-}"
+          write_env TG_BOT_ID "${TG_BOT_ID:-}"
+          write_env TG_BOT_USERNAME "${TG_BOT_USERNAME:-}"
+          write_env TG_OWNER_CHAT_ID "${TG_OWNER_CHAT_ID:-}"
+          write_env TG_NOTIFY_BOT_TOKEN "${TG_NOTIFY_BOT_TOKEN:-}"
+          write_env TG_NOTIFY_CHAT_ID "${TG_NOTIFY_CHAT_ID:-}"
+          write_env ADMIN_CODE "${ADMIN_CODE:-}"
+          write_env TG_ADMIN_ID "${TG_ADMIN_ID:-}"
+          write_env TG_ADMIN_TOKEN "${TG_ADMIN_TOKEN:-}"
+          write_env TG_API_ID "${TG_API_ID:-}"
+          write_env TG_API_HASH "${TG_API_HASH:-}"
+          write_env TG_BOT_API_BASE_URL "${TG_BOT_API_BASE_URL:-}"
+          write_env GH_DISPATCH_TOKEN "${GH_DISPATCH_TOKEN:-}"
+          write_env WC_PUBLIC_URL "${WEBCHAT_PUBLIC_URL:-}"
+          chmod 600 "$DEPLOY_ENV"
+          echo "deploy env hazir: $(grep -c . "$DEPLOY_ENV") degisken (degerler log'a yazilmaz)"
+          scp -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+              -o ConnectTimeout=10 -o BatchMode=yes \
+              "$DEPLOY_ENV" "${USER}@${HOST}:/tmp/nirvana-deploy.env"
           ssh -i ~/.ssh/oracle.key \
               -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
               -o ConnectTimeout=10 -o ConnectionAttempts=1 -o BatchMode=yes \
-              "${USER}@${HOST}" "PAYONEER_LINK='${PAYONEER_LINK}' TG_BOT_TOKEN='${TG_BOT_TOKEN:-}' TG_BOT_TOKENS='${TG_BOT_TOKENS:-}' TG_OTHER_BOT_TOKENS='${TG_OTHER_BOT_TOKENS:-}' TG_BOT_ID='${TG_BOT_ID:-}' TG_BOT_USERNAME='${TG_BOT_USERNAME:-}' TG_OWNER_CHAT_ID='${TG_OWNER_CHAT_ID:-}' TG_NOTIFY_BOT_TOKEN='${TG_NOTIFY_BOT_TOKEN:-}' TG_NOTIFY_CHAT_ID='${TG_NOTIFY_CHAT_ID:-}' ADMIN_CODE='${ADMIN_CODE:-}' TG_ADMIN_ID='${TG_ADMIN_ID:-}' TG_ADMIN_TOKEN='${TG_ADMIN_TOKEN:-}' TG_API_ID='${TG_API_ID:-}' TG_API_HASH='${TG_API_HASH:-}' TG_BOT_API_BASE_URL='${TG_BOT_API_BASE_URL:-}' GH_DISPATCH_TOKEN='${GH_DISPATCH_TOKEN}' WC_PUBLIC_URL='${WEBCHAT_PUBLIC_URL:-}' bash -s" <<'REMOTE'
+              "${USER}@${HOST}" 'chmod 600 /tmp/nirvana-deploy.env && bash -s' <<'REMOTE'
           set -euo pipefail
+          # Secret'lar scp ile geldi (ssh komut satirinda DEGIL): deger icerigi ne
+          # olursa olsun uzak bash parse'i bozulmaz (run 36861730471 hata sinifi).
+          # set -a: deploy_webchat.sh gibi alt surecler env degiskenlerini gorur.
+          set -a
+          . /tmp/nirvana-deploy.env
+          set +a
+          rm -f /tmp/nirvana-deploy.env
           echo "=== [0] Telegram/ops config → /opt/devsolve/.env (only when secret set) ==="
           for kv in \
             "TELEGRAM_BOT_TOKEN|${TG_BOT_TOKEN}" \
