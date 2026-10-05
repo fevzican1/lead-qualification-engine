@@ -122,7 +122,7 @@ def build_outreach_draft(domain: str, company: str = "", *, turkish: bool = True
     proof_line = f"\n\nSizin için hazırladığım teknik denetim raporu: {report_url}" if report_url else ""
     ident = str(getattr(config, "OWNER_LINKEDIN_URL", "") or "").strip()
     ident_line = f"\n— {ident}" if ident else ""
-    retainer = "2.500 EUR/ay"
+    retainer = "5.000 EUR/ay"
     if turkish:
         return (
             f"Merhaba {company} ekibi,\n\n"

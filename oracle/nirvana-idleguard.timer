@@ -1,0 +1,11 @@
+[Unit]
+Description=Nirvana Lane AM idle_guard — OCI Always-Free idle geri alim korumasi (20% alt esik)
+
+[Timer]
+OnCalendar=*:0/10
+Persistent=true
+AccuracySec=30s
+Unit=nirvana-idleguard.service
+
+[Install]
+WantedBy=timers.target

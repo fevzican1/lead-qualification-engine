@@ -4,7 +4,7 @@
 nirvana:
   version: 1
   payment:
-    amount: 2500
+    amount: 5000
     currency: EUR
     link_env: PAYONEER_PAYMENT_URL
     link_placeholder: "[BURAYA_YENI_PAYONEER_LINKINI_EKLEYIN]"
@@ -63,7 +63,7 @@ nirvana:
       letter: H
       schedule: "17 9 1 * *"
       entrypoint: "python -m nirvana.runner retention_agent"
-      description: "Monthly value report + 2.500 EUR renewal Payoneer link."
+      description: "Monthly value report + 5.000 EUR renewal Payoneer link."
       heavy: false
     watchdog_quota_agent:
       host: oracle
@@ -267,4 +267,31 @@ nirvana:
       schedule: "manual"
       entrypoint: "python -m nirvana.runner supply_guard"
       description: "Tedarik zinciri guvenligi: SBOM uretimi + digest zinciri dogrulama, imzasiz dagitim YOK. $0."
+    keepalive_guard:
+      host: github
+      letter: AL
+      schedule: "0 6 * * *"
+      entrypoint: "python -m nirvana.runner keepalive_guard"
+      description: "GitHub Actions 60-gun pasiflesme kapisi: son depo etkinligini olcup pencere (20-40 gun) dolunca contents API ile mikro commit uretir. Token yoksa dry-run. $0."
+      heavy: false
+    idle_guard:
+      host: oracle
+      letter: AM
+      schedule: "*/10 * * * *"
+      entrypoint: "python -m nirvana.runner idle_guard"
+      description: "OCI Always-Free idle geri alim korumasi: CPU/bellek alt esigin (%20) altina duserse Nice=19 hafif sentetik yuk uretir; watchdog tavani (%85) korunur. Telegram bildirimi YOK."
+      heavy: false
+    local_fuel:
+      host: oracle
+      letter: AN
+      schedule: "*/30 * * * *"
+      entrypoint: "python -m nirvana.runner local_fuel"
+      description: "Ic kaynakli sinirsiz yakit: Tranco Top-1M dilimi + Common Crawl CDX + yerel tohum listesi -> hot_fuel.db. Hedef siteye istek YOK (yalnizca liste servisleri); gunluk GET butcesi + jitter + UA rotasyonu + circuit breaker. Dis (GitHub/CDN) bagimlilik olmadan 400+/gun kapasiteyi besler."
+      heavy: false
+    job_watchdog:
+      host: oracle
+      letter: AO
+      schedule: "*/5 * * * *"
+      entrypoint: "python -m nirvana.runner job_watchdog"
+      description: "Is seviyesi bekci: kuyruk derinligi + yakit + bugunku form + webchat /health ve musteri oturumlari. Servis 'active' olsa bile is durursa 2 tur kirmizida ilgili birimi restart eder ve sahibe tek Telegram mesaji atar (saatte 1)."
       heavy: false

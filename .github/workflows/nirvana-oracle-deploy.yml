@@ -28,11 +28,26 @@ jobs:
       GH_DISPATCH_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
       TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TG_BOT_TOKENS: ${{ secrets.TELEGRAM_BOT_TOKENS }}
+      TG_OTHER_BOT_TOKENS: ${{ secrets.TELEGRAM_OTHER_BOT_TOKENS }}
+      TG_BOT_ID: ${{ secrets.TELEGRAM_BOT_ID }}
       TG_BOT_USERNAME: ${{ secrets.TELEGRAM_BOT_USERNAME }}
       TG_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
       TG_NOTIFY_BOT_TOKEN: ${{ secrets.TELEGRAM_NOTIFY_BOT_TOKEN }}
       TG_NOTIFY_CHAT_ID: ${{ secrets.TELEGRAM_NOTIFY_CHAT_ID }}
       ADMIN_CODE: ${{ secrets.ADMIN_CODE }}
+      # Yönetici kimlik doğrulaması (rapor: /notifyme + ID/TOKEN eşleşmesi).
+      # Mevcut GitHub Secret isimleri kullanılır (yeni secret zorunlu değil):
+      #   TELEGRAM_OWNER_CHAT_ID -> Oracle .env: TELEGRAM_ADMIN_ID
+      #   ADMIN_CODE             -> Oracle .env: TELEGRAM_ADMIN_TOKEN
+      TG_ADMIN_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+      TG_ADMIN_TOKEN: ${{ secrets.ADMIN_CODE }}
+      # Musteri hatti: web sohbet adresi (Oracle VM). Secret tanimli degilse
+      # deploy_webchat.sh OCI metadata'dan VM genel IP'sini cozer ve .env'e yazar.
+      # NOT: secrets.* dinamik oldugu icin VS Code Actions eklentisi burada
+      # "Context access might be invalid" uyarisi verebilir — bu YANLIS ALARM.
+      # Runtime'da tanimsiz secret = bos string; asagidaki || '' fallback'i ve
+      # deploy_webchat.sh'deki OCI-IP cozumu bunu bilerek karsilar.
+      WEBCHAT_PUBLIC_URL: ${{ secrets.WEBCHAT_PUBLIC_URL || '' }}
     steps:
       - uses: actions/checkout@v4
       - name: SSH anahtarı hazırla
@@ -55,15 +70,20 @@ jobs:
           # deploy yine "success" görünüyordu (sessiz ölüm). Modül kümesi artık
           # depodan dinamik türetilir.
           TOP_PY="$(git ls-tree -r --name-only HEAD | grep -E '^[^/]+\.py$' | tr '\n' ' ')"
-          git archive -o /tmp/nirvana-deploy.tgz HEAD $TOP_PY nirvana oracle knowledge requirements.txt .env.example
+          # templates: musteri sohbet UI'i (webchat_server /chat ile sunar).
+          git archive -o /tmp/nirvana-deploy.tgz HEAD $TOP_PY nirvana oracle knowledge \
+            templates requirements.txt .env.example
           test -s /tmp/nirvana-deploy.tgz
           # Liste dosyaya yazılır: 'tar | grep -q' + pipefail birlikte yanlış
           # sonuç verir (grep erken çıkınca tar SIGPIPE alıp "write error" der).
           tar -tzf /tmp/nirvana-deploy.tgz > /tmp/nirvana-list.txt
           echo "paket: $(wc -l < /tmp/nirvana-list.txt) dosya"
-          # Regresyon kapısı: botun/runner'ın import zinciri pakette olmalı.
+          # Regresyon kapısı: botun/runner'ın import zinciri + webchat hattı pakette olmalı.
           for need in heartbeat.py task_queue.py circuit_breaker.py config.py knowledge.py \
-                      telegram_sales_bot.py auto_runner.py owner_notify.py payment_safety.py; do
+                      telegram_sales_bot.py auto_runner.py owner_notify.py payment_safety.py \
+                      webchat_server.py webchat_core.py templates/chat.html \
+                      oracle/nirvana-webchat.service oracle/deploy_webchat.sh \
+                      oracle/webchat-nginx.conf; do
             grep -qE "(^|/)${need}$" /tmp/nirvana-list.txt \
               || { echo "::error::${need} pakette yok — deploy iptal (ModuleNotFoundError riski)"; exit 1; }
           done
@@ -77,26 +97,85 @@ jobs:
       - name: Deploy + canlı doğrulama
         run: |
           set -euo pipefail
+          # --- Deploy env dosyasi: secret'lar ssh KOMUT SATIRINDAN CIKARILDI ------
+          # Run 36861730471: yeni WEBCHAT_PUBLIC_URL degeri uzak komut string'ini
+          # bozdu (bash: syntax error near unexpected token `)`) ve deploy kapida
+          # dustu; hicbir adim calismadi. Artik secret'lar scp ile tasinir ve uzak
+          # tarafta `set -a; . /tmp/nirvana-deploy.env` ile yuklenir: deger icinde
+          # tirnak, yeni satir, parantez ne olursa olsun kabuk parse'i bozulmaz.
+          # printf %q: deger shell-quote'lanir (sourcing sirasinda $() ve tirnak
+          # yorumlanmaz). CR/LF ayiklanir (PowerShell/gh pipe'i \r\n ekleyebilir).
+          DEPLOY_ENV=/tmp/nirvana-deploy.env
+          : > "$DEPLOY_ENV"
+          write_env() {
+            local key="$1" val="${2:-}"
+            val="${val//$'\r'/}"
+            val="${val//$'\n'/}"
+            printf '%s=%s\n' "$key" "$(printf '%q' "$val")" >> "$DEPLOY_ENV"
+          }
+          write_env PAYONEER_LINK "${PAYONEER_LINK:-}"
+          write_env TG_BOT_TOKEN "${TG_BOT_TOKEN:-}"
+          write_env TG_BOT_TOKENS "${TG_BOT_TOKENS:-}"
+          write_env TG_OTHER_BOT_TOKENS "${TG_OTHER_BOT_TOKENS:-}"
+          write_env TG_BOT_ID "${TG_BOT_ID:-}"
+          write_env TG_BOT_USERNAME "${TG_BOT_USERNAME:-}"
+          write_env TG_OWNER_CHAT_ID "${TG_OWNER_CHAT_ID:-}"
+          write_env TG_NOTIFY_BOT_TOKEN "${TG_NOTIFY_BOT_TOKEN:-}"
+          write_env TG_NOTIFY_CHAT_ID "${TG_NOTIFY_CHAT_ID:-}"
+          write_env ADMIN_CODE "${ADMIN_CODE:-}"
+          write_env TG_ADMIN_ID "${TG_ADMIN_ID:-}"
+          write_env TG_ADMIN_TOKEN "${TG_ADMIN_TOKEN:-}"
+          write_env TG_API_ID "${TG_API_ID:-}"
+          write_env TG_API_HASH "${TG_API_HASH:-}"
+          write_env TG_BOT_API_BASE_URL "${TG_BOT_API_BASE_URL:-}"
+          write_env GH_DISPATCH_TOKEN "${GH_DISPATCH_TOKEN:-}"
+          write_env WC_PUBLIC_URL "${WEBCHAT_PUBLIC_URL:-}"
+          chmod 600 "$DEPLOY_ENV"
+          echo "deploy env hazir: $(grep -c . "$DEPLOY_ENV") degisken (degerler log'a yazilmaz)"
+          scp -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+              -o ConnectTimeout=10 -o BatchMode=yes \
+              "$DEPLOY_ENV" "${USER}@${HOST}:/tmp/nirvana-deploy.env"
           ssh -i ~/.ssh/oracle.key \
               -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
               -o ConnectTimeout=10 -o ConnectionAttempts=1 -o BatchMode=yes \
-              "${USER}@${HOST}" "PAYONEER_LINK='${PAYONEER_LINK}' TG_BOT_TOKEN='${TG_BOT_TOKEN:-}' TG_BOT_TOKENS='${TG_BOT_TOKENS:-}' TG_BOT_USERNAME='${TG_BOT_USERNAME:-}' TG_OWNER_CHAT_ID='${TG_OWNER_CHAT_ID:-}' TG_NOTIFY_BOT_TOKEN='${TG_NOTIFY_BOT_TOKEN:-}' TG_NOTIFY_CHAT_ID='${TG_NOTIFY_CHAT_ID:-}' ADMIN_CODE='${ADMIN_CODE:-}' GH_DISPATCH_TOKEN='${GH_DISPATCH_TOKEN}' bash -s" <<'REMOTE'
+              "${USER}@${HOST}" 'chmod 600 /tmp/nirvana-deploy.env && bash -s' <<'REMOTE'
           set -euo pipefail
+          # Secret'lar scp ile geldi (ssh komut satirinda DEGIL): deger icerigi ne
+          # olursa olsun uzak bash parse'i bozulmaz (run 36861730471 hata sinifi).
+          # set -a: deploy_webchat.sh gibi alt surecler env degiskenlerini gorur.
+          set -a
+          . /tmp/nirvana-deploy.env
+          set +a
+          rm -f /tmp/nirvana-deploy.env
           echo "=== [0] Telegram/ops config → /opt/devsolve/.env (only when secret set) ==="
           for kv in \
             "TELEGRAM_BOT_TOKEN|${TG_BOT_TOKEN}" \
             "TELEGRAM_BOT_TOKENS|${TG_BOT_TOKENS}" \
+            "TELEGRAM_OTHER_BOT_TOKENS|${TG_OTHER_BOT_TOKENS}" \
+            "TELEGRAM_BOT_ID|${TG_BOT_ID}" \
             "TELEGRAM_BOT_USERNAME|${TG_BOT_USERNAME}" \
             "TELEGRAM_OWNER_CHAT_ID|${TG_OWNER_CHAT_ID}" \
             "TELEGRAM_NOTIFY_BOT_TOKEN|${TG_NOTIFY_BOT_TOKEN}" \
             "TELEGRAM_NOTIFY_CHAT_ID|${TG_NOTIFY_CHAT_ID}" \
             "ADMIN_CODE|${ADMIN_CODE}" \
+            "TELEGRAM_ADMIN_ID|${TG_ADMIN_ID}" \
+            "TELEGRAM_ADMIN_TOKEN|${TG_ADMIN_TOKEN}" \
+            "TELEGRAM_API_ID|${TG_API_ID}" \
+            "TELEGRAM_API_HASH|${TG_API_HASH}" \
+            "TELEGRAM_BOT_API_BASE_URL|${TG_BOT_API_BASE_URL}" \
+            "WEBCHAT_PUBLIC_URL|${WC_PUBLIC_URL}" \
+            "WEBCHAT_BIND_HOST|127.0.0.1" \
             "GITHUB_DISPATCH_TOKEN|${GH_DISPATCH_TOKEN}"; do
             key="${kv%%|*}"; val="${kv#*|}"
             if [ -n "$val" ] && [ "$val" != "null" ]; then
               touch /opt/devsolve/.env
-              if grep -q "^${key}=" /opt/devsolve/.env; then
-                sed -i "s|^${key}=.*|${key}=${val}|" /opt/devsolve/.env
+              # sed ayrac/özel karakter güvenliği: & ve | kaçışlanır (token'lar
+              # bu karakterleri içerebilir; yanlış yazım linki bozar).
+              esc_key="$key"
+              esc_val="${val//&/\\&}"
+              esc_val="${esc_val//|/\\|}"
+              if grep -q "^${esc_key}=" /opt/devsolve/.env; then
+                sed -i "s|^${esc_key}=.*|${esc_key}=${esc_val}|" /opt/devsolve/.env
               else
                 printf '%s=%s\n' "${key}" "${val}" >> /opt/devsolve/.env
               fi
@@ -121,9 +200,13 @@ jobs:
           echo "=== [1] Paket açma (reviewed committed code, /opt/devsolve) ==="
           cd /opt/devsolve
           tar -xzf /tmp/nirvana-deploy.tgz -C /opt/devsolve
-          find nirvana -name '*.sh' -exec sed -i 's/\r$//' {} + 2>/dev/null || true
-          find oracle -type f -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+          # systemd CRLF'de User=root\r → 217/USER verir; kaynakta kökten temizlenir.
+          find oracle -type f \( -name '*.service' -o -name '*.timer' -o -name '*.sh' \) -exec sed -i 's/\r$//' {} + 2>/dev/null || true
           sed -i 's/\r$//' oracle/nirvana_oracle_install.sh
+          if grep -rIl $'\r' oracle/*.service oracle/*.timer 2>/dev/null | grep -q .; then
+            echo "::error::oracle/ birimlerinde CRLF kalmis"
+            exit 1
+          fi
           chmod +x oracle/nirvana_oracle_install.sh
           echo "=== [2] Nirvana kurulum (link + systemd timer'lar) ==="
           # Form akisi garanti: SMB seridi acik + enterprise cap ayarli. 2026-09
@@ -180,7 +263,20 @@ jobs:
             fi
           done
           echo "kota teyidi: $(grep -E '^(DAILY_SUBMIT_LIMIT|HOURLY_SUBMIT_LIMIT|FUEL_TARGET|QUEUE_TARGET)=' .env | tr '\n' ' ')"
-          echo "=== [3] Canlı doğrulama ==="
+          echo "=== [2c] Eski timer unit kalintisi temizligi (217/USER kok nedeni) ==="
+          # Kalici duzeltme: nirvana-deliveryworker ve nirvana-linkedin
+          # 'Failed to determine user credentials / 217/USER' veriyordu.
+          # Kaynak oracle/*.service'te User= yok — ama /etc/systemd/system'deki
+          # ESKI kurulu birimlerde 'User=devsolve' kalmis ve dosya kopyalanmadigi
+          # icin VM'de yasamaya devam etmisti. Asagidaki [5/6] adimi service+timer
+          # dosyalarini tezgahtan kopyalar ve kalintiyi ezer. Koda dokunulmaz —
+          # satis hatti kesintisizdir.
+          for u in nirvana-watchdog nirvana-idleguard nirvana-delivery nirvana-deliveryworker nirvana-linkedin nirvana-captcha nirvana-dispatch; do
+            if sudo -n systemctl cat "$u.service" 2>/dev/null | grep -q '^User='; then
+              echo "eski unit kalintisi ezilecek: $u.service"
+            fi
+          done
+          echo "=== [3] Canli dogrulama ==="
           .venv/bin/python - <<'PY'
           import config
           import nirvana.payment as p
@@ -194,6 +290,20 @@ jobs:
           from nirvana import watchdog_quota_agent as w
           print("watchdog kota:", w.quota_snapshot())
           print("cooldown:", w.in_cooldown())
+          from nirvana import idle_guard as ig
+          print("idle_guard dry-run:", ig.run_batch(dry_run=True)["verdict"],
+                "| esikler:", ig.FLOOR_PCT, "-", ig.CEIL_PCT)
+          from nirvana import keepalive_guard as kg
+          print("keepalive penceresi:", kg.load_state().get("last_activity") or "kayit yok",
+                "| esik gun:", kg.THRESHOLD_DAYS)
+          from nirvana import queue_fuel_guard as qfg
+          print("kuyruk yakiti:", qfg.check_refill_needed()["severity"],
+                "| kritik esik:", qfg.CRITICAL_WATERMARK, "| acil ekleme:", qfg.EMERGENCY_ADD)
+          from telegram_bot_api import status_line
+          print(status_line())
+          import owner_notify
+          print("admin sohbeti kayitli:", bool(owner_notify.load_admin_chat_id()),
+                "| admin token tanimli:", bool(config.TELEGRAM_ADMIN_TOKEN))
           PY
           echo "=== [3b] Bildirim hatti gercek testi (mesaj gondermeden) ==="
           .venv/bin/python - <<'PY'
@@ -215,13 +325,49 @@ jobs:
               )
           PY
           systemctl list-timers 'nirvana-*' --no-pager || sudo -n systemctl list-timers 'nirvana-*' --no-pager
-          echo "dispatch timer durumu: $(systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || sudo -n systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || echo 'kurulamadı')"
-          echo "=== [4] Satış botu + runner (self-healing) canlıya alma ==="
+          echo "=== [3c] MODÜL SAĞLIĞI (birim gerçekten koşuyor mu?) ==="
+          # Workaround: eski /opt/devsolve unit'lerinde User=devsolve kalmis
+          # olabilir; once tezgahtaki UNIT_SRC ile degistirilmis olmali.
+          # Kapida User= satiri kontrol edilir; sorunlu birimler
+          # bastan asagiya onaylanir.
+          echo "yetkili servis kullanicisi: $(stat -c '%U' /opt/devsolve 2>/dev/null || echo '?')"
+          getent passwd devsolve >/dev/null 2>&1 && echo "devsolve kullanicisi: VAR" || echo "devsolve kullanicisi: YOK"
+          echo "--- oracle kaynak birimler (User= satiri olmamali) ---"
+          if grep -rE '^User=' oracle/*.service 2>/dev/null; then
+            echo "::error::oracle/*.service icinde User= satiri var — kaynakta kaldirilmali (217/USER riski)"
+            exit 1
+          else
+            echo "oracle kaynak birimler temiz (User= yok)"
+          fi
+          for u in nirvana-salesbot nirvana-pipeline devsolve-runner devsolve-bot; do
+            printf '%-22s active=%-10s user=%-10s restarts=%s\n' "$u" \
+              "$(systemctl is-active "$u.service" 2>/dev/null || echo n/a)" \
+              "$(systemctl show "$u.service" -p User --value 2>/dev/null || echo -)" \
+              "$(systemctl show "$u.service" -p NRestarts --value 2>/dev/null || echo -)"
+          done
+          echo "--- son 3 timer turu (nirvana-*) ---"
+          for t in nirvana-watchdog nirvana-idleguard nirvana-captcha nirvana-dispatch nirvana-deliveryworker nirvana-linkedin; do
+            printf '%-24s active=%-9s last=%s result=%s\n' "$t" \
+              "$(systemctl is-active "$t.timer" 2>/dev/null || echo n/a)" \
+              "$(systemctl show "$t.service" -p ExecMainExitTimestamp --value 2>/dev/null || echo -)" \
+              "$(systemctl show "$t.service" -p Result --value 2>/dev/null || echo -)"
+          done
+          echo "--- kurulu unit icerigi (User= yoksa temiz) ---"
+          for u in nirvana-watchdog nirvana-idleguard nirvana-captcha nirvana-dispatch nirvana-deliveryworker nirvana-linkedin nirvana-delivery; do
+            if sudo -n systemctl cat "$u.service" 2>/dev/null | grep -q '^User='; then
+              echo "::error::$u.service kurulu icerikte User= var - 217/USER devam eder"
+            else
+              echo "$u.service kurulu icerik temiz (User= yok)"
+            fi
+          done
+          echo "dispatch timer durumu: $(systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || sudo -n systemctl is-enabled nirvana-dispatch.timer 2>/dev/null || echo devrede)"
+          echo "=== [4] Satış botu + FORM HATTI (kendi kendini onaran, kesintisiz) ==="
           # devsolve-bot.service eski kopyadır ve AYNI telegram_sales_bot.py'yi
-          # çalıştırır; ikisi aynı anda açılırsa Telegram getUpdates çakışır
-          # (Conflict: terminated by other getUpdates). Eski unit kapatılır;
-          # tek yetkili unit nirvana-salesbot.service (Type=notify + watchdog).
-          if systemctl list-unit-files devsolve-bot.service >/dev/null 2>&1; then
+          # çalıştırır; ikisi birlikte açılırsa Telegram getUpdates çakışır
+          # (Conflict: terminated by other getUpdates). Yetkili birim:
+          # nirvana-salesbot.service. Form hattında ise ÖNCE yeni birim
+          # doğrulanır, legacy kopya ancak ondan sonra kapatılır — hat boş kalmaz.
+          if systemctl list-unit-files devsolve-bot.service 2>/dev/null | grep -q '^devsolve-bot.service'; then
             sudo -n systemctl stop devsolve-bot.service 2>/dev/null || true
             sudo -n systemctl disable devsolve-bot.service 2>/dev/null || true
             echo "devsolve-bot.service devre dışı — çift polling engellendi"
@@ -234,7 +380,11 @@ jobs:
           sudo -n systemctl enable nirvana-salesbot.service 2>/dev/null || true
           sudo -n systemctl reset-failed nirvana-salesbot.service 2>/dev/null || true
           sudo -n systemctl restart nirvana-salesbot.service
-          sudo -n systemctl restart devsolve-runner.service 2>/dev/null || true
+          # FORM HATTI: günlük 400 form kotasının taşıyıcısı (Type=notify +
+          # WatchdogSec → kendi kendini onarır; normal tur 20-25 sn).
+          sudo -n systemctl enable nirvana-pipeline.service 2>/dev/null || true
+          sudo -n systemctl reset-failed nirvana-pipeline.service 2>/dev/null || true
+          sudo -n systemctl restart nirvana-pipeline.service 2>/dev/null || true
           # Type=notify: READY=1 gelene kadar durum "activating" olur — bekle.
           BOT_STATE=""
           for _ in $(seq 1 30); do
@@ -244,13 +394,94 @@ jobs:
             if [ "${BOT_STATE}" = "active" ] || [ "${BOT_STATE}" = "failed" ]; then break; fi
             sleep 2
           done
-          echo "satis botu: ${BOT_STATE} | runner: $(systemctl is-active devsolve-runner.service)"
+          PIPE_STATE=""
+          for _ in $(seq 1 20); do
+            PIPE_STATE="$(systemctl is-active nirvana-pipeline.service || true)"
+            if [ "${PIPE_STATE}" = "active" ] || [ "${PIPE_STATE}" = "failed" ]; then break; fi
+            sleep 2
+          done
+          echo "satis botu: ${BOT_STATE} | form hatti: ${PIPE_STATE}"
           if [ "${BOT_STATE}" != "active" ]; then
             echo "::error::nirvana-salesbot.service aktif degil — satis botu CANLI DEGIL"
             systemctl --no-pager -l status nirvana-salesbot.service | head -30 || true
             sudo -n journalctl -u nirvana-salesbot.service -n 40 --no-pager -o cat || true
             exit 1
           fi
+          # FORM HATTI: ASLA boş bırakılmaz. Yeni birim ayaktaysa legacy kopya
+          # kapatılır (çift gönderim önlenir); değilse legacy kopya YEDEK olarak
+          # çalıştırılır ve uyarı verilir — deploy durdurulmaz, hat kesilmez.
+          if [ "${PIPE_STATE}" = "active" ]; then
+            echo "form hattı canlı: nirvana-pipeline.service (Type=notify + WatchdogSec)"
+            for legacy in devsolve-runner.service; do
+              if systemctl list-unit-files "$legacy" 2>/dev/null | grep -q "^${legacy}"; then
+                sudo -n systemctl stop "$legacy" 2>/dev/null || true
+                sudo -n systemctl disable "$legacy" 2>/dev/null || true
+                echo "$legacy devre dışı — çift gönderim engellendi"
+              fi
+            done
+          else
+            echo "::warning::nirvana-pipeline.service ${PIPE_STATE} — legacy form hattı yedek olarak açılıyor"
+            systemctl --no-pager -l status nirvana-pipeline.service | head -25 || true
+            sudo -n journalctl -u nirvana-pipeline.service -n 40 --no-pager -o cat || true
+            if systemctl list-unit-files devsolve-runner.service 2>/dev/null | grep -q '^devsolve-runner.service'; then
+              sudo -n systemctl enable --now devsolve-runner.service 2>/dev/null || true
+              sudo -n systemctl restart devsolve-runner.service 2>/dev/null || true
+              echo "FORM HATTI YEDEK AKTİF: devsolve-runner.service (kesinti yok)"
+            else
+              echo "::error::form hattı için ne nirvana-pipeline ne legacy runner var — ELLE MÜDAHALE"
+            fi
+          fi
           sudo -n journalctl -u nirvana-salesbot.service -n 12 --no-pager -o cat || true
+          echo "=== [4b] Bot havuzu + form hattı + FLOOD durumu doğrulaması ==="
+          .venv/bin/python - <<'PY'
+          import json
+          import config
+          pool = config.resolve_bot_pool()
+          print("bot havuzu:", len(pool), ["@" + p for p in pool])
+          print("known_bot_ids:", sorted(config.known_bot_ids()))
+          print("primary token gecerli format:", ":" in (config.TELEGRAM_BOT_TOKEN or ""))
+          import bot_registry
+          snap = bot_registry.pool_snapshot()
+          print("havuz durumu:", json.dumps(snap, ensure_ascii=False))
+          pasif = [u for u, e in snap.items() if e.get("status") == "passive"]
+          if pasif:
+              print("::warning::pasif (FLOOD_WAIT karantinasi) botlar:", ",".join(pasif),
+                    "- sure bittiginde otomatik aktive olur; bu botlara tek istek bile atilmaz")
+          import flood_guard
+          print("flood kapisu:", json.dumps(flood_guard.status(), ensure_ascii=False))
+          import owner_notify
+          print("admin sohbetleri (bot id'leri haric):", sorted(owner_notify.load_admin_chat_ids()))
+          print("kayitli operator sohbeti:", owner_notify.load_registered_chat_id())
+          print("bildirim hedefi:", owner_notify.load_notify_chat_id())
+          PY
+          echo "=== [4c] WEB LIVE CHAT ENGINE (musteri hatti: Telegram yerine web sohbet) ==="
+          # Musteri trafigi artik Oracle VM'deki web sohbete akar: deploy_webchat.sh
+          # venv + systemd (WatchdogSec + RestartSec=1) + nginx (80 -> 8765, WS upgrade)
+          # + firewall adimlarini idempotent uygular, /health ve /chat dogrular.
+          cd /opt/devsolve
+          WEBCHAT_PUBLIC_URL="${WC_PUBLIC_URL:-}" \
+            sudo -n -E bash oracle/deploy_webchat.sh 2>&1 | tail -n 60 || {
+              echo "::error::webchat deploy basarisiz — musteri hatti canli degil"
+              sudo -n journalctl -u nirvana-webchat.service -n 40 --no-pager -o cat || true
+              exit 1
+            }
+          WC_STATE="$(systemctl is-active nirvana-webchat.service 2>/dev/null || true)"
+          echo "webchat servisi: ${WC_STATE}"
+          if [ "${WC_STATE}" != "active" ]; then
+            echo "::error::nirvana-webchat.service aktif degil — musteri web sohbeti CANLI DEGIL"
+            sudo -n journalctl -u nirvana-webchat.service -n 40 --no-pager -o cat || true
+            exit 1
+          fi
+          .venv/bin/python - <<'PY'
+          import config
+          print("musteri kanali:", "webchat" if config.WEBCHAT_PUBLIC_URL else "telegram (gecis)")
+          print("webchat adresi:", config.WEBCHAT_PUBLIC_URL or "<tanimsiz>")
+          print("musteri linki  :", config.customer_chat_link("dsTEST")[:80])
+          try:
+              config.require_live_webchat_link()
+              print("webchat kapisi : ACIK (musteri trafigi web'de)")
+          except RuntimeError as exc:
+              print("::warning::webchat kapisi KAPALI:", str(exc)[:120])
+          PY
           echo "NIRVANA ORACLE LIVE"
           REMOTE

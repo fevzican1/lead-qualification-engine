@@ -167,10 +167,33 @@ def _trim(text: str, *, limit: int = 1200) -> str:
     return cut.rstrip() + "…"
 
 
+def _webchat_allowed(url: str) -> bool:
+    """Müşteri hattı web sohbet adresi (Oracle VM) izinli linktir.
+
+    Telegram musteriye kapandığı için form/sohbet metinlerindeki tek meşru link
+    artık WEBCHAT_PUBLIC_URL. Bu kapı olmadan Dil Bekçisi web sohbet linkini
+    "uydurma URL" sayıp siler ve müşteri adressiz kalırdı (dönüşüm = 0).
+    """
+    raw = str(url or "").strip()
+    if not raw:
+        return False
+    try:
+        import config  # type: ignore
+
+        base = str(getattr(config, "WEBCHAT_PUBLIC_URL", "") or "").strip().rstrip("/")
+    except Exception:  # noqa: BLE001 — config yoksa yalnızca eski allowlist geçerli
+        base = ""
+    if not base:
+        return False
+    return raw.startswith(base) or raw.split("?")[0].rstrip("/") == base
+
+
 def _sanitize_urls(text: str, issues: list[str]) -> str:
     def _keep(match: re.Match[str]) -> str:
         url = match.group(0)
-        return url if _ALLOWED_URL_RE.match(url) else ""
+        if _ALLOWED_URL_RE.match(url) or _webchat_allowed(url):
+            return url
+        return ""
 
     fixed = _URL_RE.sub(_keep, text)
     if fixed != text:
@@ -178,8 +201,13 @@ def _sanitize_urls(text: str, issues: list[str]) -> str:
     return fixed
 
 
-def audit(text: str, *, turkish: bool = False, user_text: str = "") -> tuple[str, list[str]]:
-    """Gönderim öncesi son kapı: (düzeltilmiş metin, sorun listesi) döner."""
+def audit(text: str, *, turkish: bool = False, user_text: str = "",
+          limit: int = 1200) -> tuple[str, list[str]]:
+    """Gönderim öncesi son kapı: (düzeltilmiş metin, sorun listesi) döner.
+
+    limit: Telegram mesajı 1200; FORM metni daha uzun olduğu için çağıran
+    daha büyük bir sınır verir (form metni kırpılmaz).
+    """
     issues: list[str] = []
     reply = text or ""
     reply, hit = _strip_sentences(reply, _BOT_LEAK_RE)
@@ -193,7 +221,7 @@ def audit(text: str, *, turkish: bool = False, user_text: str = "") -> tuple[str
         issues.append("free-offer:sentence-removed")
     reply = _sanitize_urls(reply, issues)
     reply = _tone_fixes(reply, turkish=turkish, issues=issues)
-    reply = _trim(reply)
+    reply = _trim(reply, limit=max(200, int(limit)))
     return reply, issues
 
 

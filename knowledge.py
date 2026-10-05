@@ -395,13 +395,29 @@ def catalog_priority(url: str) -> int:
     return score
 
 
+def model_fast() -> str:
+    """WebChat kısa yanıtları için hafif model (Ampere A1'de 4 vCPU dostu).
+
+    Öncelik: .env OLLAMA_FAST_MODEL > knowledge/oracle.json model_fast > ana model.
+    Küçük model diskte yoksa `ensure_model` sessizce ana modele düşer.
+    """
+    env = (os.getenv("OLLAMA_FAST_MODEL") or "").strip()
+    if env:
+        return env
+    return str(oracle_lock().get("model_fast") or "").strip()
+
+
 def enforce_model(model: str) -> str:
     locked = str(oracle_lock().get("model") or ORACLE_FREE["model"])
+    fast = model_fast()
     raw = (model or "").strip() or locked
     allowed = raw == locked or raw.startswith(locked)
+    # Hafif webchat modeli de Always Free kilidi içindedir (küçük kuantizasyon).
+    if not allowed and fast and (raw == fast or raw.startswith(fast)):
+        allowed = True
     if allowed:
         return raw
-    logger.warning("Model %s blocked — Always Free lock is %s", raw, locked)
+    logger.warning("Model %s blocked — Always Free lock is %s (fast=%s)", raw, locked, fast or "-")
     return locked
 
 

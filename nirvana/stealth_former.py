@@ -263,6 +263,14 @@ def submit_form(url: str, payload: dict[str, str]) -> dict[str, Any]:
         elif verdict == "WAF_REJECT":
             result["status"] = "WAF_REJECT"
             result["waf_reason"] = post_verdict.get("reason", "")
+            # ÇİFT MOTOR: WAF engelli hedef ana akışta raporlanır, iş ARKA
+            # planda captcha_queue'da devam eder (ana hat kilitlenmez).
+            try:
+                queued = enqueue_captcha_target(url, payload, reason="waf_reject")
+                if queued.get("ok") or queued.get("deduped"):
+                    result["route_to"] = "captcha_queue"
+            except Exception:  # noqa: BLE001
+                logger.debug("WAF kuyruk devri başarısız: %s", url, exc_info=True)
         else:
             result["status"] = "unverified"
             result["unverified_reason"] = post_verdict.get("reason", "")

@@ -8,6 +8,8 @@ but still blocks images/fonts/media.
 
 from __future__ import annotations
 
+import os
+import subprocess
 from collections.abc import Callable
 from typing import Any
 
@@ -82,3 +84,92 @@ def new_page(context: BrowserContext, *, timeout_ms: int | None = None) -> Page:
     page = context.new_page()
     page.set_default_timeout(timeout_ms or config.NAV_TIMEOUT_MS)
     return page
+
+
+# --- kullan-at artık süpürmesi (kural 2) ------------------------------------
+
+def _kill_pid(pid: int) -> bool:
+    """PID'i zorla öldür (SIGKILL); hata halinde False (asla raise etmez)."""
+    try:
+        subprocess.run(
+            ["kill", "-9", str(pid)], capture_output=True, timeout=10, check=False,
+        )
+        return True
+    except Exception:  # noqa: BLE001 — öldürme hatası hattı düşürmez
+        return False
+
+
+def _ps_rows() -> list[tuple[int, int, int, str]]:
+    """(pid, ppid, yaş_sn, args) — posix; hata halinde boş (fail-open)."""
+    try:
+        proc = subprocess.run(
+            ["ps", "-eo", "pid=,ppid=,etimes=,args="],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    rows: list[tuple[int, int, int, str]] = []
+    for line in (proc.stdout or "").splitlines():
+        parts = line.strip().split(None, 3)
+        if len(parts) < 4:
+            continue
+        pid_s, ppid_s, age_s, args = parts
+        if not (pid_s.isdigit() and ppid_s.isdigit() and age_s.isdigit()):
+            continue
+        rows.append((int(pid_s), int(ppid_s), int(age_s), args))
+    return rows
+
+
+def _is_chromium(args: str) -> bool:
+    # Playwright'in paketlenmiş tarayıcısı `chromium-XXXX/chrome-linux/chrome`
+    # yolunda durur; ikisi de "chrome" içerir → tek desen ikisini de kapsar.
+    low = args.lower()
+    return "chromium" in low or "chrome" in low
+
+
+def purge_chromium(*, stale_after_s: float = 30.0) -> int:
+    """Kullan-at artık süpürmesi (kural 2): kalan Chromium artıklarını imha et.
+
+    1) **Kendi işlem ağacımızdaki** tüm Chromium süreçleri (yaş sınırı yok):
+       ``browser.close()`` sonrası bile kalan renderer/gpu/zygote artıklarını
+       da kapsar — ``pkill -9 -f chromium`` mantığı, tam olarak bu sürecin
+       çocuklarına odaklı.
+    2) POSIX'te **sahipsiz** (ppid=1) ve ``stale_after_s``'den eski yetim
+       chromium zombileri: çökmüş eski oturumlardan kalan RAM hırsızları.
+
+    Eşzamanlı diğer hatların (enterprise lane, legacy runner) AKTİF
+    tarayıcıları dokunulmaz: onların süreçleri yaşamlı kendi ağaçlarında
+    kalır; yalnızca sahipsiz + yaşlı zombiler temizlenir.
+
+    Fail-open: hiçbir zaman raise etmez; Windows'ta (geliştirme/test)
+    no-op'dir. Sunucu reboot'u ASLA yapmaz.
+    """
+    if os.name != "posix":
+        return 0
+    rows = _ps_rows()
+    if not rows:
+        return 0
+    children: dict[int, list[tuple[int, str]]] = {}
+    for pid, ppid, _age, args in rows:
+        children.setdefault(ppid, []).append((pid, args))
+    killed = 0
+    # 1) Kendi ağacımız (BFS): python -> playwright driver -> chromium -> renderer.
+    me = os.getpid()
+    seen = {me}
+    stack = [me]
+    while stack:
+        cur = stack.pop()
+        for pid, args in children.get(cur, ()):
+            if pid in seen:
+                continue
+            seen.add(pid)
+            if _is_chromium(args) and _kill_pid(pid):
+                killed += 1
+            stack.append(pid)
+    # 2) Yetim + yaşlı zombiler (ppid=1): crash sonrası terk edilmiş artıklar.
+    for pid, ppid, age, args in rows:
+        if pid in seen or ppid != 1 or age < stale_after_s:
+            continue
+        if _is_chromium(args) and _kill_pid(pid):
+            killed += 1
+    return killed

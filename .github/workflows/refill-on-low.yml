@@ -5,7 +5,8 @@ name: refill-on-low
 # Superseded by discovery-pipeline.yml (kept for manual dispatch).
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    # Saatte 1 (dk 38 — tr fleet'inin :35 dakikasiyla cakismasin diye kaydirildi)
+    - cron: "38 */2 * * *"
   workflow_dispatch:
 
 permissions:
@@ -18,7 +19,6 @@ concurrency:
 
 jobs:
   refill:
-    if: ${{ vars.ENABLE_LEGACY_SMB_WORKFLOWS == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     env:
@@ -80,15 +80,18 @@ jobs:
           )"
           if [ "$running" -eq 0 ]; then
             echo "Dispatching $workflow for low Oracle fuel/queue."
-            gh workflow run "$workflow" --ref "${GITHUB_REF_NAME}"
+            gh workflow run "$workflow" --ref "${GITHUB_REF_NAME}" || \
+              echo "WARN: dispatch failed for $workflow (disabled or missing) — continuing"
           else
             echo "$workflow is already running."
           fi
           publish_running="$(
             gh run list --workflow publish-feed --json status \
-              --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length'
+              --jq '[.[] | select(.status == "in_progress" or .status == "queued")] | length' \
+              || echo 1
           )"
           if [ "$publish_running" -eq 0 ]; then
             echo "Dispatching publish-feed to sync Oracle."
-            gh workflow run publish-feed --ref "${GITHUB_REF_NAME}"
+            gh workflow run publish-feed --ref "${GITHUB_REF_NAME}" || \
+              echo "WARN: dispatch failed for publish-feed — continuing"
           fi

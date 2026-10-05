@@ -51,6 +51,10 @@ RUNNERS = {
     "data_sync": "nirvana.data_sync",
     "knowledge_updater": "nirvana.knowledge_updater",
     "supply_guard": "nirvana.supply_guard",
+    "keepalive_guard": "nirvana.keepalive_guard",
+    "idle_guard": "nirvana.idle_guard",
+    "local_fuel": "nirvana.local_fuel",
+    "job_watchdog": "nirvana.job_watchdog",
 }
 
 
@@ -82,6 +86,20 @@ def main(argv: list[str] | None = None) -> int:
         kwargs = {"notify": not args.no_notify}
     elif args.module == "watchdog_quota_agent":
         kwargs = {"dry_run": args.no_notify}  # watchdog hiçbir koşulda Telegram'a bildirim atmaz
+    elif args.module == "idle_guard":
+        # idle_guard de Telegram'a bildirim atmaz (10 dakikada bir gürültü olurdu).
+        kwargs = {"dry_run": args.no_notify}
+    elif args.module == "local_fuel":
+        # --self-test: ağ ve DB yazımı olmadan kuru çalışma (canlı besleme için
+        # bayraksız çağrılır: systemd nirvana-fuel.timer).
+        kwargs = {"dry_run": bool(getattr(args, "self_test", False))}
+    elif args.module == "job_watchdog":
+        # --no-notify: saf rapor (restart/bildirim yok) — kurulum doğrulaması.
+        # Bayraksız: iş seviyesi onarım açık (systemd nirvana-jobwatch.timer).
+        kwargs = {"notify": not args.no_notify, "dry_run": bool(args.no_notify)}
+    elif args.module == "keepalive_guard":
+        # --self-test ile yerel doğrulama: hiçbir API çağrısı yapmadan karar raporlar.
+        kwargs = {"dry_run": bool(getattr(args, "self_test", False) or args.no_notify)}
     elif args.module == "linkedin_router":
         kwargs = {"notify": not args.no_notify}
     elif args.module == "meta_orchestrator":

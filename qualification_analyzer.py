@@ -93,6 +93,16 @@ _FORM_PAIN = {
 def qualify_lead(lead: dict[str, Any], *, model: Optional[str] = None) -> dict[str, Any]:
     del model  # Form copy is evidence-based; DeepSeek is reserved for Telegram.
     updated = dict(lead)
+    # 6-madde outreach notasyonu: Tier-1/TR/B2C hukmu karta islenir ancak mevcut
+    # TR agirlikli boru hatti davranisi degismez (fail-open; testler yesil kalir).
+    # Siki Tier-1 filtresi services.outreach_engine.submit() yolunda uygulanir.
+    try:
+        from services import outreach_engine as _oe  # type: ignore
+        _url = str(lead.get("url") or "")
+        _txt = f"{lead.get('company_name') or ''} {lead.get('description') or ''} {lead.get('page_excerpt') or ''}"
+        updated["outreach_verdict"] = _oe.qualifies(_url, _txt, int(lead.get("budget_eur") or 5000))
+    except Exception:
+        pass
     if lead.get("status") == "failed" and not (lead.get("contact_form") or {}).get("found"):
         updated.update(
             {
@@ -226,7 +236,8 @@ def _form_note(lead: dict[str, Any], *, turkish: bool) -> tuple[str, str]:
         lead["error_type"] = hook["error_type"] if turkish else hook["error_type_en"]
     except Exception:
         logger.exception("Telegram handoff remember failed for %s", host)
-    link = config.telegram_deeplink(token)
+    # MUSTERI HATTI: web sohbet (Oracle VM) linki; yoksa gecis donemi t.me.
+    link = config.customer_chat_link(token)
     subject, note = telegram_handoff.form_copy(
         host=host,
         hints=hints,

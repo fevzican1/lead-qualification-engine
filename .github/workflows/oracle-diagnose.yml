@@ -4,7 +4,9 @@ name: oracle-diagnose
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # 15 dk'da bir ama fleet dakikalarina (5/10/15/20/25...) denk gelmesin diye
+    # kaydirildi: 04, 19, 34, 49
+    - cron: "4,19,34,49 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -37,8 +39,30 @@ jobs:
               "${USER}@${HOST}" bash -s <<'REMOTE'
           set -uo pipefail
           cd /opt/devsolve
-          echo "=== SERVISLER ==="
-          systemctl is-active devsolve-bot.service devsolve-runner.service devsolve-ingest.service 2>&1 || true
+          echo "=== SERVISLER (yetkili birimler) ==="
+          systemctl is-active nirvana-salesbot.service nirvana-pipeline.service devsolve-ingest.service 2>&1 || true
+          echo "--- legacy (pasif olmalı: çift polling/çift gönderim) ---"
+          systemctl is-active devsolve-bot.service devsolve-runner.service 2>&1 || true
+          echo "--- satış botu uptime/restart ---"
+          systemctl show nirvana-salesbot.service -p NRestarts -p ActiveEnterTimestamp -p SubState 2>/dev/null || true
+          echo "--- form hattı uptime/restart (pipeline) ---"
+          systemctl show nirvana-pipeline.service -p NRestarts -p ActiveEnterTimestamp -p SubState 2>/dev/null || true
+          echo "--- çalışan süreçler + journal zamanları ---"
+          pgrep -af "auto_runner.py|pipeline.py|telegram_sales_bot.py" 2>/dev/null | head -12 || echo "süreç yok"
+          echo "--- timer servis dosya zamanları (deploy aldı mı?) ---"
+          for u in nirvana-watchdog nirvana-idleguard nirvana-captcha nirvana-deliveryworker nirvana-linkedin nirvana-dispatch nirvana-pipeline nirvana-salesbot; do
+            printf '%-24s ExecMain=%-28s Result=%-9s ActiveState=%s\n' "$u" \
+              "$(systemctl show \"$u.service\" -p ExecMainStartTimestamp --value 2>/dev/null || echo -)" \
+              "$(systemctl show \"$u.service\" -p Result --value 2>/dev/null || echo -)" \
+              "$(systemctl show \"$u.service\" -p ActiveState --value 2>/dev/null || echo -)"
+          done
+          echo "--- birim dosya User satırı (varsa 217/USER adayı) ---"
+          for f in /etc/systemd/system/nirvana-*.service; do
+            u=$(grep -E '^User=' "$f" 2>/dev/null || echo "User=yok(root)")
+            echo "$(basename $f): $u"
+          done
+          echo "--- form hattı son log (canlı mı?) ---"
+          sudo -n journalctl -u nirvana-pipeline.service -n 12 --no-pager -o cat 2>/dev/null || true
           echo "=== KUYRUK / YAKIT ==="
           .venv/bin/python - <<'PY'
           import domain_store, knowledge, config, json, os
@@ -71,8 +95,97 @@ jobs:
           except Exception as e:
               print("leads.json:", e)
           PY
-          echo "=== RUNNER LOG (son 40) ==="
-          tail -n 40 logs/runner.log 2>/dev/null || journalctl -u devsolve-runner.service -n 40 --no-pager -o cat 2>/dev/null || echo "log yok"
+          echo "=== HOT-LEAD / HANDOFF TANILAMA ==="
+          .venv/bin/python - <<'PY'
+          import json, os, httpx, config
+          # 1) owner.json (kayıtlı satış-botu operatör sohbeti)
+          try:
+              d = json.load(open("owner.json"))
+              print("owner.json chat_id:", d.get("chat_id"))
+          except Exception as e:
+              print("owner.json yok/hatali:", e)
+          # 2) env kimlikleri
+          for k in ("TELEGRAM_OWNER_CHAT_ID","TELEGRAM_ADMIN_ID","TELEGRAM_NOTIFY_CHAT_ID"):
+              v = str(getattr(config, k, "") or "")
+              print(k, "SET" if v.strip() else "BOS")
+          # 3) notify bot tokeni canli mi
+          tok = str(getattr(config, "TELEGRAM_NOTIFY_BOT_TOKEN", "") or "").strip()
+          if tok:
+              try:
+                  r = httpx.post(f"https://api.telegram.org/bot{tok}/getMe", timeout=10)
+                  print("notify getMe:", r.json().get("ok"), r.json().get("result",{}).get("username",""))
+              except Exception as e:
+                  print("notify getMe FAIL:", e)
+          else:
+              print("notify token BOS")
+          # 4) circuit breaker durumu
+          try:
+              import circuit_breaker
+              print("circuit:", getattr(circuit_breaker, "snapshot", lambda: "n/a")())
+          except Exception as e:
+              print("circuit_breaker:", e)
+          PY
+          echo "=== HANDOFF / BOT LOG (satış botu, son 24h) ==="
+          journalctl -u nirvana-salesbot.service --since "-24h" --no-pager -o cat 2>/dev/null | grep -iE "handoff|CANLI|notify|owner|odeme|SICAK" | tail -n 25 || echo "handoff log kaydi yok"
+          echo "=== INBOUND MESAJ SAYISI (bot, son 24h) ==="
+          journalctl -u nirvana-salesbot.service --since "-24h" --no-pager -o cat 2>/dev/null | grep -icE "chat_id|update" || echo "0"
+          echo "=== BOT HAVUZU + FLOOD KAPISI (ortak beyin) ==="
+          .venv/bin/python - <<'PY'
+          import json, os
+          def show(name, path):
+              try:
+                  print(name, json.dumps(json.load(open(path)), ensure_ascii=False)[:600])
+              except Exception as e:
+                  print(name, "yok/hatali:", str(e)[:80])
+          base = "nirvana/state"
+          show("bot_registry:", os.path.join(base, "bot_registry.json"))
+          show("flood_gate:", os.path.join(base, "flood_gate.json"))
+          show("bot_ids:", os.path.join(base, "bot_ids.json"))
+          show("delivery_jobs:", os.path.join(base, "delivery_jobs.json"))
+          try:
+              import config
+              pool = config.resolve_bot_pool()
+              print("bot havuzu:", len(pool), ["@" + p for p in pool])
+              print("known_bot_ids:", sorted(config.known_bot_ids()))
+              import owner_notify
+              print("admin sohbetleri:", sorted(owner_notify.load_admin_chat_ids()))
+              print("kayitli operator:", owner_notify.load_registered_chat_id())
+              print("bildirim hedefi:", owner_notify.load_notify_chat_id())
+              print("can_deliver:", owner_notify.probe_delivery())
+          except Exception as e:
+              print("havuz/kimlik okunamadi:", str(e)[:120])
+          PY
+          echo "=== SON LEAD ZAMANLARI (form hattı gerçekten gönderiyor mu?) ==="
+          .venv/bin/python - <<'PY'
+          import json, time
+          try:
+              rows = json.load(open("leads.json"))
+              rows = [r for r in rows if isinstance(r, dict)]
+              rows.sort(key=lambda r: str(r.get("updated_at") or ""))
+              print("toplam:", len(rows))
+              for r in rows[-5:]:
+                  print("  ", r.get("updated_at"), "|", r.get("status"), "|", str(r.get("url"))[:60])
+              last = str(rows[-1].get("updated_at") or "")
+              print("son lead damgasi:", last)
+          except Exception as e:
+              print("leads.json okunamadi:", str(e)[:120])
+          PY
+          echo "=== FORM HATTI LOG (pipeline + legacy, son 30) ==="
+          journalctl -u nirvana-pipeline.service -n 30 --no-pager -o cat 2>/dev/null || true
+          tail -n 20 logs/runner.log 2>/dev/null || true
+          echo "=== TIMER JURNALLERI (YALNIZCA son tetikleme + drop-in User denetimi) ==="
+          for u in nirvana-watchdog nirvana-idleguard nirvana-captcha nirvana-deliveryworker nirvana-linkedin nirvana-dispatch; do
+            echo "--- $u ---"
+            echo "[drop-in User] $(systemctl cat \"$u.service\" 2>/dev/null | grep -E '^(User|DynamicUser)=' || echo 'User-yok(root)')"
+            echo "[drop-in dizin] $(ls -A /etc/systemd/system/\"$u.service.d\" 2>/dev/null || echo 'drop-in-yok')"
+            trig="$(systemctl show \"$u.service\" -p ExecMainExitTimestamp --value 2>/dev/null || echo -)"
+            echo "[son-hata-damgasi] $trig"
+            if [ -n \"$trig\" ] && [ \"$trig\" != \"n/a\" ]; then
+              sudo -n journalctl -u \"$u.service\" --since \"$trig\" --no-pager -o short 2>/dev/null | tail -n 8 || true
+            else
+              sudo -n journalctl -u \"$u.service\" -n 8 --no-pager -o short 2>/dev/null || true
+            fi
+          done
           echo "=== PIPELINE SON CIKIS ==="
           tail -n 25 logs/pipeline.log 2>/dev/null || echo "pipeline.log yok"
           REMOTE

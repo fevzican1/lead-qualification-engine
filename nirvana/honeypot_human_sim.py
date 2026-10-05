@@ -32,10 +32,70 @@ HONEY_PATTERNS = [
     re.compile(r'display\s*:\s*none', re.I),
     re.compile(r'visibility\s*:\s*hidden', re.I),
     re.compile(r'position\s*:\s*absolute[^;]*left\s*:\s*-\d{3,}', re.I),
+    re.compile(r'position\s*:\s*(absolute|fixed)[^;]*top\s*:\s*-\d{3,}', re.I),
     re.compile(r'opacity\s*:\s*0\b', re.I),
     re.compile(r'width\s*:\s*0\b[^;]*height\s*:\s*0\b', re.I),
+    re.compile(r'height\s*:\s*0\b[^;]*width\s*:\s*0\b', re.I),
+    re.compile(r'clip(-path)?\s*:\s*(inset\(\s*(50|100)%|rect\(\s*0)', re.I),
+    re.compile(r'font-size\s*:\s*0\b', re.I),
     re.compile(r'aria-hidden\s*=\s*"true"', re.I),
+    re.compile(r'aria-hidden\s*=\s*\'true\'', re.I),
+    re.compile(r'\btabindex\s*=\s*["\']?-1', re.I),
+    re.compile(r'\bhidden\b(?=[^>]*>)', re.I),
+    re.compile(r'class\s*=\s*["\'][^"\']*\b(sr-only|visually-hidden|screen-reader|hidden-field|hp-field)\b', re.I),
 ]
+
+# Bot tuzağı olarak en sık kullanılan alan adları (rapor: honeypot kaçınma).
+HONEYPOT_NAMES = {
+    "website", "website_url", "url", "homepage", "site", "your_website",
+    "email_confirm", "emailconfirm", "confirm_email", "email2",
+    "phone2", "tel2", "address2", "zip2", "middlename", "middle_name",
+    "lastname2", "company_url", "company_website", "fax", "fax_number",
+    "date_of_birth", "how_did_you_hear", "utm_source", "gclid", "fbclid",
+    "leave_blank", "leaveblank", "leave_empty", "leaveempty", "bot_field",
+    "botcheck", "bot_check", "honeypot", "hp", "_gotcha", "gotcha",
+    "_honey", "confirmemail", "company_name", "first_name_2",
+}
+
+# Canlı DOM (JS evaluate) çıktısı için CSS gizleme denetimi.
+HIDDEN_STYLE_RE = re.compile(
+    r"(display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(\.0+)?\b|"
+    r"clip(-path)?\s*:\s*inset\(\s*(50|100)%|width\s*:\s*0(px)?\b|height\s*:\s*0(px)?\b)",
+    re.I,
+)
+ATTR_PAIR_RE = re.compile(r"""([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*["']([^"']*)["']""", re.S)
+HIDDEN_ATTR_RE = re.compile(r"(?<![-\w])hidden(?![=\w\"'])", re.I)
+
+
+def is_bot_field(attrs: dict[str, Any] | None, *, box: tuple[float, ...] | None = None) -> str | None:
+    """Tek alan denetimi -> tuzak gerekçesi veya None (doldurulabilir).
+
+    `attrs`: type/name/id/class/style/aria-hidden/tabindex/hidden.
+    `box`: tarayıcıdan gelen (x, y, width, height); görünmez/kapalı alanı yakalar.
+    """
+    row = {str(k).lower(): v for k, v in (attrs or {}).items()}
+    name = str(row.get("name") or row.get("id") or "").strip().lower()
+    if name in HONEYPOT_NAMES:
+        return "honeypot_name"
+    if str(row.get("hidden", "")).lower() in {"true", "1", "hidden"} or row.get("hidden") is True:
+        return "hidden_attribute"
+    if str(row.get("aria-hidden", "")).lower() == "true":
+        return "aria_hidden"
+    if str(row.get("tabindex", "")).strip() == "-1" and "text" in str(row.get("type", "text")).lower():
+        if not name:
+            return "tabindex_minus_one"
+    style = str(row.get("style") or "")
+    if style and HIDDEN_STYLE_RE.search(style):
+        return "hidden_style"
+    cls = str(row.get("class") or "")
+    if re.search(r"\b(sr-only|visually-hidden|screen-reader|hidden-field|hp-field)\b", cls, re.I):
+        return "hidden_class"
+    if box is not None and len(box) >= 4:
+        x, y, width, height = (float(v or 0) for v in box[:4])
+        if width <= 1 or height <= 1 or x < -1000 or y < -1000:
+            return "offscreen_box"
+    return None
+
 
 
 def _rand_bounded(mean: float, std: float, lo: float, hi: float) -> int:
@@ -59,39 +119,47 @@ def detect_honeypot_fields(html: str) -> list[dict[str, Any]]:
         html, re.S | re.I,
     ):
         style = m.group(1)
-        inner = m.group(2)
         if any(p.search(style) for p in HONEY_PATTERNS):
             for name in re.findall(
                 r'<input[^>]*?(?:name|id)\s*=\s*["\']?(\w[\w-]*)["\']?',
-                inner, re.I,
+                m.group(2), re.I,
             ):
                 if name not in seen and name not in {"csrf", "token", "_token", "form_key"}:
                     findings.append({"name": name, "reason": "hidden_container"})
                     seen.add(name)
 
-    # 2. Input-level inline style hidden
-    for m in re.finditer(
-        r'<input[^>]*?style\s*=\s*["\']([^"\']*)["\'][^>]*?>', html, re.S | re.I,
-    ):
-        style = m.group(1)
-        if any(p.search(style) for p in HONEY_PATTERNS):
-            nm = re.search(r'(?:name|id)\s*=\s*["\']?(\w[\w-]*)', m.group(0), re.I)
-            if nm:
-                name = nm.group(1)
-                if name not in seen:
-                    findings.append({"name": name, "reason": "inline_hidden"})
-                    seen.add(name)
+    # 2. Input-level gizleme: inline style, hidden attr, aria-hidden, tabindex, class
+    for tag in re.finditer(r"<input\b[^>]*>", html, re.I):
+        chunk = tag.group(0)
+        attrs = {m.group(1).lower(): m.group(2) for m in ATTR_PAIR_RE.finditer(chunk)}
+        # type="hidden" alanlar (CSRF/doğrulama jetonları) honeypot DEĞİLDİR:
+        # bot bunları doldurmaz, formla birlikte taşınmaları gerekir.
+        if str(attrs.get("type", "")).strip().lower() == "hidden":
+            continue
+        name = str(attrs.get("name") or attrs.get("id") or "").strip()
+        reason: str | None = None
+        if any(p.search(str(attrs.get("style") or "")) for p in HONEY_PATTERNS):
+            reason = "inline_hidden"
+        elif HIDDEN_ATTR_RE.search(chunk):
+            reason = "hidden_attribute"
+        elif str(attrs.get("aria-hidden", "")).lower() == "true":
+            reason = "aria_hidden"
+        elif str(attrs.get("tabindex", "")).strip() == "-1":
+            reason = "tabindex_minus_one"
+        elif re.search(r"\b(sr-only|visually-hidden|screen-reader|hidden-field|hp-field)\b",
+                       str(attrs.get("class") or ""), re.I):
+            reason = "hidden_class"
+        elif name.lower() in HONEYPOT_NAMES:
+            reason = "honeypot_name"
+        if reason and name and name not in seen:
+            findings.append({"name": name, "reason": reason})
+            seen.add(name)
 
     # 3. Field names commonly used as honeypots
-    honeypot_names = {
-        "email_confirm", "emailConfirm", "phone2", "address2", "company_name",
-        "website_url", "fax", "middlename", "lastname2", "date_of_birth",
-        "how_did_you_hear", "utm_source", "gclid", "fbclid",
-    }
     for m in re.finditer(
         r'<input[^>]*?(?:name|id)\s*=\s*["\']?(\w[\w-]*)["\']?', html, re.I,
     ):
-        if m.group(1).lower() in honeypot_names:
+        if m.group(1).lower() in HONEYPOT_NAMES and m.group(1) not in seen:
             findings.append({"name": m.group(1), "reason": "honeypot_name"})
             seen.add(m.group(1))
 

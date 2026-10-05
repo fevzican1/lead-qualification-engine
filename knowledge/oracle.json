@@ -5,12 +5,19 @@
   "ram_gb": 24,
   "boot_gb": 80,
   "model": "deepseek-r1:14b",
+  "model_fast": "llama3.2:3b",
   "ollama_parallel": 1,
+  "ollama_num_parallel": 2,
+  "ollama_keep_alive": "24h",
+  "hot_fuel_target": 2000,
+  "zram_swap_gb": 8,
+  "memory_high_gb": 16,
+  "memory_max_gb": 18,
   "daily_submit_limit": 400,
   "hourly_submit_limit": 48,
   "daily_http_probe_limit": 800,
   "chromium_batch": 40,
   "smtp": false,
   "public_ollama": false,
-  "notes": "Always Free Ampere lock. Never raise shape, never SMTP, never public :11434. 2026-09 retainer: 400/day hard ceiling, 48/hour spread, per-provider pacing 3/h."
+  "notes": "Always Free Ampere lock. Never raise shape, never SMTP, never public :11434. 2026-09 retainer: 400/day hard ceiling, 48/hour spread, per-provider pacing 3/h. 2026-09 rapor: model_fast (llama3.2:3b) webchat kisa yanitlari icin (ana model deepseek kalir); ZRAM 8G + MemoryHigh/Max systemd sinirlari; hot_fuel_target 2000."
 }

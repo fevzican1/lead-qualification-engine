@@ -19,6 +19,11 @@ DAILY_CAP = 400
 # EMERGENCY_REFILL_REQUIRED bayrağı düşer + enterprise-feed/discovery zinciri
 # tetiklenip eksilen miktarı tamamlar.
 LOW_WATERMARK = 500
+# KRİTİK eşik: kuyruk 100'ün altına inerse satış hattı saatler içinde kurur.
+# Bu durumda acil yakıt ikmali devreye girer ve kuyruğa en az 500 yeni hedef
+# doğrulanmış form eklenmesi istenir (rapor: "Acil Yakıt İkmal Tetikleyicisi").
+CRITICAL_WATERMARK = 100
+EMERGENCY_ADD = 500
 REFILL_TARGET = 500
 
 
@@ -52,14 +57,34 @@ def queue_depth() -> dict[str, int]:
             "total": verified_n + pending_n + routed_n}
 
 
-def check_refill_needed(*, low: int = LOW_WATERMARK) -> dict[str, Any]:
-    """Eşik kontrolü: kuyruk < low ise EMERGENCY_REFILL_REQUIRED bayrağı."""
+def check_refill_needed(*, low: int = LOW_WATERMARK,
+                        critical: int = CRITICAL_WATERMARK) -> dict[str, Any]:
+    """Eşik kontrolü: kuyruk < low ise EMERGENCY_REFILL_REQUIRED bayrağı.
+
+    severity:
+      - "critical": total < critical (100) -> acil ikmal; en az EMERGENCY_ADD (500)
+        yeni doğrulanmış hedef istenir (webhook/acil tetikleyici ile aynı anlamda).
+      - "low": total < low (500) -> eksik kadar (target - total) tamamlama.
+      - "healthy": tampon dolu.
+    """
     depth = queue_depth()
-    needed = depth["total"] < low
+    total = int(depth["total"])
+    if total < int(critical):
+        severity = "critical"
+    elif total < int(low):
+        severity = "low"
+    else:
+        severity = "healthy"
+    needed = severity in {"critical", "low"}
+    pending_add = (EMERGENCY_ADD if severity == "critical"
+                   else max(0, REFILL_TARGET - total))
     flag_path = state_path("refill_required.json")
     if needed:
-        payload = {"flag": "EMERGENCY_REFILL_REQUIRED", "depth": depth,
-                   "low_watermark": low, "target": REFILL_TARGET,
+        payload = {"flag": "EMERGENCY_REFILL_REQUIRED", "severity": severity,
+                   "depth": depth, "low_watermark": low,
+                   "critical_watermark": critical, "target": REFILL_TARGET,
+                   "requested_add": pending_add,
+                   "critical": severity == "critical",
                    "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         tmp = flag_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -69,7 +94,10 @@ def check_refill_needed(*, low: int = LOW_WATERMARK) -> dict[str, Any]:
             flag_path.unlink()
         except OSError:
             pass
-    return {"needed": needed, "depth": depth, "low_watermark": low,
+    return {"needed": needed, "severity": severity, "depth": depth,
+            "low_watermark": low, "critical_watermark": critical,
+            "total": total, "requested_add": pending_add,
+            "critical": severity == "critical",
             "flag": "EMERGENCY_REFILL_REQUIRED" if needed else None,
             "flag_file": str(flag_path) if needed else None}
 
@@ -98,8 +126,10 @@ def request_refill_via_github(*, reason: str = "low_watermark") -> dict[str, Any
                 "hint": "Oracle'da GITHUB_TOKEN + GITHUB_OWNER/GITHUB_REPO tanımla", **check}
     try:
         from nirvana.github_orchestrator import dispatch_workflow
-        res = dispatch_workflow("enterprise-feed.yml", {}, owner=owner, repo=repo, ref="master")
-        res = {"dispatched": bool(res.get("ok")), "dispatch": res,
+        inputs = {"refill_batch": str(int(check.get("requested_add") or REFILL_TARGET)),
+                  "severity": str(check.get("severity") or "low")}
+        res = dispatch_workflow("enterprise-feed.yml", inputs, owner=owner, repo=repo, ref="master")
+        res = {"dispatched": bool(res.get("ok")), "dispatch": res, "inputs": inputs,
                "workflow": "enterprise-feed.yml", "trigger_reason": reason, **check}
         log_path = state_path("refill_dispatch_log.json")
         try:
@@ -182,7 +212,14 @@ def run_batch(**kwargs: Any) -> dict[str, Any]:
            "out": str(state_path(STATE))}
     # Otomatik Acil Yakıt Dolumu: eşik ihlalinde bayrak + (token varsa) GitHub tetikleme.
     try:
-        out["refill"] = check_refill_needed()
+        check = check_refill_needed()
+        out["refill"] = check
+        out["severity"] = check["severity"]
+        out["queue_total"] = check["total"]
+        if check["severity"] == "critical":
+            # Rapor: kuyruk <100 -> acil ikmal; en az 500 yeni doğrulanmış hedef.
+            out["emergency"] = {"triggered": True, "add_target": EMERGENCY_ADD,
+                                "critical_watermark": CRITICAL_WATERMARK}
         out["refill_dispatch"] = request_refill_via_github()
     except Exception as e:  # noqa: BLE001 — guard raporu ana görevi bozmaz
         out["refill_error"] = str(e)[:120]

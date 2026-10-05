@@ -11,6 +11,7 @@ Required variables depend on which entrypoint you run:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -79,10 +80,114 @@ def require(name: str) -> str:
 
 
 # --- Secrets / endpoints -------------------------------------------------
-TELEGRAM_BOT_TOKEN: str = _get("TELEGRAM_BOT_TOKEN")
+# NOT: TELEGRAM_BOT_TOKEN tam "ID:SECRET" formatında tutulur; id'siz (":" öneksiz)
+# değer asla yazılmaz — Telegram o formu 404 ile reddeder. Bazen env'ye kısaltılmış
+# hali düşerse aşağıdaki normalizasyon ilk ':' öncesindeki bot kimliğiyle tamamlar.
+BOT_ID_STATE_PATH: Path = ROOT / "nirvana" / "state" / "bot_ids.json"
+
+
+def _cached_bot_ids() -> dict[str, str]:
+    """getMe ile dogrulanmis bot id'leri (bot acilisinda yazilir).
+
+    Kaynak: nirvana/state/bot_ids.json -> {"primary": {"id": "...", "username": "..."},
+    "bots": {"<id>": "<username>"}}. Dosya yoksa/bozuksa bos doner.
+    """
+    try:
+        data = json.loads(BOT_ID_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, str] = {}
+    primary = data.get("primary") if isinstance(data, dict) else None
+    if isinstance(primary, dict) and str(primary.get("id") or "").strip():
+        out[str(primary["id"]).strip()] = str(primary.get("username") or "")
+    bots = data.get("bots") if isinstance(data, dict) else None
+    if isinstance(bots, dict):
+        for bid, name in bots.items():
+            if str(bid).strip():
+                out[str(bid).strip()] = str(name or "")
+    return out
+
+
+def save_bot_identity(bot_id: object, username: str = "", *, primary: bool = False) -> None:
+    """Botun GERCEK id'sini diske yaz (getMe sonrasi).
+
+    Iki isi yapar:
+      1) TELEGRAM_BOT_TOKEN id'siz (":<secret>") girilmisse normalizasyon bu
+         dosyadan dogru bot id'sini okur — yanlis tahminle 404 uretilmez.
+      2) Botlarin KENDI id'leri admin listesinden cikarilir (bot id'si
+         "sahip" sanildiginda /notifyme beni musteri zannediyordu).
+    """
+    text = str(bot_id).strip()
+    if not text.isdigit():
+        return
+    with _pool_lock():
+        data: dict[str, object] = {}
+        try:
+            loaded = json.loads(BOT_ID_STATE_PATH.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                data = loaded
+        except (OSError, ValueError):
+            data = {}
+        bots = data.get("bots") if isinstance(data.get("bots"), dict) else {}
+        bots[text] = str(username or "").strip().lstrip("@")
+        data["bots"] = bots
+        if primary:
+            data["primary"] = {"id": text, "username": str(username or "").strip().lstrip("@")}
+            data["primary_at"] = __import__("time").strftime("%Y-%m-%dT%H:%M:%SZ",
+                                                           __import__("time").gmtime())
+        try:
+            BOT_ID_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            tmp = BOT_ID_STATE_PATH.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+            tmp.replace(BOT_ID_STATE_PATH)
+        except OSError:
+            pass
+
+
+def known_bot_ids() -> set[int]:
+    """Bilinen Telegram BOT id'leri (token oneki + getMe durumu).
+
+    Bu id'ler ASLA operator chat'i sayilmaz: aksi halde botun kendi id'si
+    TELEGRAM_OWNER_CHAT_ID'ye yazildiginda /notifyme sahibi "musteri" sanar ve
+    bildirim hedefi bot hesabina dusup 403 alir.
+    """
+    ids: set[int] = set()
+    for token in [TELEGRAM_BOT_TOKEN, *[t.strip() for t in (TELEGRAM_BOT_TOKENS or "").split(",")]]:
+        head, sep, _ = (token or "").partition(":")
+        if sep and head.isdigit() and len(head) >= 5:
+            ids.add(int(head))
+    for token in [(TELEGRAM_NOTIFY_BOT_TOKEN or ""), (TELEGRAM_BOT_API_BASE_URL or "")]:
+        head, sep, _ = (token or "").partition(":")
+        if sep and head.isdigit() and len(head) >= 5:
+            ids.add(int(head))
+    for bid in _cached_bot_ids():
+        if bid.isdigit():
+            ids.add(int(bid))
+    return ids
+
+
+def _full_bot_token(raw: str) -> str:
+    tok = (raw or "").strip()
+    if not tok or ":" in tok:
+        return tok
+    # 1) Acik override: TELEGRAM_BOT_ID (.env / deploy).
+    # 2) getMe ile dogrulanmis kayitli bot id (kendi kendini onaran yol).
+    # 3) Son care: TELEGRAM_OWNER_CHAT_ID (legacy; yanlissa getMe 404 verir).
+    for candidate in (_get("TELEGRAM_BOT_ID"), next(iter(_cached_bot_ids()), ""),
+                      _get("TELEGRAM_OWNER_CHAT_ID")):
+        if str(candidate).strip().isdigit():
+            return f"{str(candidate).strip()}:{tok}"
+    return tok
+
+
+TELEGRAM_BOT_TOKEN: str = _full_bot_token(_get("TELEGRAM_BOT_TOKEN"))
 # Ek satış botları: Telegram bot başına flood limiti olduğu için yük dağıtımı
 # şart. "token1,token2,..." (virgülle ayrık); birincil token otomatik başa alınır.
-TELEGRAM_BOT_TOKENS: str = _get("TELEGRAM_BOT_TOKENS")
+# İKİ İSİM de kabul edilir: TELEGRAM_BOT_TOKENS (GitHub Secret → Oracle .env) ve
+# TELEGRAM_OTHER_BOT_TOKENS (yerel .env / bazı kurulumlarda kullanılan ad).
+# Yalnız tek isim okunursa havuz 1 bota düşüyor, flood bypass ve 3x kapasite
+# sessizce kayboluyordu.
+TELEGRAM_BOT_TOKENS: str = _get("TELEGRAM_BOT_TOKENS") or _get("TELEGRAM_OTHER_BOT_TOKENS")
 PAYONEER_PAYMENT_URL: str = _get("PAYONEER_PAYMENT_URL")
 TELEGRAM_OWNER_CHAT_ID: str = _get("TELEGRAM_OWNER_CHAT_ID")
 # Owner self-service registration secret: /admin KOD (set out-of-band on Oracle).
@@ -118,10 +223,10 @@ ENTERPRISE_RETRY_SKIP_DAYS: int = _get_int("ENTERPRISE_RETRY_SKIP_DAYS", 3)
 # Acceptance-first framing: do NOT print a dollar figure in outreach; the
 # contract amount is only shared in-chat when the company asks.
 PRICE_HIDDEN: bool = _get("PRICE_HIDDEN", "0").strip() in {"1", "true", "yes", "on"}
-# Revenue model: 40 employers x $2,500/mo retainer = $100k/mo target.
+# Revenue model: 40 employers x $5,000/mo retainer = $200k/mo target.
 # PRICE_USD is a proposed offer, NOT the amount encoded by a Payoneer request.
-PRICE_USD: int = _get_int("PRICE_USD", 2500)
-ENTERPRISE_RETAINER_USD: int = _get_int("ENTERPRISE_RETAINER_USD", 2500)
+PRICE_USD: int = _get_int("PRICE_USD", 5000)
+ENTERPRISE_RETAINER_USD: int = _get_int("ENTERPRISE_RETAINER_USD", 5000)
 ENTERPRISE_PILOT_USD: int = _get_int("ENTERPRISE_PILOT_USD", 500)
 # --- Nirvana owner identity (insan algisi) ---------------------------------
 # Raporlarda, kanıt kartlarında ve Telegram kimliğinde gerçek insan görünür.
@@ -131,6 +236,19 @@ LINKEDIN_PROFILE_URL: str = _get("LINKEDIN_PROFILE_URL", OWNER_LINKEDIN_URL).str
 OWNER_CHAT_ID: str = _get("OWNER_CHAT_ID", _get("ADMIN_CHAT_ID", "")).strip()
 # Owner self-service registration secret: /admin KOD (set out-of-band on Oracle).
 ADMIN_CODE: str = _get("ADMIN_CODE") or _get("OWNER_ADMIN_CODE", "")
+# GitHub Secret tabanli yonetici kimlik dogrulamasi (rapor madde: admin tanima).
+# TELEGRAM_ADMIN_ID  -> patronun Telegram user/chat id'si (.env'e deploy ile yazilir)
+# TELEGRAM_ADMIN_TOKEN -> gizli eslesme dizesi; /notifyme TOKEN ile sohbet
+# dogrulanip "Sistem Sahibi Taptaze Senkronize Edildi" yaniti verilir.
+TELEGRAM_ADMIN_ID: str = _get("TELEGRAM_ADMIN_ID").lstrip("@") or OWNER_CHAT_ID
+TELEGRAM_ADMIN_TOKEN: str = _get("TELEGRAM_ADMIN_TOKEN", "")
+# Yerel Telegram Bot API (opsiyonel, $0): flood limitini ve 20 MB dosya sinirini
+# kaldiran self-hosted sunucu. Bos ise standart bulut API kullanilir (mevcut hal).
+TELEGRAM_BOT_API_BASE_URL: str = _get("TELEGRAM_BOT_API_BASE_URL", "")
+# telegram-bot-api konteynerinin ihtiyac duydugu my.telegram.org anahtarlari
+# (yalnizca Oracle .env'inde tutulur; asla repoya yazilmaz).
+TELEGRAM_API_ID: str = _get("TELEGRAM_API_ID", "")
+TELEGRAM_API_HASH: str = _get("TELEGRAM_API_HASH", "")
 # Ops channel: pipeline / sıcak lead bildirimleri (müşteri satış botundan ayrı).
 TELEGRAM_NOTIFY_BOT_TOKEN: str = _get("TELEGRAM_NOTIFY_BOT_TOKEN")
 TELEGRAM_NOTIFY_CHAT_ID: str = _get("TELEGRAM_NOTIFY_CHAT_ID")
@@ -141,11 +259,11 @@ WATCHDOG_CHAT_ID: str = _get("WATCHDOG_CHAT_ID", TELEGRAM_NOTIFY_CHAT_ID or OWNE
 # created by the owner in the provider panel; these values only describe the
 # offer text and gate the amount/currency of verified requests.
 PAYMENT_CURRENCY: str = _get("PAYMENT_CURRENCY", "EUR").upper()
-PAYMENT_AMOUNT: int = _get_int("PAYMENT_AMOUNT", 2500)
+PAYMENT_AMOUNT: int = _get_int("PAYMENT_AMOUNT", 5000)
 # Human-facing price label for all customer copy (Telegram, proof cards, PDFs).
-# Nirvana retainer: €2.500 EUR aylık. Payment gates stay numeric (PRICE_USD /
-# PAYMENT_AMOUNT == 2500); only the display currency changes here.
-PRICE_LABEL: str = _get("PRICE_LABEL", "€2.500")
+# Nirvana retainer: €5.000 EUR aylık. Payment gates stay numeric (PRICE_USD /
+# PAYMENT_AMOUNT == 5000); only the display currency changes here.
+PRICE_LABEL: str = _get("PRICE_LABEL", "€5.000")
 # Payoneer webhook: HMAC-SHA256 imza doğrulama sırrı. Sadece bu imzayla gelen
 # PAID sinyali pipeline'ı otomatik başlatır; imzasız/sahte POST reddedilir.
 PAYONEER_WEBHOOK_SECRET: str = _get("PAYONEER_WEBHOOK_SECRET", "")
@@ -196,6 +314,80 @@ if FORM_DELAY_FAST_MAX_SECONDS >= 20:
     FORM_DELAY_FAST_MAX_SECONDS = 8.0
 LEAD_BATCH_SIZE: int = _get_int("LEAD_BATCH_SIZE", 15)
 AUTO_RUNNER_SLEEP_SECONDS: int = _get_int("AUTO_RUNNER_SLEEP_SECONDS", 21_600)
+# --- Rapor: TLS impersonation + 100ms pre-flight + honeypot/CSRF -------------
+# TLS_IMPERSONATE / TLS_IMPERSONATE_ENABLED -> nirvana/net_stealth.py (curl_cffi).
+TLS_IMPERSONATE: str = _get("TLS_IMPERSONATE", "chrome") or "chrome"
+TLS_IMPERSONATE_ENABLED: bool = _get_bool("TLS_IMPERSONATE_ENABLED", True)
+# Pre-flight hafif sorgu bütçesi (ms): form barındırmayan siteler bu pencerede elenir.
+PREFLIGHT_BUDGET_MS: int = _get_int("PREFLIGHT_BUDGET_MS", 100)
+PREFLIGHT_TIMEOUT_SECONDS: float = _get_float("PREFLIGHT_TIMEOUT_SECONDS", 6.0)
+# Gizli CSS/aria alanları (honeypot) doldurulmaz — bot tuzağına düşmemek için.
+HONEYPOT_CSS_GUARD: bool = _get_bool("HONEYPOT_CSS_GUARD", True)
+# Dinamik (React/Vue/Shadow-DOM) form tespitinde hafif headless fallback devreye girer.
+JS_FALLBACK_ENABLED: bool = _get_bool("JS_FALLBACK_ENABLED", True)
+# --- Rapor: domain başı sınırlama + Gauss jitter + spintax ------------------
+DOMAIN_HOURLY_LIMIT: int = _get_int("DOMAIN_HOURLY_LIMIT", 1)
+DOMAIN_RATE_WINDOW_HOURS: int = _get_int("DOMAIN_RATE_WINDOW_HOURS", 24)
+SUBMIT_JITTER_MIN_SECONDS: float = _get_float("SUBMIT_JITTER_MIN_SECONDS", 3.5)
+SUBMIT_JITTER_MAX_SECONDS: float = _get_float("SUBMIT_JITTER_MAX_SECONDS", 8.2)
+SPINTAX_ENABLED: bool = _get_bool("SPINTAX_ENABLED", True)
+# --- Çift motor + 4 katman koruma (nirvana/protection.py) --------------------
+# Katman 1: istek döngülerinde uniform insan jitter (default 3.0–9.0 sn).
+REQUEST_JITTER_MIN_SECONDS: float = _get_float("REQUEST_JITTER_MIN_SECONDS", 3.0)
+REQUEST_JITTER_MAX_SECONDS: float = _get_float("REQUEST_JITTER_MAX_SECONDS", 9.0)
+# Katman 2: hot_fuel.db domain_health circuit breaker (kalıcı hata -> soğuma).
+CIRCUIT_BREAKER_THRESHOLD: int = _get_int("CIRCUIT_BREAKER_THRESHOLD", 3)
+CIRCUIT_BREAKER_COOLDOWN_SECONDS: float = _get_float("CIRCUIT_BREAKER_COOLDOWN_SECONDS", 3600.0)
+# Katman 3: proxy havuzu (virgülle ayrılmış; boş = doğrudan bağlantı, $0).
+PROXY_POOL: str = _get("PROXY_POOL", "") or ""
+
+# --- İç yakıt (local_fuel) + iş bekçisi (job_watchdog) -----------------------
+# Yakıt kıtlığının kök çözümü: Oracle VM kendi liste servislerinden (Tranco/CDX/
+# tohum) beslenir; dış (GitHub/CDN) feed gecikse bile 400+/gün kapasite durmaz.
+LOCAL_FUEL_ENABLED: bool = (
+    (_get("LOCAL_FUEL_ENABLED", "1") or "1").strip().lower()
+    not in {"0", "false", "no", "off"}
+)
+# Günlük liste-servisi GET bütçesi (hedef site isteği DEĞİL; tranco/cdx/crt).
+LOCAL_FUEL_DAILY_GETS: int = _get_int("LOCAL_FUEL_DAILY_GETS", 40)
+# İç yakıt motorunun arka plan tetiklenme soğuması (sn).
+LOCAL_FUEL_KICK_MIN_GAP_S: float = _get_float("LOCAL_FUEL_KICK_MIN_GAP_S", 1800.0)
+
+# --- Rapor: Sıcak Havuz (SQLite WAL) ---------------------------------------
+HOT_FUEL_TARGET: int = _get_int("HOT_FUEL_TARGET", 2000)
+HOT_FUEL_LEASE_SECONDS: float = _get_float("HOT_FUEL_LEASE_SECONDS", 1800.0)
+# --- Rapor: Üçlü Zırh (Triple-Shield) --------------------------------------
+RESILIENCE_MEMORY_LIMIT_MB: int = _get_int("RESILIENCE_MEMORY_LIMIT_MB", 1024)
+RESILIENCE_WATCHDOG_INTERVAL_S: float = _get_float("RESILIENCE_WATCHDOG_INTERVAL_S", 2.0)
+RESILIENCE_AUTO_RECYCLE: bool = _get_bool("RESILIENCE_AUTO_RECYCLE", True)
+# --- Rapor: WebChat satış motoru (SPIN + Challenger + n8n + takvim) --------
+BOOKING_URL: str = _get("BOOKING_URL") or _get("CALCOM_BOOKING_URL") or _get("GOOGLE_BOOKING_URL")
+N8N_WEBHOOK_URL: str = _get("N8N_WEBHOOK_URL") or _get("CRM_WEBHOOK_URL")
+# --- Rapor entegrasyonu: e-imza, onboarding anketi, $0 zenginlestirme ---------
+# Documenso v2 (envelope API): POST /envelope/create -> POST /envelope/distribute
+DOCUMENSO_URL: str = _get("DOCUMENSO_URL")
+DOCUMENSO_API_KEY: str = _get("DOCUMENSO_API_KEY")
+DOCUMENSO_TEMPLATE_ID: str = _get("DOCUMENSO_TEMPLATE_ID")
+DOCUMENSO_CREATE_PATH: str = _get("DOCUMENSO_CREATE_PATH", "/envelope/create")
+DOCUMENSO_DISTRIBUTE_PATH: str = _get("DOCUMENSO_DISTRIBUTE_PATH", "/envelope/distribute")
+# Formbricks onboarding (Rapor 4.3 adim 4)
+FORMBRICKS_URL: str = _get("FORMBRICKS_URL") or _get("FORMBRICKS_HOST_URL", "")
+FORMBRICKS_SURVEY_ID: str = (
+    _get("FORMBRICKS_SURVEY_ID") or _get("FORMBRICKS_ONBOARDING_SURVEY_ID", "")
+)
+# $0 zenginlestirme (Rapor 2.1): yerel SearXNG + Crawl4AI (docker agi/loopback)
+SEARXNG_URL: str = _get("SEARXNG_URL", "http://127.0.0.1:8080")
+CRAWL4AI_URL: str = _get("CRAWL4AI_URL", "http://127.0.0.1:11235")
+# Webchat ilk mesaj kisisellestirme koprusu (v2 raporu §8.5): oturum acilinca
+# kaynakli sirket profili (onbellek + arka plan isitma) karsilamaya/prompta girer.
+ENRICH_WEBCHAT_ENABLED: bool = _get_bool("ENRICH_WEBCHAT_ENABLED", True)
+# Feed tarama butcesi (sn): kuyruk dolu/depo yeterliyken tur basina ~14 dk
+# bosa giden taramayi sinirlar (canli teshis 2026-09-29).
+FEED_SCAN_BUDGET_S: float = _get_float("FEED_SCAN_BUDGET_S", 45.0)
+
+# WebChat hızlı model (Ampere A1'de 4 vCPU için küçük kuantize model önerilir).
+OLLAMA_FAST_MODEL: str = _get("OLLAMA_FAST_MODEL", "")
+SPIN_SELLING_ENABLED: bool = _get_bool("SPIN_SELLING_ENABLED", True)
 DAILY_SUBMIT_LIMIT: int = _get_int("DAILY_SUBMIT_LIMIT", 400)
 HOURLY_SUBMIT_LIMIT: int = _get_int("HOURLY_SUBMIT_LIMIT", 48)
 # Target floor inside the cap: keep the hour at 40+ posts, never above the cap.
@@ -233,6 +425,10 @@ AJAX_POST_ENABLED: bool = _get_bool("AJAX_POST_ENABLED", True)
 # instead of skipping them as skipped_no_open_form (email worker picks them up).
 MAILTO_HANDOFF: bool = _get_bool("MAILTO_HANDOFF", True)
 PIPELINE_TIMEOUT_SECONDS: int = _get_int("PIPELINE_TIMEOUT_SECONDS", 30)
+# auto_runner tek turda pipeline.py'yi bu duvar-saati sınırıyla koşar. Neden:
+# takılı bir Chromium/POST, timeout verilmediğinde form hattını saatlerce
+# kilitliyordu (canlı arıza 2026-09: son log 18:20'de kalıp gün boyu 0 form).
+PIPELINE_RUN_TIMEOUT_SECONDS: int = _get_int("PIPELINE_RUN_TIMEOUT_SECONDS", 2400)
 DEFER_MINUTES: int = _get_int("DEFER_MINUTES", 20)
 HTTP_RESERVE_FOR_PIPELINE: int = _get_int("HTTP_RESERVE_FOR_PIPELINE", 20)
 CHROMIUM_DIRECT_MIN: int = _get_int("CHROMIUM_DIRECT_MIN", 65)
@@ -245,6 +441,26 @@ FEED_RAW_URL: str = _get(
 FEED_URL: str = _get("FEED_URL")
 FEED_GITHUB_TOKEN: str = _get("FEED_GITHUB_TOKEN")
 SITE_TIMEOUT_SECONDS: int = _get_int("SITE_TIMEOUT_SECONDS", 45)
+# KURAL 3 — 30 sn HARD WALL: tek form gönderim denemesinin duvar-saati tavanı.
+# Site 30 sn'de yanıt vermez/kilitlenirse İPTAL + karantina + sıradaki taze
+# lead: sistem beklemez, soğumaya geçmez, reboot YOK. pipeline'daki
+# _arm_hard_kill bunu kesinleştirir (duvar-saati dolan an tarayıcı pkill ile
+# imha edilir; ana motor/systemd asla durmaz).
+SUBMIT_HARD_TIMEOUT_SECONDS: float = _get_float("SUBMIT_HARD_TIMEOUT_SECONDS", 30.0)
+# Hard timeout ile karantinaya alınan host'un dokunulmazlık süresi (saat).
+SUBMIT_QUARANTINE_HOURS: float = _get_float("SUBMIT_QUARANTINE_HOURS", 6.0)
+# --- Submit verim kurtarma (2026-10 revizyonu) ------------------------------
+# Zorunlu select/radio doldurma + gecersiz alan kurtarma: HTML5 validation
+# submit'i sessizce bloke ettiginde ("click did not produce POST") devreye girer.
+FORM_SMART_FILL: bool = _get_bool("FORM_SMART_FILL", True)
+# filled==0 ise tek sayfa reload'i ile selector yenileme (taze DOM turu).
+FORM_FILL_RELOAD: bool = _get_bool("FORM_FILL_RELOAD", True)
+# Tik sonrasi gecersiz-zorunlu alan tamamlama + cascade'in tek tekrari.
+FORM_INVALID_RECOVERY: bool = _get_bool("FORM_INVALID_RECOVERY", True)
+# Kalici sinyal uretmeyen submit fail'lerini bu saat sonrasi TEK kez yeniden
+# kuyruga al (lead basina transient_requeues<=1; tur basina tavan asagida).
+SUBMIT_TRANSIENT_RETRY_HOURS: float = _get_float("SUBMIT_TRANSIENT_RETRY_HOURS", 12.0)
+SUBMIT_TRANSIENT_RETRY_MAX: int = _get_int("SUBMIT_TRANSIENT_RETRY_MAX", 120)
 # Max hosts per pipeline --submit invocation (~5–15 min wall time). 24 → with the
 # ~22% confirm rate, up to ~5-6 confirmed posts per visit batch — enough to fill
 # the 40/hour floor in fewer cycles while the per-provider pacing still protects.
@@ -273,7 +489,7 @@ def price_label(*, explicit: bool = False) -> str:
 
 
 def payment_label() -> str:
-    """Retainer label for the configured Nirvana payment currency (e.g. 2.500 EUR)."""
+    """Retainer label for the configured Nirvana payment currency (e.g. 5.000 EUR)."""
     amount = f"{PAYMENT_AMOUNT:,}".replace(",", ".") if PAYMENT_CURRENCY == "EUR" else str(PAYMENT_AMOUNT)
     return f"{amount} {PAYMENT_CURRENCY}"
 
@@ -307,6 +523,67 @@ def require_live_telegram_link(start: str = "") -> str:
     if token:
         return f"https://t.me/{username}?start={token}"
     return f"https://t.me/{username}"
+
+
+# --- Web Live Chat Engine (musteri hatti; Telegram musteriye KAPALI) ---------
+# Musteri trafigi Oracle VM'de host edilen web sohbete tasindi: form dolduran lead
+# t.me yerine WEBCHAT_PUBLIC_URL'ye yonlendirilir. Boylece Telegram'in FLOOD_WAIT,
+# ban ve hiz limitleri musteri mimarisinden TAMAMEN cikar (0 limit, $0 maliyet).
+# Telegram yalnizca pasif admin/operator hattidir (VIP lead, odeme istegi, /status).
+# WEBCHAT_PUBLIC_URL bos ise eski t.me linki kullanilir (gecis donemi uyumlulugu).
+WEBCHAT_PUBLIC_URL: str = _get("WEBCHAT_PUBLIC_URL", "").strip().rstrip("/")
+WEBCHAT_PORT: int = _get_int("WEBCHAT_PORT", 8765)
+WEBCHAT_BIND_HOST: str = _get("WEBCHAT_BIND_HOST", "127.0.0.1").strip() or "127.0.0.1"
+
+
+def webchat_link(session: str = "") -> str:
+    """Web sohbet URL'i; oturum token'i verilirse /chat?sid=... (yoksa "")."""
+    base = (WEBCHAT_PUBLIC_URL or "").strip().rstrip("/")
+    if not base:
+        return ""
+    token = re.sub(r"[^A-Za-z0-9_-]", "", (session or "").strip())[:32] if session else ""
+    return f"{base}/chat?sid={token}" if token else f"{base}/chat"
+
+
+def require_live_webchat_link(session: str = "") -> str:
+    """Fail-closed web sohbet linki — MUSTERI HATTI.
+
+    WEBCHAT_PUBLIC_URL tanimli degilse RuntimeError: cagirici lead'i isaretler ve
+    tiklanamayan bir form mesajiyla firma yakmaz.
+    """
+    link = webchat_link(session)
+    if not link:
+        raise RuntimeError(
+            "WEBCHAT_PUBLIC_URL eksik: musteri hatti icin web sohbet adresi yok. "
+            "Oracle /opt/devsolve/.env icine https://<vm-adresi> yazin "
+            "(deploy: oracle/deploy_webchat.sh otomatik doldurur)."
+        )
+    return link
+
+
+def customer_chat_link(session: str = "") -> str:
+    """Musteriye giden TEK link: web sohbet (varsa), gecis doneminde t.me."""
+    return webchat_link(session) or telegram_deeplink(session)
+
+
+def require_live_customer_link(session: str = "") -> str:
+    """Form gonderimi icin canli musteri linki (fail-closed).
+
+    Sira: WEBCHAT_PUBLIC_URL -> (yoksa) t.me. Ikisi de uretilemezse RuntimeError;
+    form_submitter lead'i `skipped_no_telegram_link` olarak isaretler.
+    """
+    link = customer_chat_link(session)
+    if link and link.strip() and link.strip() != "Telegram":
+        return link
+    raise RuntimeError(
+        "Canli musteri linki yok: WEBCHAT_PUBLIC_URL (web sohbet) veya "
+        "TELEGRAM_BOT_USERNAME (gecis donemi) tanimli degil."
+    )
+
+
+def webchat_customer_only() -> bool:
+    """Musteri hatti web sohbete tasindi mi? (Telegram musteri girisi kapanir)."""
+    return bool(WEBCHAT_PUBLIC_URL)
 
 
 def ensure_telegram_username() -> str:
@@ -343,6 +620,27 @@ def openai_client():
     raise RuntimeError("OpenAI was removed. This project uses local Ollama (see ollama_client.py).")
 
 
+# --- 6-maddelik uretim plani: dusuk-gecikme cikarim + outreach + chat --------
+OLLAMA_FALLBACK_MODEL: str = _get("OLLAMA_FALLBACK_MODEL", "qwen2.5:7b")
+LLM_FAST_TIMEOUT_S: float = _get_float("LLM_FAST_TIMEOUT_S", 0.9)
+LLM_TOTAL_TIMEOUT_S: float = _get_float("LLM_TOTAL_TIMEOUT_S", 6.0)
+LLM_MAX_CONCURRENCY: int = _get_int("LLM_MAX_CONCURRENCY", 4)
+LITELLM_PROXY_ENABLED: bool = _get_bool("LITELLM_PROXY_ENABLED", False)
+LITELLM_PROXY_URL: str = _get("LITELLM_PROXY_URL", "http://127.0.0.1:4000")
+OUTREACH_EXCLUDE_REGION: tuple = tuple(
+    r.strip().upper() for r in _get("OUTREACH_EXCLUDE_REGION", "TR").split(",") if r.strip()
+) or ("TR",)
+OUTREACH_MIN_BUDGET_EUR: int = _get_int("OUTREACH_MIN_BUDGET_EUR", 5000)
+CHAT_RECONNECT_MAX: int = _get_int("CHAT_RECONNECT_MAX", 12)
+CHAT_BACKOFF_S: float = _get_float("CHAT_BACKOFF_S", 1.0)
+CHAT_SESSION_TIMEOUT_S: float = _get_float("CHAT_SESSION_TIMEOUT_S", 1800.0)
+# Oracle Always Free korkuluklari: thread/process/RAM tavanlari.
+ORACLE_MAX_THREADS: int = _get_int("ORACLE_MAX_THREADS", 16)
+ORACLE_MAX_PROCESSES: int = _get_int("ORACLE_MAX_PROCESSES", 32)
+ORACLE_RAM_LIMIT_MB: int = _get_int("ORACLE_RAM_LIMIT_MB", 16384)
+WEBCHAT_MAX_CONCURRENCY: int = _get_int("WEBCHAT_MAX_CONCURRENCY", 4)
+
+
 def async_openai_client():
     raise RuntimeError("OpenAI was removed. This project uses local Ollama (see ollama_client.py).")
 
@@ -356,8 +654,12 @@ def require_pipeline_keys(*, submitting: bool = False) -> None:
 
 
 def is_owner(chat_id) -> bool:
-    """Telegram chat is the configured owner/admin."""
-    target = str(getattr(chat_id, "id", chat_id))
+    """Telegram chat is the configured owner/admin (bot id'leri asla 'sahip' degil)."""
+    target = str(getattr(chat_id, "id", chat_id)).strip()
+    if not target:
+        return False
+    if target.isdigit() and int(target) in known_bot_ids():
+        return False
     return target == str(OWNER_CHAT_ID).strip() or target == str(TELEGRAM_OWNER_CHAT_ID).strip()
 
 
@@ -431,11 +733,25 @@ def set_bot_pool(usernames: list[str]) -> None:
         _BOT_POOL_CURSOR = 0
 
 
-def resolve_bot_pool() -> list[str]:
-    """getMe ile tüm satış botlarının username'lerini çöz ve havuzu kur.
+def bot_username_for_token(token: str) -> str:
+    """Token -> bilinen username (bot_ids.json önbelleğinden; HTTP YOK).
 
-    Tek bot akışını bozmaz: getMe başarısız olursa primary username ile
-    devam eder (fail-open), tokenler yine de ayrı Application olarak koşar.
+    ZERO-TOUCH: cezalı (PASSIVE) bota getMe dâhil istek atılmaz; token kimliği
+    her zaman token başındaki bot id'sinden + getMe'de diskte saklanan kayıttan
+    çözülür. Bilinmiyorsa "" döner."""
+    head, sep, _ = (token or "").partition(":")
+    if sep and head.isdigit():
+        return str(_cached_bot_ids().get(head) or "")
+    return ""
+
+
+def resolve_bot_pool() -> list[str]:
+    """Havuz username'lerini kur — getMe YALNIZCA hiç görülmemiş token için.
+
+    ZERO-TOUCH PASSIVE: tokenin botu bot_ids.json / bot_registry parmak izinden
+    çözülebiliyorsa getMe isteği atılmaz (FLOOD_WAIT'teki bota health-check
+    gitmez). Sadece bilinmeyen (ilk kez görülen) token için getMe gerekir;
+    sonuç anında diske yazılır ve bir daha sorulmaz.
     """
     import logging
 
@@ -448,6 +764,20 @@ def resolve_bot_pool() -> list[str]:
     for token in bot_tokens():
         if not token or token == (TELEGRAM_BOT_TOKEN or "").strip():
             continue  # primary zaten yukarıda (ya da getMe ile) çözüldü
+        # ZERO-TOUCH: önce diskteki kimlik önbelleği (HTTP yok).
+        uname = bot_username_for_token(token)
+        if not uname:
+            try:
+                import bot_registry
+                import hashlib
+                uname = bot_registry.owner_for_hint(
+                    hashlib.sha256(token.encode()).hexdigest()[:12])
+            except Exception:  # noqa: BLE001
+                uname = ""
+        if uname:
+            if uname not in usernames:
+                usernames.append(uname)
+            continue
         try:
             response = httpx.get(f"https://api.telegram.org/bot{token}/getMe", timeout=30.0)
             response.raise_for_status()
@@ -464,8 +794,20 @@ def resolve_bot_pool() -> list[str]:
 
 
 def next_bot_username() -> str:
-    """Form linki havuzu round-robin: yük Telegram bot limitleri arasında bölüşülür."""
+    """Form linki havuzu round-robin — SADECE ACTIVE botlardan.
+
+    Dinamik Bot Havuzu + Ortak Beyin: PASSIVE (FLOOD_WAIT cezali) botlar
+    link rotasyonuna GIRMEZ; musteri tiklayinca cezali bota dusmez.
+    bot_registry import edilemezse eski round-robin'e duser (fail-open).
+    """
     global _BOT_POOL_CURSOR
+    try:
+        import bot_registry
+        name = bot_registry.next_active_username()
+        if name:
+            return name
+    except Exception:  # noqa: BLE001 — kayit defteri yoksa eski yola dus
+        pass
     with _pool_lock():
         pool = list(_BOT_POOL_USERNAMES)
         if not pool and TELEGRAM_BOT_USERNAME:

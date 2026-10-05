@@ -197,7 +197,52 @@ def hook_for_lead(lead: dict[str, Any], *, turkish: bool = True) -> dict[str, st
     )
 
 
-def trust_note(turkish: bool) -> str:
+def _is_webchat(link: str) -> bool:
+    """Müşteri linki web sohbet mi (t.me değil)? — metin dili buna göre seçilir."""
+    return bool(str(link or "").strip()) and "t.me/" not in str(link)
+
+
+def _channel_label(link: str, turkish: bool = True) -> str:
+    """Müşteriye görünen kanal adı: web sohbet (Oracle VM) veya geçiş dönemi Telegram."""
+    if _is_webchat(link):
+        return "Canlı sohbet" if turkish else "Live chat"
+    return "Telegram"
+
+
+def _opens_line(link: str, *, turkish: bool) -> str:
+    """Bağlantının nasıl açıldığını anlatan tek cümle (kanal nötr)."""
+    if _is_webchat(link):
+        if turkish:
+            return (
+                "Bağlantı doğrudan tarayıcıda açılır (uygulama/indirme yok; giriş istemez). "
+                "Akıştan sorumlu arkadaşınızla paylaşabilirsiniz."
+            )
+        return (
+            "Opens straight in the browser (no app, no download, no login). "
+            "Forward it to whoever owns this flow."
+        )
+    if turkish:
+        return (
+            "Telegram yüklü olmasa da telefondan açılır (resmi t.me önizlemesi; dosya indirmez). "
+            "Akıştan sorumlu arkadaşınızla paylaşabilirsiniz."
+        )
+    return (
+        "Opens on mobile without the app (official t.me preview; no download). "
+        "Forward to whoever owns this flow."
+    )
+
+
+def trust_note(turkish: bool, link: str = "") -> str:
+    if _is_webchat(link):
+        if turkish:
+            return (
+                "Güvenliğiniz için: bağlantı kendi sohbet sunucumuzda barınır "
+                "(Oracle bulut), dosya indirmez ve giriş bilgisi istemez."
+            )
+        return (
+            "For your safety: the link is hosted on our own chat server (Oracle cloud) — "
+            "no file download, no login requested."
+        )
     if turkish:
         return (
             "Güvenliğiniz için: bağlantı doğrudan resmi Telegram önizlemesidir, "
@@ -207,6 +252,21 @@ def trust_note(turkish: bool) -> str:
         "For your safety: the link opens the official Telegram preview — "
         "no file download, no login requested."
     )
+
+
+def identity_line(turkish: bool) -> str:
+    """Gerçek insan imzası — FORM metninde ve Telegram açılışında görünür.
+
+    Madde 26/52/54: firma, formu gönderenin arkasında doğrulanabilir bir insan
+    olduğunu görmeli. Uydurma unvan yok; yalnızca ad + LinkedIn profili.
+    """
+    url = str(getattr(config, "OWNER_LINKEDIN_URL", "") or "").strip()
+    if not url:
+        return ""
+    name = str(getattr(config, "SENDER_NAME", "") or "").strip()
+    who = f"{name} — " if name else ""
+    return (f"İncelemeyi yürüten mühendis: {who}{url}" if turkish
+            else f"Reviewing engineer: {who}{url}")
 
 
 def report_id(host: str) -> str:
@@ -244,7 +304,11 @@ def form_cta(
     domain: str,
     variant: str = "C",
 ) -> str:
-    """High-conversion Telegram CTA block — link on its own line for form UIs."""
+    """High-conversion CTA block — link on its own line for form UIs.
+
+    Kanal nötr: müşteri linki web sohbet (Oracle VM) ise "tarayıcıda açılır"
+    cümlesi, geçiş döneminde t.me ise resmi Telegram önizlemesi anlatılır.
+    """
     card = (
         "yetenek kanıtı paketi" if variant == "X"
         else "iletişim akış şeması" if variant == "S"
@@ -255,32 +319,32 @@ def form_cta(
         else "contact-flow schematic" if variant == "S"
         else "checkout flow schematic"
     )
+    opens_tr = _opens_line(link, turkish=True)
+    opens_en = _opens_line(link, turkish=False)
     if variant == "X":
         if turkish:
             return (
                 f"→ BAŞVURU + KANIT — {domain} için hazır (~60 sn):\n"
                 f"{link}\n"
-                "Telegram yüklü olmasa da telefondan açılır (resmi t.me önizlemesi; "
-                "dosya indirmez). Teknik ekipte ilgili kişiye iletebilirsiniz."
+                "Teknik ekipte ilgili kişiye iletebilirsiniz. "
+                f"{opens_tr}"
             )
         return (
             f"→ APPLICATION + EVIDENCE — ready for {domain} (~60 s):\n"
             f"{link}\n"
-            "Opens on mobile without the app (official t.me preview; no download). "
-            "Forward to whoever owns technical staffing."
+            "Forward to whoever owns technical staffing. "
+            f"{opens_en}"
         )
     if turkish:
         return (
-            f"→ TEK TIK — {domain} {card} (~60 sn, ücretsiz önizleme):\n"
+            f"→ TEK TIK — {domain} {card} (~60 sn önizleme):\n"
             f"{link}\n"
-            "Telegram yüklü olmasa da telefondan açılır (resmi t.me önizlemesi; dosya indirmez). "
-            "Akıştan sorumlu arkadaşınızla paylaşabilirsiniz."
+            f"{opens_tr}"
         )
     return (
-        f"→ ONE TAP — {domain} {card_en} (~60 s, free preview):\n"
+        f"→ ONE TAP — {domain} {card_en} (~60 s preview):\n"
         f"{link}\n"
-        "Opens on mobile without the app (official t.me preview; no download). "
-        "Forward to whoever owns this flow."
+        f"{opens_en}"
     )
 
 
@@ -386,6 +450,21 @@ def form_subject(
     return f"{technical} — Report {rid}"[:120]
 
 
+def roi_line(*, turkish: bool = True, monthly_rev: float = 20000.0) -> str:
+    """Form/chat ciktisina eklenen dinamik ROI projeksiyonu (5000 EUR retainer)."""
+    try:
+        from analytics import audit_generator as _ag  # type: ignore
+        roi = _ag.roi_projection(monthly_rev, 10.0)
+        if turkish:
+            return (f"Aylik {roi['retainer_eur']} EUR retainer; kacirilmis musterileri "
+                    f"geri kazanarak ~{roi['recovered_eur']} EUR/ay toparlar "
+                    f"(net ~{roi['net_eur']} EUR, ROI %{roi['roi_pct']}).")
+        return (f"EUR {roi['retainer_eur']}/mo retainer recovers ~EUR {roi['recovered_eur']}/mo "
+                f"(net ~EUR {roi['net_eur']}, ROI {roi['roi_pct']}%).")
+    except Exception:
+        return ""
+
+
 def form_copy(
     host: str,
     hints: list[str],
@@ -410,7 +489,8 @@ def form_copy(
                     "Çalışma modeli uygunsa tek bir teslimat, sandbox testi ve kabul ölçütlerini "
                     "birlikte netleştirebiliriz. Bu bir hata tespiti veya tamamlanmış iş iddiası değildir. "
                     "Başlangıç; kapsam, erişim izni ve ödeme doğrulamasından sonradır.\n\n"
-                    f"Başvuru referansı: {rid}\nTelegram: {link}\n"
+                    f"Başvuru referansı: {rid}\n{_channel_label(link, True)}: {link}\n"
+                    f"{identity_line(True)}\n"
                     f"E-posta ile de yanıtlayabilirsiniz: {config.SENDER_EMAIL}\n"
                     "Uygun değilse takip yapmayacağız; STOP ile çıkabilirsiniz.")
         return (f"Contract automation service application — {rid}"[:120],
@@ -419,7 +499,8 @@ def form_copy(
                 "If this working model is suitable, we can agree one deliverable, sandbox tests "
                 "and acceptance criteria first. This is not a diagnosed defect or a claim of "
                 "completed work. Start requires agreed scope, access authorization and verified payment.\n\n"
-                f"Application reference: {rid}\nTelegram: {link}\n"
+                f"Application reference: {rid}\n{_channel_label(link, False)}: {link}\n"
+                f"{identity_line(False)}\n"
                 f"You can also reply by email: {config.SENDER_EMAIL}\n"
                 "If unsuitable we will not follow up; reply STOP to opt out.")
     if audience == "enterprise":
@@ -483,15 +564,18 @@ def form_copy(
             )
         acc_teaser = ""
         if audience == "enterprise" and variant == "X":
+            # Madde 57: ücretsiz teklif ASLA. Kanıt 24 saatte hazır olur; retainer
+            # yalnızca kapsam onaylandıktan sonra konuşulur.
             acc_teaser = (
-                " Sıfır riskli: bulgular 24 saatte ücretsiz; retainer yalnızca işe yararsa."
+                " Bulgular 24 saatte hazır; retainer yalnızca kapsam onaylanırsa."
             )
         body = (
             f"{opening} {core}{acc_teaser}\n\n"
             f"{form_cta(link=link, turkish=True, domain=domain, variant=variant)}\n\n"
             f"{standards_line(True)}\n\n"
             f"Rapor No: {report_id(domain)}\n"
-            f"{trust_note(True)} Uygunsa 2 saatlik uygulama slotu ayarlanabilir.\n"
+            f"{trust_note(True, link)} Uygunsa 2 saatlik uygulama slotu ayarlanabilir.\n"
+            f"{identity_line(True)}\n"
             f"{'Kanıt paketi (tekrar)' if variant == 'X' else 'Akış şeması (tekrar)'}: {link}\n"
             f"Çıkmak isterseniz STOP yazın veya {getattr(config, 'SENDER_EMAIL', '')} "
             "adresine konu: Unsubscribe ile e-posta gönderin."
@@ -545,24 +629,39 @@ def form_copy(
         acc_teaser = ""
         if audience == "enterprise" and variant == "X":
             acc_teaser = (
-                " Zero-risk: findings in 24h at no cost; retainer only if it works."
+                " Findings within 24h; the retainer is discussed only after scope approval."
             )
         body = (
             f"{opening} {core}{acc_teaser}\n\n"
             f"{form_cta(link=link, turkish=False, domain=domain, variant=variant)}\n\n"
             f"{standards_line(False)}\n\n"
             f"Report No: {report_id(domain)}\n"
-            f"{trust_note(False)} If it fits, a 2-hour implementation slot can be arranged. ({err})\n"
+            f"{trust_note(False, link)} If it fits, a 2-hour implementation slot can be arranged. ({err})\n"
+            f"{identity_line(False)}\n"
             f"{'Evidence pack (repeat)' if variant == 'X' else 'Flow schematic (repeat)'}: {link}\n"
             f"Opt-out: reply STOP or email {getattr(config, 'SENDER_EMAIL', '')} with subject Unsubscribe."
         )
     subject = form_subject(domain, turkish=turkish, technical=subject, audience=audience)
     # Collapse intra-paragraph spaces, but preserve line structure of any
-    # part carrying the t.me link so the CTA stays tap-friendly in form UIs.
+    # part carrying the customer link (web sohbet URL'i veya t.me) so the CTA
+    # stays tap-friendly in form UIs.
     def _collapse(part: str) -> str:
-        return part if "t.me/" in part else " ".join(part.split())
+        return part if re.search(r"https?://\S+", part) else " ".join(part.split())
 
     body = "\n\n".join(_collapse(part) for part in body.split("\n\n"))
+    # Dil Bekçisi (madde 56/87): FORM metni de Telegram ile AYNI kapıdan geçer —
+    # bot sızıntısı, ücretsiz/indirim teklifi ve izinsiz URL forma yazılmaz.
+    # limit büyük: form metni kırpılmaz (Telegram 1200, form 4000).
+    try:
+        from nirvana.language_auditor import audit as _audit_body
+
+        audited, issues = _audit_body(body, turkish=turkish, limit=4000)
+        if audited.strip():
+            body = audited
+        if issues:
+            logger.info("Form copy language audit: %s", issues)
+    except Exception:  # noqa: BLE001 — denetçi hatası form gönderimini bloklamaz
+        logger.exception("form copy language audit failed")
     return subject[:120], body
 
 
@@ -706,7 +805,7 @@ def brief_block(row: dict[str, Any] | None) -> str:
         hidden = bool(getattr(config, "PRICE_HIDDEN", False))
         price_rules = (
             " NEVER quote a dollar figure in the first message: the findings "
-            "list ships in 24h at no cost; the flat pilot fee is shared only "
+            "list ships within 24h; the flat fee is shared only "
             "after the company asks or approves scope."
             if hidden
             else f" Pilot fix: {config.price_label()} flat, one bridge."
@@ -732,15 +831,19 @@ def opener(row: dict[str, Any]) -> str:
 
     if row.get("variant") == "X" or row.get("audience") == "enterprise":
         rid = row.get("report_id") or report_id(str(row.get("identity_url") or row.get("host") or ""))
+        ident_tr = identity_line(True)
+        ident_en = identity_line(False)
         if row.get("turkish", True):
             return (f"DevSolve AI destekli hizmet başvurusu — {rid}. "
                     "İlanınıza göre bir entegrasyon çalışma planını görüşmek istiyoruz; "
                     "henüz sisteminize ait doğrulanmış bir hata veya tamamlanmış çalışma yok. "
-                    "Bu çalışma modeli uygun mu, ilk teslimat ve kabul ölçütünüz nedir?")
+                    "Bu çalışma modeli uygun mu, ilk teslimat ve kabul ölçütünüz nedir?"
+                    + (f"\n{ident_tr}" if ident_tr else ""))
         return (f"DevSolve AI-assisted service application — {rid}. "
                 "We would like to discuss an integration plan based on your listing; "
                 "we have not diagnosed a fault or completed work on your system. "
-                "Is this working model suitable, and what is your first deliverable and acceptance criterion?")
+                "Is this working model suitable, and what is your first deliverable and acceptance criterion?"
+                + (f"\n{ident_en}" if ident_en else ""))
 
     who = str(row.get("company") or row.get("host") or "").strip()
     host = str(row.get("host") or row.get("target_domain") or "").strip()
@@ -756,13 +859,15 @@ def opener(row: dict[str, Any]) -> str:
         hidden = bool(getattr(config, "PRICE_HIDDEN", False))
         retainer = f"${int(getattr(config, 'ENTERPRISE_RETAINER_USD', 500) or 500)}/mo"
         if row.get("turkish", True):
+            ident = identity_line(True)
+            ident_block = f"\n{ident}" if ident else ""
             if hidden:
                 return (
                     "DevSolve Flow Inspector — kontratlı entegrasyon başvurusu.\n"
                     f"{host or label} için hazırlanan kanıt paketi bu sohbette. "
-                    f"Rapor No: {rid}. Bulgu listesi 24 saat içinde ücretsiz; "
+                    f"Rapor No: {rid}. Bulgu listesi 24 saat içinde hazır; "
                     f"kalıcı izleme istek üzerine ({retainer}). Mimari kart ~45 sn içinde düşer; "
-                    "detay isterseniz kanıt maddelerini tek tek açarım."
+                    "detay isterseniz kanıt maddelerini tek tek açarım." + ident_block
                 )
             pilot = config.price_label()
             return (
@@ -770,15 +875,18 @@ def opener(row: dict[str, Any]) -> str:
                 f"{host or label} için hazırlanan kanıt paketi bu sohbette. "
                 f"Rapor No: {rid}. Tek köprü pilot {pilot}; sürekli izleme "
                 f"istek üzerine {retainer}. Mimari kart ~45 sn içinde düşer; "
-                "detay isterseniz kanıt maddelerini tek tek açarım."
+                "detay isterseniz kanıt maddelerini tek tek açarım." + ident_block
             )
+        ident = identity_line(False)
+        ident_block = f"\n{ident}" if ident else ""
         if hidden:
             return (
                 "DevSolve Flow Inspector — contract engineer application.\n"
                 f"The evidence pack prepared for {host or label} is in this chat. "
-                f"Report No: {rid}. Findings delivered within 24h at no cost; "
+                f"Report No: {rid}. Findings delivered within 24h; "
                 f"ongoing monitoring on request ({retainer}). "
                 "The architecture card lands in ~45 s; ask and I will walk through each evidence item."
+                + ident_block
             )
         pilot = config.price_label()
         return (
@@ -786,7 +894,7 @@ def opener(row: dict[str, Any]) -> str:
             f"The evidence pack prepared for {host or label} is in this chat. "
             f"Report No: {rid}. Single-bridge pilot {pilot}; managed monitoring "
             f"retainer {retainer} on request. The architecture card lands in ~45 s; "
-            "ask and I will walk through each evidence item."
+            "ask and I will walk through each evidence item." + ident_block
         )
 
     if row.get("turkish", True):
@@ -805,7 +913,8 @@ def opener(row: dict[str, Any]) -> str:
             "Mimari kart ~45 sn içinde bu sohbete düşer — şablon diyagramdır, "
             "canlı ekran değil. Detay isterseniz tespit maddelerini tek tek açarım."
         )
-        return f"{head} {body}\nRapor No: {rid} {tail}"
+        ident = identity_line(True)
+        return f"{head} {body}\nRapor No: {rid} {tail}" + (f"\n{ident}" if ident else "")
 
     head = "DevSolve Flow Inspector — automated technical review service."
     if confirmed and stack:
@@ -822,4 +931,5 @@ def opener(row: dict[str, Any]) -> str:
         "The architecture card lands in this chat in ~45 s — schematic only, "
         "not a live admin screen. Ask for details and I will walk through each detected issue."
     )
-    return f"{head} {body}\nReport No: {rid} {tail}"
+    ident = identity_line(False)
+    return f"{head} {body}\nReport No: {rid} {tail}" + (f"\n{ident}" if ident else "")

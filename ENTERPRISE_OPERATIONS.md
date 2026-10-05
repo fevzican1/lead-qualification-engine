@@ -48,8 +48,14 @@ API changes are required by this release.
 - `payment_verified`: owner checked settled provider transaction against the
   chat's recorded amount/currency and unique transaction reference.
 - `fulfillment_ready`: verified payment + signed scope + authorized access.
-  **There is no autonomous service-delivery worker in this repository.** This
-  predicate does not create accounts, grant production access or start work.
+  Delivery is executed by the **autonomous delivery worker** (`nirvana/delivery_worker.py`,
+  Lane AF, Oracle timer every 2 hours): each job is bound to one
+  `(chat_id, domain, service)` triple, one domain belongs to one chat, and a job
+  cannot leave `awaiting_payment` until `payment_verified` is true. Reports are
+  indexed as `RPT-YYYYMMDD-NNNN` and only the owning chat receives its own report.
+  The worker performs bounded, read-only infrastructure sweeps (one light httpx
+  request per service run); it does not create accounts, grant production access
+  or touch another customer's domain.
 
 The proposal/card is a proposed workflow, not fabricated proof of work. Retainer
 proposal remains €2,500 EUR/month. €5,000 requires separately agreed scope and a
@@ -62,7 +68,7 @@ request. No percentage acceptance or guaranteed income is promised.
    request amount/currency and request expiration. Create/update a request there
    if necessary. Do not append invented amount parameters to the URL.
 2. After the customer has started the bot, attest the actual request:
-   `/payready CHATID 2500 EUR RECIPIENT_LABEL PROVIDER_REQUEST_REFERENCE`
+   `/payready CHATID 5000 EUR RECIPIENT_LABEL PROVIDER_REQUEST_REFERENCE`
    (single-token labels/references). This is owner attestation, not provider API
    verification. It is bound to one chat and the URL hash, and expires in 30 days.
 3. After checking signed scope and access authorization:
@@ -70,7 +76,7 @@ request. No percentage acceptance or guaranteed income is promised.
    This binds the contract to the currently configured USD amount.
 4. Only a subsequent explicit purchase request can receive the link.
 5. Check **settled** payment on the provider dashboard, then:
-   `/verifypayment CHATID 2500 EUR UNIQUE_PROVIDER_TRANSACTION_REF`
+   `/verifypayment CHATID 5000 EUR UNIQUE_PROVIDER_TRANSACTION_REF`
    The reference cannot be used for a second payment. Screenshots/customer text
    alone are not sufficient. Check `fulfillment_ready` before manual kickoff.
 

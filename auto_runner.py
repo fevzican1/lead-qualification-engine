@@ -18,6 +18,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -58,6 +59,20 @@ def _run(script: str, extra: list[str] | None = None, *, timeout: int | None = N
     logger.info("Running: %s", " ".join(args))
     env = os.environ.copy()
     env.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(config.ROOT / ".playwright"))
+    # systemd WatchdogSec kesmesini onle: ALT SUREC kosarken de WATCHDOG=1 gonder.
+    # Canli ariza (2026-09-29): 1 saati asan pipeline kosusu watchdog tarafindan
+    # SIGABRT ile kesiliyor, tur yarida kaliyor ve gunluk 400 hedefi dusuyordu.
+    stop = threading.Event()
+
+    def _pulse_loop() -> None:
+        while not stop.wait(30.0):
+            try:
+                heartbeat.pulse("auto_runner")
+            except Exception:  # noqa: BLE001
+                pass
+
+    pulse_thread = threading.Thread(target=_pulse_loop, daemon=True)
+    pulse_thread.start()
     try:
         if timeout:
             proc = subprocess.Popen(
@@ -82,9 +97,114 @@ def _run(script: str, extra: list[str] | None = None, *, timeout: int | None = N
     except Exception:
         logger.exception("Failed to launch %s", script)
         return 1
+    finally:
+        stop.set()
+        try:
+            heartbeat.pulse("auto_runner")
+        except Exception:  # noqa: BLE001
+            pass
 
 
 _starve_pinged_hour: list[str] = []
+
+# ÇİFT MOTOR: arka plan CAPTCHA kuyruğu soğuması (systemd timer ile çakışmasın).
+_CAPTCHA_KICK_TS: list[float] = [0.0]
+CAPTCHA_KICK_MIN_GAP_S = 600.0
+
+# İÇ YAKIT: yerel keşif (Tranco/CDX/tohum) arka planda ateşlenir; ana hat beklemez.
+_LOCAL_FUEL_KICK_TS: list[float] = [0.0]
+LOCAL_FUEL_KICK_MIN_GAP_S = float(os.getenv("LOCAL_FUEL_KICK_MIN_GAP_S", "1800") or 1800)
+
+
+def _kick_local_fuel(reason: str = "") -> None:
+    """Yakıt kıtlığında iç kaynaklı beslemeyi ARKA PLANDA ateşle (sıfır bekleme).
+
+    ``hot_fuel`` rezervuarı hedefin altındaysa yerel keşif (Tranco dilimi +
+    Common Crawl CDX + yerel tohum listesi) ayrı süreçte çalışır; ana hat yalnızca
+    anında döner. Böylece dış feed (GitHub/CDN) gecikse bile yakıt üretimi
+    Oracle VM'in içinde devam eder ve günlük 400+ kapasite boş kalmaz.
+    """
+    if not bool(getattr(config, "LOCAL_FUEL_ENABLED", True)):
+        return
+    try:
+        from nirvana import local_fuel
+
+        if not local_fuel.enabled():
+            return
+    except Exception:  # noqa: BLE001 — modül yoksa sessiz geç (fail-open)
+        return
+    now = time.time()
+    if now - _LOCAL_FUEL_KICK_TS[0] < LOCAL_FUEL_KICK_MIN_GAP_S:
+        return
+    _LOCAL_FUEL_KICK_TS[0] = now
+    try:
+        subprocess.Popen(
+            [str(PYTHON), "-m", "nirvana.runner", "local_fuel"],
+            cwd=str(config.ROOT),
+            env=os.environ.copy(),
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print(f"İÇ YAKIT: arka plan yerel keşif atıldı {reason}".rstrip())
+    except Exception:
+        logger.exception("local fuel kick failed — main loop unaffected")
+
+
+def _feed_hot_fuel() -> None:
+    """Yakıt kıtlığının önlenmesi: hot_fuel.db -> domain kuyruğu (sıfır HTTP).
+
+    import_targets.py ile dışarıdan beslenen havuzu her turda ana kuyruğa
+    aktarır; ağ senkronu YOK (local feed dosyaları + SQLite okuma/yazma).
+    Havuz hedefin altına düşerse İÇ besleme (local_fuel) arka planda tetiklenir:
+    dış bağımlılık (GitHub/CDN) olmadan da yakıt üretilir.
+    """
+    try:
+        from nirvana import hot_fuel
+
+        hf = hot_fuel.refill(allow_network=False)
+        primed = hot_fuel.prime_queue(limit=200)
+        if primed:
+            print(
+                f"Hot-fuel ikmal: +{primed} hedef kuyruğa alındı "
+                f"(havuz hazır {hf.get('ready', 0)}/{hf.get('target', 0)})"
+            )
+        ready = int(hf.get("ready") or 0)
+        want = int(hf.get("target") or 0)
+        if want and ready < want:
+            _kick_local_fuel(f"(havuz {ready}/{want})")
+    except Exception:
+        logger.exception("hot fuel feed failed — pipeline unaffected")
+
+
+def _kick_captcha_worker() -> None:
+    """ÇİFT MOTOR: kuyrukta CAPTCHA varsa arka plan motoru anında ateşlenir.
+
+    Popen beklemeden döner — ana hat asla captcha_queue tüketimini beklemez
+    (kilitlenme/atlama YOK; lead kaybı sıfır). Timer ile çakışmasın diye
+    10 dakika soğuma uygulanır; kuyruk boşsa hiç dokunulmaz.
+    """
+    try:
+        from nirvana.stealth_former import captcha_queue_depth
+
+        queued = int(captcha_queue_depth().get("queued") or 0)
+        if queued <= 0:
+            return
+        now = time.time()
+        if now - _CAPTCHA_KICK_TS[0] < CAPTCHA_KICK_MIN_GAP_S:
+            return
+        _CAPTCHA_KICK_TS[0] = now
+        subprocess.Popen(
+            [str(PYTHON), "-m", "nirvana.runner", "free_captcha_worker"],
+            cwd=str(config.ROOT),
+            env=os.environ.copy(),
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print(f"ÇİFT MOTOR: arka plan CAPTCHA kuyruğu atıldı (bekleyen: {queued})")
+    except Exception:
+        logger.exception("captcha worker kick failed — main loop unaffected")
 
 
 def _hourly_floor() -> int:
@@ -173,11 +293,16 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     print("--- TAM OTONOM SATIS MOTORU BASLATILDI ---")
+    # systemd Type=notify: READY=1 hemen gönderilir (boot gecikmesi yok).
+    # Her turda WATCHDOG=1 gider; döngü gerçekten kilitlenirse systemd süreci
+    # temiz bellekle yeniden başlatır — bu, hattı askıya almadan kendini
+    # onarmanın en temiz yolu (elle kill yok, harici bekçi yok).
+    heartbeat.ready()
     cycle = 0
     while True:
         cycle += 1
         print(f"\n=== Tur {cycle} ===")
-        heartbeat.pulse("auto_runner", {"cycle": cycle})
+        heartbeat.pulse("auto_runner", {"cycle": cycle, "phase": "cycle_start"})
         try:
             relay = task_queue.run_due(
                 "telegram_notify", owner_notify.deliver_queued_notify, limit=10,
@@ -261,6 +386,9 @@ def main() -> None:
             _warn_if_starving(feed_updated_at=feed_stamp)
 
         smb = bool(getattr(config, "SMB_LANE_ENABLED", False))
+        # Yakıt kıtlığının önlenmesi: import_targets ile gelen hot_fuel.db
+        # havuzunu ana kuyruğa aktar (sıfır HTTP, ana akışı kilitlemez).
+        _feed_hot_fuel()
         pipeline_code = 0
         if smb:
             print("\n[1/3] Katalog kuyruğa basılıyor (HTTP yok, kota yanmaz)...")
@@ -333,15 +461,30 @@ def main() -> None:
 
         if smb:
             print("\n[3/3] Formlar dolduruluyor...")
-            # Each page operation has its own bounded Playwright timeout. Do not
-            # kill the whole visit batch using a fixed wall-clock limit: the
-            # hourly-floor visit budget can legitimately be 72–96 hosts.
+            # Her sayfa işleminin kendi Playwright timeout'u var; ANCAK turun
+            # tamamı da sınırlı olmalı: takılı bir Chromium/POST, timeout yokken
+            # form hattını saatlerce kilitliyordu (canlı arıza 2026-09: son log
+            # 18:20'de kalıp gün boyu 0 form gönderildi). Sınır dolunca süreç
+            # ağacı öldürülür, tur kapanır ve bir sonraki tur temiz başlar.
             pipeline_code = _run(
                 "pipeline.py",
                 ["--targets", str(config.TARGETS_PATH), "--submit"],
-                timeout=None,
+                timeout=int(getattr(config, "PIPELINE_RUN_TIMEOUT_SECONDS", 2400) or 2400),
             )
-            if pipeline_code != 0:
+            # Tur içi nabız: uzun Chromium turu boyunca systemd watchdog'u
+            # beslensin (WatchdogSec tur süresinden büyük; yine de taze tutar).
+            heartbeat.pulse("auto_runner", {"cycle": cycle, "phase": "after_pipeline",
+                                            "exit_code": pipeline_code})
+            if pipeline_code == 124:
+                logger.error(
+                    "pipeline turu %ss sınırında kesildi — takılı Chromium öldürüldü",
+                    getattr(config, "PIPELINE_RUN_TIMEOUT_SECONDS", 2400),
+                )
+                owner_notify.send(
+                    "Pipeline turu zaman aşımına uğradı (takılı Chromium öldürüldü). "
+                    "Hat canlı: sonraki tur hemen başlıyor."
+                )
+            elif pipeline_code != 0:
                 logger.warning("pipeline exited %s — will retry next cycle", pipeline_code)
                 owner_notify.send(f"Pipeline turu hata ile bitti (kod {pipeline_code}). Sonraki tur denenecek.")
 
@@ -361,7 +504,13 @@ def main() -> None:
         except Exception:
             logger.exception("Enterprise apply failed — pipeline unaffected")
 
+        # ÇİFT MOTOR: CAPTCHA/WAF kuyruğu ana hattı beklemeden arka planda
+        # tüketilir (fire-and-forget; ana hat asla kuyruk process'ini beklemez).
+        _kick_captcha_worker()
+
         wait = _sleep_after_cycle()
+        heartbeat.pulse("auto_runner", {"cycle": cycle, "phase": "cycle_end",
+                                        "wait_s": wait})
         print(f"\n[BILGI] Tur {cycle} tamamlandı. kuyruk={domain_store.queue_depth()}/{cap}. {wait}s sonra yeni tur...")
         today_n, hour_n = knowledge.submit_counts()
         if wait >= 300 or pipeline_code != 0 or today_n >= knowledge.daily_cap() or hour_n >= knowledge.hourly_cap():

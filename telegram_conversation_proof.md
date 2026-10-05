@@ -25,11 +25,11 @@
 [ASİSTAN]
   Bu sistem genel bir danışmanlık veya standart yazılım satışı değildir. Tarafınıza iletilen #RPT-7A3F numaralı denetim verisi, Oracle altyapımız üzerinde çalışan canlı analiz motoruyla doğrulanmıştır.
   
-  Oracle sunucu kapasitemizde şu an 1 boş canlı izleme slotu mevcuttur. Entegrasyonun başlatılması için teknik şartnameyi ve €2.500 sabit aylık retainer onayını sunuyorum. Onay verdiğiniz an Payoneer linki ve SLA protokolü üretilir.
+  Oracle sunucu kapasitemizde şu an 1 boş canlı izleme slotu mevcuttur. Entegrasyonun başlatılması için teknik şartnameyi ve €5.000 sabit aylık retainer onayını sunuyorum. Onay verdiğiniz an Payoneer linki ve SLA protokolü üretilir.
   
   Siteniz için üretilen canlı analiz verisi ve ayırdığımız Oracle izleme kaynağı (instance) 24 saat boyunca bu sohbet üzerinden adınıza rezerve edilmiştir (#RPT-7A3F).
   
-  Aşağıdaki şartları onayladığınızda Payoneer altyapısı üzerinden €2.500 retainer işlemi tamamlanır ve mühendis ekibimiz izlemeyi anında canlıya alır.
+  Aşağıdaki şartları onayladığınızda Payoneer altyapısı üzerinden €5.000 retainer işlemi tamamlanır ve mühendis ekibimiz izlemeyi anında canlıya alır.
   
   Şartları onaylıyor musunuz?
 
@@ -44,7 +44,7 @@
 [ASİSTAN]
   Bu sistem genel bir danışmanlık veya standart yazılım satışı değildir. Tarafınıza iletilen #RPT-7A3F numaralı denetim verisi, Oracle altyapımız üzerinde çalışan canlı analiz motoruyla doğrulanmıştır.
   
-  Oracle sunucu kapasitemizde şu an 1 boş canlı izleme slotu mevcuttur. Entegrasyonun başlatılması için teknik şartnameyi ve €2.500 sabit aylık retainer onayını sunuyorum. Onay verdiğiniz an Payoneer linki ve SLA protokolü üretilir.
+  Oracle sunucu kapasitemizde şu an 1 boş canlı izleme slotu mevcuttur. Entegrasyonun başlatılması için teknik şartnameyi ve €5.000 sabit aylık retainer onayını sunuyorum. Onay verdiğiniz an Payoneer linki ve SLA protokolü üretilir.
   
   Tüm teşhis ve izleme süreçleri tamamen kendi Oracle Cloud isolation katmanımız üzerinden yürütülür; mevcut sunucunuza, veritabanınıza veya kod altyapınıza tek bir satır yük ya da kod müdahalesi yapılmaz.
   
@@ -52,7 +52,7 @@
   
   Siteniz için üretilen canlı analiz verisi ve ayırdığımız Oracle izleme kaynağı (instance) 24 saat boyunca bu sohbet üzerinden adınıza rezerve edilmiştir (#RPT-7A3F).
   
-  Aşağıdaki şartları onayladığınızda Payoneer altyapısı üzerinden €2.500 retainer işlemi tamamlanır ve mühendis ekibimiz izlemeyi anında canlıya alır.
+  Aşağıdaki şartları onayladığınızda Payoneer altyapısı üzerinden €5.000 retainer işlemi tamamlanır ve mühendis ekibimiz izlemeyi anında canlıya alır.
   
   Şartları onaylıyor musunuz?
 
@@ -69,7 +69,7 @@
   1) Kapsam: haftalık zamanlanmış altyapı turları; hata, kesinti ve performans bulgularının raporlanması.
   2) Yanıt süresi: kritik bulgu 24 saat içinde raporlanır, ilk müdahale önerisi 48 saat içinde iletilir.
   3) Erişim: yalnızca okunur (read-only) izleme; kapsam dışı müdahale yapılmaz.
-  4) Ücret: aylık 2.500 EUR, her ay yenilenir; tüm uygulama ve düzeltmeler bu kapsam içinde, doğrulanmış ödeme sonrası başlar.
+  4) Ücret: aylık 5.000 EUR, her ay yenilenir; tüm uygulama ve düzeltmeler bu kapsam içinde, doğrulanmış ödeme sonrası başlar.
   
   Gizlilik (NDA) özeti (TechVision GmbH):
   1) Tarama sırasında görülen veriler yalnızca denetim amacıyla işlenir.
@@ -94,7 +94,7 @@
 [ASİSTAN]
   Talep onayınız sonrası Payoneer retainer talebi oluşturulur.
   
-  Tutar: €2.500 aylık sabit retainer • Referans: RPT-7A3F-TechVision
+  Tutar: €5.000 aylık sabit retainer • Referans: RPT-7A3F-TechVision
   Alıcı hesabımızla (payoneer@…, tutar bununla eşleşen) kontrol edip ödeme yapabilirsiniz.
   Ödeme webhook'u 'PAID' doğrulanana dek teslimat başlamaz; teyit sonrası SLA aktif olur.
 
@@ -106,7 +106,7 @@
 [ASİSTAN]
   Ödemeniz doğrulandı (PAY-2026-88471). Hoş geldiniz TechVision.
   1) Haftalık zamanlanmış altyapı turları; hata, kesinti ve performans bulguları raporlanır.
-  2) Retainer: aylık 2.500 EUR, her ay yenilenir.
+  2) Retainer: aylık 5.000 EUR, her ay yenilenir.
   3) Yalnızca okunur izleme erişimi; yönetici şifresi asla paylaşılmaz.
   4) İlk tur 24 saat içinde başlar; raporlar bu sohbete düşer.
 
@@ -143,11 +143,11 @@
 [ASİSTAN]
   This is not general consulting and not a standard software sale. The audit data prepared for TechVision GmbH (#RPT-7A3F) was verified by the live analysis engine running on our Oracle infrastructure.
   
-  We currently hold 1 open live-monitoring slot on our Oracle capacity. To start the integration I present the technical scope and approval of the fixed €2.500 monthly retainer. On your approval, the Payoneer request and the SLA protocol are generated immediately.
+  We currently hold 1 open live-monitoring slot on our Oracle capacity. To start the integration I present the technical scope and approval of the fixed €5.000 monthly retainer. On your approval, the Payoneer request and the SLA protocol are generated immediately.
   
   The live analysis data produced for your site and the Oracle monitoring instance we allocated is reserved on your name in this chat for 24 hours (#RPT-7A3F).
   
-  On your approval of the terms below, the €2.500 retainer is settled through Payoneer and our engineering team activates the monitoring immediately.
+  On your approval of the terms below, the €5.000 retainer is settled through Payoneer and our engineering team activates the monitoring immediately.
   
   Do you approve the terms?
 

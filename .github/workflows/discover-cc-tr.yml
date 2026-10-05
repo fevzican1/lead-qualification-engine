@@ -2,15 +2,21 @@ name: discover-cc-tr
 
 on:
   schedule:
-    - cron: "6-59/5 * * * *"
+    # 4 saatte bir (3h offset) — benzersiz dakika: :37
+    - cron: "37 3,7,11,15,19,23 * * *"
   workflow_dispatch:
+
+# Ayni tetik ust uste bindiginde GitHub 1 running + 1 pending tutar;
+# fazlasi dusurulur -> Pending/Queued kilitlenmesi olmaz, is tamamlanir.
+concurrency:
+  group: discover-cc-tr
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
   shard:
-    if: ${{ vars.ENABLE_LEGACY_SMB_WORKFLOWS == 'true' }}
     uses: ./.github/workflows/harvest-shard.yml
     with:
       profile: tr

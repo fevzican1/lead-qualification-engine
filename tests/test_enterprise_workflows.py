@@ -1,38 +1,71 @@
-"""Guard against accidentally restarting legacy fleets during enterprise rollout."""
+"""Legacy fleet schedule contract (nirvana-live branch).
+
+Eski strateji: legacy SMB filoları ENABLE_LEGACY_SMB_WORKFLOWS gate'i ile
+kapatılırdı. nirvana-live'ta discover filoları BİRİNCİL üretim hattıdır ve
+bilinçli olarak AKTİF koşar (3-4 saat kademeli ritim; dispatch_hub Oracle
+tarafından 1 saatlik tetiklemede yönetilir). Bu yüzden gate testi yerine
+SCHEDULE SÖZLEŞMESİ testi kullanılır: birisi cron'u yanlışlıkla 10dk'ya
+çekerse ya da benzersiz dakikaları bozarsa test kırmızı verir.
+"""
 from pathlib import Path
 import re
 
 import pytest
 
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
-LEGACY_JOBS = [
-    ("discover-cc-eu.yml", "shard"),
-    ("discover-cc-global.yml", "shard"),
-    ("discover-cc-platform.yml", "shard"),
-    ("discover-cc-tr.yml", "shard"),
-    ("discover.yml", "shard"),
-    ("discover-tranco-sitemap.yml", "harvest"),
-    ("harvest-shard.yml", "gate"),
-    ("publish-feed.yml", "publish"),
-    ("payload_optimizer.yml", "optimize"),
-    ("pipeline-watchdog.yml", "wake"),
-    ("discovery-watchdog.yml", "watchdog"),
-    ("refill-on-low.yml", "refill"),
-    ("discovery-pipeline.yml", "pipeline"),
-]
+
+# Onaylı schedule sözleşmesi (3-4 saat kademeli keşif; benzersiz dakikalar).
+EXPECTED_CRONS: dict[str, str | None] = {
+    "discover-cc-eu.yml": "14 0,4,8,12,16,20 * * *",          # 4 saat, :14
+    "discover-cc-global.yml": "23 1,5,9,13,17,21 * * *",      # 4 saat, :23
+    "discover-cc-platform.yml": "29 2,6,10,14,18,22 * * *",   # 4 saat, :29
+    "discover-cc-tr.yml": "37 3,7,11,15,19,23 * * *",         # 4 saat, :37
+    "discover.yml": "43 0,4,8,12,16,20 * * *",                # 4 saat, :43
+    "discover-tranco-sitemap.yml": "8 */3 * * *",             # 3 saat, :08
+    "harvest-shard.yml": None,                                # zincir parçası — schedule YOK
+    "publish-feed.yml": "26,56 * * * *",                      # zincir publish: 30dk
+    "payload_optimizer.yml": "17 * * * *",                    # yedek cron: saatte 1
+    "pipeline-watchdog.yml": "8 * * * *",                     # schedule-bekçisi: saatte 1
+    "discovery-watchdog.yml": "21 * * * *",                   # tazelik bekçisi: saatte 1
+    "refill-on-low.yml": "38 */2 * * *",                      # acil yakıt: 2 saat
+    "discovery-pipeline.yml": "2 * * * *",                    # omurga: saatte 1
+}
+
+FLEET_FILES = ["discover.yml", "discover-cc-eu.yml", "discover-cc-global.yml",
+               "discover-cc-platform.yml", "discover-cc-tr.yml",
+               "discover-tranco-sitemap.yml"]
 
 
-@pytest.mark.parametrize("filename,job", LEGACY_JOBS)
-def test_legacy_entry_job_requires_explicit_opt_in(filename, job):
+@pytest.mark.parametrize("filename", list(EXPECTED_CRONS))
+def test_fleet_schedule_contract(filename):
     text = (WORKFLOWS / filename).read_text(encoding="utf-8")
-    match = re.search(r"^  " + re.escape(job) + r":\n    if: (.+)$", text, re.M)
-    assert match, f"Missing gate on {filename}:{job}"
-    expression = match.group(1)
-    assert expression.startswith("${{ vars.ENABLE_LEGACY_SMB_WORKFLOWS == 'true'")
-    assert expression.endswith("}}")
-    # Optional event constraints must narrow, not OR past, the opt-in.
-    remainder = expression.split("== 'true'", 1)[1].strip()
-    assert remainder == "}}" or remainder.startswith("&& (")
+    crons = re.findall(r"^\s*-\s*cron:\s*\"([^\"]+)\"", text, re.M)
+    expected = EXPECTED_CRONS[filename]
+    if expected is None:
+        assert not crons, f"{filename} zincir parçası — schedule eklenmemeli"
+        return
+    assert expected in crons, f"{filename} cron sözleşmesi bozuldu: {crons} != {expected}"
+
+
+def test_fleet_minutes_are_staggered_and_at_least_3h_apart():
+    """Discover filoları: benzersiz dakikalar + en az 3 saat aralıklı ritim."""
+    minutes: set[int] = set()
+    for filename in FLEET_FILES:
+        text = (WORKFLOWS / filename).read_text(encoding="utf-8")
+        cron = re.search(r"^\s*-\s*cron:\s*\"([^\"]+)\"", text, re.M)
+        assert cron, f"schedule yok: {filename}"
+        fields = cron.group(1).split()
+        minute, hours = int(fields[0]), fields[1]
+        assert minute not in minutes, f"{filename} dakikası ({minute}) başka filoyla çakışıyor"
+        minutes.add(minute)
+        if hours.startswith("*/"):
+            gap = int(hours[2:])
+        else:
+            hs = sorted(int(h) for h in hours.split(","))
+            gaps = [b - a for a, b in zip(hs, hs[1:])]
+            gaps.append(24 - hs[-1] + hs[0])  # gün sarmalı
+            gap = min(gaps)
+        assert gap >= 3, f"{filename} ritmi {gap} saat — en az 3 saat olmalı (hedef 3-4 saat)"
 
 
 def test_enterprise_discovery_is_not_legacy_gated_or_high_frequency():

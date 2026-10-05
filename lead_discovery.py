@@ -134,6 +134,20 @@ def _refill_below() -> int:
     return int(getattr(config, "QUEUE_REFILL_BELOW", 80) or 80)
 
 
+def _rot_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Katman 4: her istekte UA_POOL'dan rastgele header seti (arama motorları)."""
+    base = dict(HEADERS)
+    try:
+        from nirvana.fingerprint_rotator import http_headers
+
+        base.update(http_headers())
+    except Exception:  # noqa: BLE001 — rotasyon yoksa sabit header kalır
+        pass
+    if extra:
+        base.update(extra)
+    return base
+
+
 def _head(client: httpx.Client, url: str) -> int:
     """Return status code. 0 = miss. 403/429 are not treated as dead."""
     if not domain_store.consume_http(1, role="discovery"):
@@ -141,7 +155,7 @@ def _head(client: httpx.Client, url: str) -> int:
     try:
         response = client.head(
             url,
-            headers={**HEADERS, "Accept": "*/*"},
+            headers=_rot_headers({"Accept": "*/*"}),
             follow_redirects=True,
             timeout=8.0,
         )
@@ -187,7 +201,7 @@ def _get(client: httpx.Client, url: str) -> str:
     import risk_guard
 
     def _fetch():
-        return client.get(url, headers=HEADERS, follow_redirects=True, timeout=15.0)
+        return client.get(url, headers=_rot_headers(), follow_redirects=True, timeout=15.0)
 
     try:
         response = risk_guard.call_once_retry(_fetch)
@@ -323,7 +337,7 @@ def search_duckduckgo(client: httpx.Client, query: str) -> list[str]:
         response = client.post(
             url,
             data={"q": query},
-            headers={**HEADERS, "Content-Type": "application/x-www-form-urlencoded"},
+            headers=_rot_headers({"Content-Type": "application/x-www-form-urlencoded"}),
             follow_redirects=True,
             timeout=15.0,
         )

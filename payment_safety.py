@@ -27,7 +27,7 @@ def _provider_url() -> bool:
 
 # Nirvana retainer currency (config.PAYMENT_CURRENCY, default EUR) plus the
 # legacy USD lane. The numeric amount must still match the configured offer
-# (PRICE_USD == PAYMENT_AMOUNT == 2500); only the currency lane is widened.
+# (PRICE_USD == PAYMENT_AMOUNT == 5000); only the currency lane is widened.
 def accepted_currencies() -> set[str]:
     return {"USD", "EUR", config.PAYMENT_CURRENCY.upper()} - {""}
 

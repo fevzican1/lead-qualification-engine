@@ -2,15 +2,21 @@ name: discover-cc-eu
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    # 4 saatte bir — diger fleet'lerle cakismayan benzersiz dakika: :14
+    - cron: "14 0,4,8,12,16,20 * * *"
   workflow_dispatch:
+
+# Ayni tetik ust uste bindiginde GitHub 1 running + 1 pending tutar;
+# fazlasi dusurulur -> Pending/Queued kilitlenmesi olmaz, is tamamlanir.
+concurrency:
+  group: discover-cc-eu
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
   shard:
-    if: ${{ vars.ENABLE_LEGACY_SMB_WORKFLOWS == 'true' }}
     uses: ./.github/workflows/harvest-shard.yml
     with:
       profile: eu

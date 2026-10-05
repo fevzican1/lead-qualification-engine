@@ -1,7 +1,7 @@
 """Lane H — retention_agent [GitHub Actions].
 
 Monthly value report per client (blocked outages / resolved errors from the
-delivery history) plus next month's 2.500 EUR renewal Payoneer link. Runs on
+delivery history) plus next month's 5.000 EUR renewal Payoneer link. Runs on
 GitHub's free cron; only the Telegram notify touches the network.
 """
 from __future__ import annotations

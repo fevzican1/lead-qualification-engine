@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DevSolve Canli Destek</title>
+<style>
+:root{--bg:#0b1220;--card:#111c33;--line:#22345c;--txt:#eaf0ff;--mut:#9fb0d0;--acc:#38e1a0;--acc2:#4aa8ff}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:radial-gradient(1200px 600px at 80% -10%,#16294d 0%,var(--bg) 55%);color:var(--txt);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.wrap{width:min(480px,100%);background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.head{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--acc);box-shadow:0 0 12px var(--acc)}
+.head b{font-size:15px}.head small{color:var(--mut);display:block;font-size:12px}
+#log{height:min(52vh,420px);overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.m{max-width:86%;padding:10px 12px;border-radius:14px;font-size:14px;line-height:1.45;word-wrap:break-word}
+.m.agent{background:#1a2b52;border:1px solid var(--line);align-self:flex-start;border-bottom-left-radius:4px}
+.m.user{background:linear-gradient(135deg,var(--acc2),#7b5cff);align-self:flex-end;border-bottom-right-radius:4px;color:#fff}
+.m.sys{align-self:center;font-size:12px;color:var(--mut);background:transparent;padding:2px 6px}
+.m audio{display:block;margin-top:8px;width:100%;height:32px}
+.m .who{font-size:11px;color:var(--mut);margin-bottom:4px}
+.bar{display:flex;gap:8px;padding:12px;border-top:1px solid var(--line);background:#0d1730}
+#inp{flex:1;border:1px solid var(--line);background:#0a1327;color:var(--txt);border-radius:12px;padding:11px 12px;font-size:14px;outline:none}
+#inp:focus{border-color:var(--acc2)}
+#send{border:0;border-radius:12px;padding:0 18px;font-weight:700;background:linear-gradient(135deg,var(--acc),#25b7ff);color:#04263b;cursor:pointer}
+#send:disabled{opacity:.5}
+.note{padding:8px 14px;font-size:11px;color:var(--mut);border-top:1px solid var(--line)}
+.typing{font-size:12px;color:var(--mut);padding:0 14px 6px;display:none}
+.chip{display:inline-block;font-size:10px;padding:2px 7px;border-radius:999px;border:1px solid var(--line);color:var(--mut);margin-left:6px}
+.chip.vip{color:#04263b;background:var(--acc);border-color:var(--acc);font-weight:700}
+#audioOn{margin:0 14px 10px;padding:7px 10px;font-size:12px;border-radius:10px;border:1px solid var(--line);background:#12203c;color:var(--txt);cursor:pointer;display:none}
+.tools{display:flex;gap:8px;padding:8px 12px 0}
+.tools button{border:1px solid var(--line);background:#12203c;color:var(--txt);border-radius:10px;padding:7px 12px;font-size:12px;cursor:pointer}
+.tools button:hover{border-color:var(--acc2)}
+.panel{margin:8px 12px 0;border:1px solid var(--line);border-radius:12px;background:#0d1730;padding:10px 12px;font-size:13px;display:none}
+.panel b{color:var(--acc)}
+.panel label{display:block;color:var(--mut);font-size:12px;margin:6px 0 2px}
+.panel input{width:100%;border:1px solid var(--line);background:#0a1327;color:var(--txt);border-radius:10px;padding:8px 10px;font-size:13px;outline:none}
+.row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.row button{border:0;border-radius:10px;padding:8px 12px;font-weight:600;background:linear-gradient(135deg,var(--acc),#25b7ff);color:#04263b;cursor:pointer;font-size:13px}
+.row button.ghost{background:#12203c;color:var(--txt);border:1px solid var(--line);font-weight:500}
+.out{margin-top:8px;line-height:1.5}
+#exitCard{margin:8px 12px 0;border:1px solid var(--acc);border-radius:12px;background:linear-gradient(135deg,#123a2c,#0d1730);padding:10px 12px;font-size:13px;display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head"><span class="dot"></span><div><b>DevSolve Teknik Ekip — Canli Destek</b><small id="st">Baglaniyor…</small></div><span id="chip" class="chip" style="display:none"></span></div>
+  <div id="log"></div>
+  <div class="typing" id="typing">Yaziyor…</div>
+  <button id="audioOn" type="button">🔊 Sesli yanitlari ac</button>
+  <form class="bar" id="f"><input id="inp" autocomplete="off" maxlength="2000" placeholder="Sorunuzu yazin…"><button id="send">Gonder</button></form>
+  <div class="tools"><button id="roiBtn" type="button">📈 ROI Hesapla — 30 sn</button></div>
+  <div class="panel" id="roi">
+    <b>B2B Retainer ROI (30 saniye)</b>
+    <label>Aylık tahmini kazanç/kayıp (EUR)</label>
+    <input id="roiGain" type="number" min="0" inputmode="decimal" placeholder="ör. 12000">
+    <label>Aylık yatırım (EUR, boş = standart retainer)</label>
+    <input id="roiCost" type="number" min="0" inputmode="decimal" placeholder="5000">
+    <div class="row"><button id="roiGo" type="button">Hesapla</button><button id="roiClose" type="button" class="ghost">Kapat</button></div>
+    <div class="out" id="roiOut" style="display:none"></div>
+    <div class="row"><button id="roiSend" type="button" style="display:none">Detaylı dökümü sohbetten isteyin</button></div>
+  </div>
+  <div id="exitCard"><div>Ayrılmadan önce: <b>B2B satış akışınız için 30 saniyelik ücretsiz strateji özeti</b> alabilirsiniz.</div>
+    <div class="row"><button id="exitYes" type="button">Strateji özetini isteyin</button><button id="exitNo" type="button" class="ghost">Hayır</button></div>
+  </div>
+  <div class="note">Ucretsiz deneme yok • Tek teslimat + izleme • STOP ile cikabilirsiniz</div>
+</div>
+<audio id="greetAudio" style="display:none" controls autoplay></audio>
+<script>
+(function(){
+var q=new URLSearchParams(location.search);var sid=q.get("sid")||"";var nm=q.get("name")||"";
+var utm={source:q.get("utm_source")||"",campaign:q.get("utm_campaign")||""};
+if(!utm.source&&document.referrer){try{utm.source=new URL(document.referrer).hostname.replace(/^www\./,"")}catch(e){}}
+var log=document.getElementById("log"),inp=document.getElementById("inp"),f=document.getElementById("f"),
+    st=document.getElementById("st"),typing=document.getElementById("typing"),send=document.getElementById("send"),
+    chip=document.getElementById("chip"),audioOn=document.getElementById("audioOn");
+var audioBlocked=false;
+function esc(s){return String(s||"").replace(/[&<>"]/g,function(c){return({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])})}
+function playAudio(a){
+  var pr=null;try{pr=a.play()}catch(e){}
+  if(pr&&pr.catch){pr.catch(function(){audioBlocked=true;audioOn.style.display="block"})}
+}
+function add(kind,text,voice,autoplay){var d=document.createElement("div");d.className="m "+kind;
+  d.innerHTML="<div>"+esc(text).replace(/\n/g,"<br>")+"</div>";
+  if(voice){var a=document.createElement("audio");a.controls=true;a.src=voice;
+    if(autoplay&&!audioBlocked){a.autoplay=true;playAudio(a)}
+    d.appendChild(a)}
+  log.appendChild(d);log.scrollTop=log.scrollHeight}
+function sys(t){var d=document.createElement("div");d.className="m sys";d.textContent=t;log.appendChild(d)}
+function setChip(score,tone){if(score==null){chip.style.display="none";return}
+  chip.style.display="inline-block";chip.className="chip"+(score>=70?" vip":"");
+  chip.textContent=(score>=70?"VIP ":"")+score+(tone?" · "+tone:"")}
+function ensureSid(cb){
+  if(sid){cb(sid);return}
+  fetch("/api/session",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({name:nm,lang:(navigator.language||"tr").slice(0,2),brief:"",form:{},utm:utm})})
+  .then(function(r){return r.json()}).then(function(j){
+    if(j&&j.sid){sid=j.sid;history.replaceState(null,"","/chat?sid="+sid);
+      if(j.greeting)add("agent",j.greeting,null,true)}
+    cb(sid);
+  }).catch(function(){sys("Baglanti hatasi — sayfayi yenileyin.");send.disabled=true});
+}
+var ws=null,retry=0,greeted=false;
+function connect(){
+  ensureSid(function(id){
+    if(!id)return;
+    var proto=(location.protocol==="https:")?"wss":"ws";
+    ws=new WebSocket(proto+"://"+location.host+"/ws/"+id);
+    ws.onopen=function(){retry=0;st.textContent="Cevrimici — Teknik Ekip bagli";typing.style.display="none"};
+    ws.onmessage=function(ev){
+      try{var m=JSON.parse(ev.data)}catch(e){return}
+      typing.style.display="none";
+      if(m.type==="agent"){add("agent",m.text,m.voice_url||null,!greeted);greeted=true;
+        if(m.score!=null)setChip(m.score,m.tone);}
+      else if(m.type==="voice"&&m.voice_url){add("agent","Sesli not hazir — dinleyin:",m.voice_url,true)}
+      else if(m.type==="ready"){st.textContent="Cevrimici — Teknik Ekip bagli"}
+      else if(m.type==="error"){
+        if(m.error==="unknown_session"){sid="";retry=0;try{ws.close()}catch(e){};connect();return}
+        sys(m.error||"hata");
+      }
+    };
+    ws.onclose=function(){if(retry>12){sys("Baglanti koptu — sayfayi yenileyin.");flushQueue(true);return}
+      st.textContent="Yeniden baglaniyor…";healthPing();setTimeout(connect,Math.min(8000,1000*Math.pow(2,retry++)))};
+    ws.onerror=function(){try{ws.close()}catch(e){}};
+    // Gonderilememis metin kuyrugu: kopma/donma aninda yazilan kaybolmaz.
+    ws._pending=[];
+    ws._send=function(t){try{if(ws.readyState===1){ws.send(JSON.stringify({text:t}));return true}}catch(e){}ws._pending.push(t);return false};
+    ws._flush=function(){while(ws._pending.length&&ws.readyState===1){var t=ws._pending.shift();try{ws.send(JSON.stringify({text:t}))}catch(e){ws._pending.unshift(t);break}}};
+    var _oldOpen=ws.onopen;ws.onopen=function(){_oldOpen();ws._flush()};
+    function flushQueue(show){if(ws&&ws._pending&&ws._pending.length&&show){sys(ws._pending.length+" ileti baglanti donunce gonderilecek.")}}
+    function healthPing(){fetch("/health",{cache:"no-store"}).then(function(r){if(!r.ok)st.textContent="Sunucu mesgul — otomatik tekrar denenecek"}).catch(function(){})}
+  });
+}
+audioOn.addEventListener("click",function(){audioBlocked=false;audioOn.style.display="none";
+  var last=log.querySelectorAll("audio");if(last.length)playAudio(last[last.length-1])});
+var engaged=false,exitShown=false;
+function sendText(t){t=(t||"").trim();if(!t)return false;
+  if(ws&&ws._send){var wasOpen=(ws.readyState===1);add("user",t,null,false);inp.value="";typing.style.display="block";var ok=ws._send(t);if(!ok)sys("Baglanti zayif — iletiniz kuyrukta, baglaninca gonderilecek.");engaged=true;return true}
+  if(ws&&ws.readyState===1){add("user",t,null,false);inp.value="";typing.style.display="block";
+    ws.send(JSON.stringify({text:t}));engaged=true;return true}
+  inp.value=t;return false}
+f.addEventListener("submit",function(e){e.preventDefault();sendText(inp.value)});
+// --- ROI hesaplayici (v1 §4.1: Value Gate — hesap sonucu sohbete baglanir) ---
+var roiBtn=document.getElementById("roiBtn"),roi=document.getElementById("roi"),
+    roiGain=document.getElementById("roiGain"),roiCost=document.getElementById("roiCost"),
+    roiGo=document.getElementById("roiGo"),roiClose=document.getElementById("roiClose"),
+    roiOut=document.getElementById("roiOut"),roiSend=document.getElementById("roiSend");
+var lastRoi=null;
+roiBtn.addEventListener("click",function(){roi.style.display=(roi.style.display==="block")?"none":"block"});
+roiClose.addEventListener("click",function(){roi.style.display="none"});
+roiGo.addEventListener("click",function(){
+  var g=parseFloat(roiGain.value||"0"),c=parseFloat(roiCost.value||"0");if(!(c>0))c=5000;
+  if(!(g>0)){roiOut.style.display="block";roiOut.textContent="Aylık tahmini kazancı (EUR) girin.";roiSend.style.display="none";return}
+  var net=g-c,roiP=Math.round(net/c*100),pay=(net>0)?(c/g):0;lastRoi={g:g,c:c,net:net};
+  roiOut.style.display="block";
+  roiOut.innerHTML="Tespit: yıllık net <b>€"+(net*12).toLocaleString("tr-TR")+"</b> • ROI <b>%"+roiP+"</b>"+(pay>0?" • geri ödeme ~<b>"+pay.toFixed(1)+" ay</b>":"");
+  roiSend.style.display="block"});
+roiSend.addEventListener("click",function(){if(!lastRoi)return;
+  if(sendText("ROI sonucum: aylık kazanç €"+lastRoi.g+", yatırım €"+lastRoi.c+", yıllık net €"+(lastRoi.net*12)+" — detaylı dökümü ve strateji planını istiyorum.")){roi.style.display="none"}});
+// --- Cikis niyeti + 20 sn dwell tetikleyicisi (v1 §4.1; kullanici yazmadiysa, tek sefer) ---
+var exitCard=document.getElementById("exitCard");
+function showExit(){if(engaged||exitShown)return;exitShown=true;exitCard.style.display="block"}
+document.addEventListener("mouseleave",function(e){if((e.clientY||0)<=8)showExit()});
+setTimeout(function(){if(!engaged)showExit()},20000);
+document.getElementById("exitYes").addEventListener("click",function(){
+  exitCard.style.display="none";
+  sendText("Ayrılmadan önce: B2B satış akışım için 30 saniyelik strateji analizini istiyorum.")});
+document.getElementById("exitNo").addEventListener("click",function(){exitCard.style.display="none"});
+connect();
+})();
+</script>
+</body>
+</html>

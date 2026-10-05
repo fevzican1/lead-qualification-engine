@@ -1,0 +1,35 @@
+[Unit]
+Description=Nirvana form lane — auto_runner (refill + qualify + submit loop, Oracle VM)
+Documentation=file:///opt/devsolve/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Type=notify + WatchdogSec: form hattında da satış botundaki (kanıtlanmış)
+# self-healing deseni. auto_runner her turda heartbeat.pulse() ile WATCHDOG=1
+# yollar; döngü gerçekten kilitlenirse systemd süreci TEMİZ bellekle yeniden
+# başlatır. WatchdogSec tur üst sınırından (PIPELINE_RUN_TIMEOUT_SECONDS=2400s)
+# büyük seçildi: devam eden form gönderimi ASLA ortasından kesilmez; yalnızca
+# gerçek kilitlenme (1 saat boyunca tek nabız yok) onarılır. Normal tur 20-25 sn.
+Type=notify
+WorkingDirectory=/opt/devsolve
+# PYTHONUNBUFFERED: journalctl'e anında yazılsın. Tamponlu stdout yüzünden
+# "son log 18:20" görünüp hattın canlı olup olmadığı anlaşılmıyordu.
+Environment=PYTHONUNBUFFERED=1
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/devsolve/.playwright
+ExecStart=/opt/devsolve/.venv/bin/python /opt/devsolve/auto_runner.py
+# Çökme → 5 sn içinde temiz restart; form hattı boş kalmaz.
+Restart=always
+RestartSec=5
+WatchdogSec=3600
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Nice=5
+# 6-madde uretim korkuluklari (400/gun hatti Ampere sinirlarinda):
+MemoryHigh=4G
+MemoryMax=6G
+TasksMax=128
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import secrets
+import threading
 from collections import defaultdict
 from typing import Any
 
@@ -22,6 +23,7 @@ from telegram.constants import ChatAction
 from telegram.error import BadRequest
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -37,6 +39,7 @@ import task_queue
 import optout
 import owner_notify
 import proof_card
+import telegram_bot_api
 import telegram_handoff
 import telegram_sessions
 import payment_safety
@@ -363,10 +366,54 @@ def _owner_intro() -> str:
         f"Custom API / otomasyon, {config.price_label(explicit=True)} teklif (tahsilat değil).\n"
         "Motor özeti: /notifyme   durum: /status\n"
         "Sıcak aday: bu sohbete ping düşer.\n"
+        "Canlı müşteri talebi: bildirimdeki [ Sohbete Bağlan / Reply] butonuna bas; "
+        "sonra buraya yazdığın her mesaj doğrudan müşteriye gider.\n"
         "Sohbete gir: /reply CHATID metin\n"
-        "Botu geri ver: /release CHATID\n"
+        "Botu geri ver: /release CHATID   |   Devri kapat: /disarm\n"
         "Unsubscribe test: /stop"
     )
+
+
+def _webchat_point_text(*, turkish: bool, link: str = "") -> str:
+    """Müşteriyi web sohbete yönlendiren tek satır (satış akışı BAŞLATMAZ)."""
+    try:
+        url = (link or config.webchat_link()).strip()
+    except Exception:  # noqa: BLE001
+        url = ""
+    if not url:
+        return ""
+    if turkish:
+        return (
+            f"Sohbet hattımız web'e taşındı: {url}\n"
+            "Tarayıcıda açılır (uygulama/indirme yok, giriş istemez) — oradan devam edelim."
+        )
+    return (
+        f"Our chat moved to the web: {url}\n"
+        "Opens in your browser (no app, no download, no login) — let's continue there."
+    )
+
+
+async def _redirect_customer_to_webchat(update: Update, chat_id: int) -> bool:
+    """Telegram musteri girisini web sohbete yonlendir (FLOOD/ban riski = 0).
+
+    WEBCHAT_PUBLIC_URL tanimli oldugunda (Oracle canli) True doner: musteri satis
+    akisi Telegram'da BASLAMAZ, tek satir web sohbet adresi verilir. Adres yoksa
+    False doner ve eski davranis korunur (gecis donemi uyumlulugu). Bu mesaj da
+    flood_guard.install ile sarilan bot._post uzerinden gider (Telegram 429 yok).
+    """
+    try:
+        if not config.webchat_customer_only():
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+    text = _webchat_point_text(turkish=_customer_lang(update))
+    if not text:
+        return False
+    try:
+        await update.message.reply_text(text)
+    except Exception:  # noqa: BLE001
+        logger.warning("webchat yonlendirme mesaji gonderilemedi (chat %s)", chat_id)
+    return True
 
 
 def _not_owner_hint() -> str:
@@ -431,6 +478,24 @@ async def _confirm_stop(update: Update) -> None:
     )
 
 
+def _audited(text: str, *, turkish: bool) -> str:
+    """Gönderim öncesi son kapı: bot sızıntısı + ücretsiz/indirim teklifi + imla.
+
+    Açılış/intro metinleri de bu kapıdan geçer; model çıktısı dışındaki sabit
+    metinlerde bir hata olursa (ör. 'ücretsiz' kelimesi) müşteriye ASLA gitmez.
+    """
+    try:
+        from nirvana.language_auditor import audit as _audit
+
+        cleaned, issues = _audit(text, turkish=turkish, user_text="")
+        if issues:
+            logger.info("Greeting language audit: %s", issues)
+        return cleaned or text
+    except Exception:  # noqa: BLE001 — denetçi hatası iletişimi bloklamaz
+        logger.exception("greeting language audit failed")
+        return text
+
+
 async def _send_proof(chat_id: int, bot: Any, *, turkish: bool) -> None:
     if optout.is_chat_opted_out(chat_id) or _is_owner(chat_id):
         return
@@ -478,15 +543,32 @@ def _schedule_proof(chat_id: int, bot: Any, *, turkish: bool) -> None:
     _proof_tasks[chat_id] = asyncio.create_task(_run(), name=f"proof-{chat_id}")
 
 
+def _track_link_click(chat_id: int, row: dict[str, Any] | None) -> None:
+    """Form → Telegram tıklama sinyali (madde 48): sahibi ANINDA haberdar olur.
+
+    Sinyal /start token'ıyla gelir; kayıt chat↔domain bağlantısıyla tutulur.
+    Bildirim gönderimi hata verse bile selamlama akışı asla bozulmaz.
+    """
+    brief = row or {}
+    domain = str(brief.get("host") or brief.get("target_domain") or brief.get("company") or "")
+    try:
+        from nirvana import interaction_tracker
+
+        interaction_tracker.track(chat_id, domain, "telegram_start")
+    except Exception:  # noqa: BLE001 — izleme hatası akışı bozmaz
+        logger.debug("interaction track failed for chat %s", chat_id, exc_info=True)
+
+
 async def _greet_from_token(update: Update, bot: Any, chat_id: int, row: dict[str, Any]) -> None:
     """No empty channel: type for a beat, then the named greeting, then the card."""
     turkish = bool(row.get("turkish", True))
+    _track_link_click(chat_id, row)
     try:
         await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
         await asyncio.sleep(1.2)
     except Exception:  # noqa: BLE001
         logger.debug("greeting typing failed for %s", chat_id, exc_info=True)
-    text = telegram_handoff.opener(row)
+    text = _audited(telegram_handoff.opener(row), turkish=turkish)
     _remember(chat_id, "assistant", text)
     if update.message:
         await update.message.reply_text(_display_text(text))
@@ -518,10 +600,69 @@ async def _warm_ping(chat_id: int, update: Update, row: dict[str, Any]) -> None:
         f"Sohbete gir: /reply {chat_id} merhaba, ben DevSolve tarafıyım…\n"
         f"Botu geri ver: /release {chat_id}"
     )
-    ok = await asyncio.to_thread(owner_notify.send, ping)
+    ok = await asyncio.to_thread(owner_notify.send_handoff_alert, ping,
+                                 target_chat_id=chat_id)
     if ok:
         telegram_sessions.mark_warm(chat_id)
         logger.info("Warm conversion ping sent for chat %s (%s)", chat_id, who)
+
+
+async def _send_payment_link_critical(chat_id: int, text: str, update: Update,
+                                      context: ContextTypes.DEFAULT_TYPE,
+                                      who: str | None = None) -> None:
+    """Ödeme linkini engel yemeden gönder (flood harici kritik hat).
+
+    Sıra: (1) sohbetin sahibi bot reply_text dener; 429/FloodBlocked gelirse
+    (2) havuzdaki DİĞER bot doğrudan send_message dener (Telegram cezası
+    bot+chat bazlıdır — diğer bot aynı sohbete yazabilir); hepsi patlarsa
+    (3) reply_text'e düş (PTB retry'sine bırak). Link metni asla kaybolmaz:
+    en kötü halde normal yoldan gider.
+    """
+    try:
+        await update.message.reply_text(text)
+        return
+    except Exception as first_exc:  # noqa: BLE001 — bypass hattına geç
+        logger.warning("Odeme linki birincil bottan gidemedi (%s) — havuz bypass",
+                       type(first_exc).__name__)
+        ra = getattr(first_exc, "retry_after", None)
+        if ra is not None:
+            try:
+                owner = str(getattr(context.bot, "username", "") or "")
+                flood_guard.note_retry_after(float(ra), chat_id=chat_id,
+                                             bot_username=owner)
+            except (TypeError, ValueError):
+                pass
+    for uname, app in list(_APPS.items()):
+        if app is context.application:
+            continue
+        # ZERO-TOUCH: FLOOD_WAIT karantinasındaki bota tek istek dahi yok.
+        try:
+            import bot_registry
+            if not bot_registry.is_active(str(uname)):
+                continue
+        except Exception:  # noqa: BLE001 — kayıt yoksa fail-open
+            pass
+        try:
+            if not await flood_guard.acquire(chat_id):
+                continue
+            await app.bot.send_message(chat_id=chat_id, text=text)
+            logger.info("Odeme linki havuz bypass ile gonderildi (@%s -> %s)", uname, chat_id)
+            try:
+                telegram_sessions._put(
+                    chat_id, bot_username=str(getattr(app.bot, "username", "") or uname))
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        except Exception as exc:  # noqa: BLE001
+            ra = getattr(exc, "retry_after", None)
+            if ra is not None:
+                try:
+                    flood_guard.note_retry_after(float(ra), chat_id=chat_id,
+                                                 bot_username=str(uname))
+                except (TypeError, ValueError):
+                    pass
+            continue
+    await update.message.reply_text(text)
 
 
 async def _hot_ping(chat_id: int, update: Update, text: str) -> None:
@@ -546,25 +687,35 @@ async def _hot_ping(chat_id: int, update: Update, text: str) -> None:
         f"Botu geri ver: /release {chat_id}\n"
         "Telegram özel sohbete üçüncü kişi eklenemez; metin bot üzerinden gider."
     )
-    ok = await asyncio.to_thread(owner_notify.send, ping)
+    # KRİTİK HAT (sıcak temas): flood harici — cezalı olsa bile gider.
+    # Butonlu handoff alert aynı hatta yedeklenir (tek çağrı, çift şans).
+    ok = await asyncio.to_thread(owner_notify.send_handoff_alert, ping,
+                                 target_chat_id=chat_id)
     if ok:
         telegram_sessions.mark_hot(chat_id)
         logger.info("Hot-lead ping sent for chat %s (%s)", chat_id, who)
     else:
-        logger.warning("Hot-lead ping skipped (no owner chat — /notifyme)")
+        logger.warning("Hot-lead ping FAILED for chat %s — mark edilmedi, tekrar dener", chat_id)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.message:
         return
     chat_id = update.effective_chat.id
+    if _is_owner(chat_id):
+        # Operatör sohbeti opt-out'tan ÖNCE gelir: /stop testi sırasında
+        # optouts.json'a düşen patron bir daha "you previously unsubscribed"
+        # duvarına çarpmaz (canlı arıza, 2026-09).
+        await update.message.reply_text(_owner_intro())
+        return
     if optout.is_chat_opted_out(chat_id):
         await update.message.reply_text(
             "You previously unsubscribed. Send /resume if you want to talk again."
         )
         return
-    if _is_owner(chat_id):
-        await update.message.reply_text(_owner_intro())
+
+    # Musteri girisi web sohbete tasindi (WEBCHAT_PUBLIC_URL dolu -> akis orada).
+    if await _redirect_customer_to_webchat(update, chat_id):
         return
 
     token = (context.args[0] if context.args else "") or ""
@@ -586,7 +737,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         from nirvana import delivery_worker as _dworker
         mem = _dworker.customer_memory(chat_id)
         if mem.get("returning"):
-            text = _returning_customer_greeting(mem, turkish=turkish)
+            text = _audited(_returning_customer_greeting(mem, turkish=turkish), turkish=turkish)
             _remember(chat_id, "assistant", text)
             await update.message.reply_text(_display_text(text))
             return
@@ -596,7 +747,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _warm_ping(chat_id, update, row)
         await _greet_from_token(update, context.bot, chat_id, row)
         return
-    text = _cold_intro(turkish=turkish)
+    text = _audited(_cold_intro(turkish=turkish), turkish=turkish)
     _remember(chat_id, "assistant", text)
     await update.message.reply_text(_display_text(text))
     _schedule_proof(chat_id, context.bot, turkish=turkish)
@@ -697,7 +848,23 @@ def _form_data_digest() -> str:
 async def cmd_notifyme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_chat or not update.message:
         return
-    if not _is_owner(update.effective_chat.id):
+    chat_id = int(update.effective_chat.id)
+    if not _is_owner(chat_id):
+        # GitHub Secret'tan gelen gizli TOKEN ile ilk kurulum:
+        #   /notifyme <TELEGRAM_ADMIN_TOKEN>  ->  sohbet yönetici olarak kaydedilir.
+        args = context.args or []
+        given = str(args[0]).strip() if args else ""
+        if given and owner_notify.admin_token_ok(given):
+            owner_notify.register_admin_chat(chat_id)
+            logger.info("Owner chat %s registered via /notifyme token", chat_id)
+            await update.message.reply_text(
+                "✅ Sistem Sahibi Taptaze Senkronize Edildi.\n"
+                f"Bu sohbet (chat_id={chat_id}) operatör olarak kaydedildi.\n"
+                "Şimdi /notifyme ile motor özetini ve sıcak form verilerini görebilirsin.\n"
+                "Canlı müşteri talebinde bildirim altındaki butonla sohbete gireceksin.\n"
+                "Tüm operatör komutları için: /admin 0"
+            )
+            return
         await update.message.reply_text(_not_owner_hint())
         return
     try:
@@ -713,9 +880,24 @@ async def cmd_notifyme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     try:
         await update.message.reply_text(text, parse_mode="Markdown")
+        return
     except BadRequest:
         # Unbalanced * / _ in a hostname would kill the whole status report.
-        await update.message.reply_text(text)
+        try:
+            await update.message.reply_text(text)
+            return
+        except Exception:
+            pass
+    except Exception:
+        logger.warning("notifyme ozeti satis botundan gidemedi — yedek hatta dusuluyor",
+                       exc_info=True)
+    # Yedek hat: httpx + TEK flood kapısı (notify tokeni önce). Satış botu
+    # Telegram'da cezalıysa (canlı arıza 2026-09-19: 73420 sn FLOOD_WAIT) özet
+    # buradan ulaşır; kimse temiz değilse task_queue'ya yazılır — sessiz kayıp yok.
+    ok = await asyncio.to_thread(
+        owner_notify.send, text.replace("*", ""), chat_id=chat_id, high_priority=True)
+    if not ok:
+        logger.warning("notifyme ozeti yedek hattan da gidemedi — task_queue kuyrugunda")
 
 
 def _financial_owner(update: Update) -> bool:
@@ -737,7 +919,7 @@ async def cmd_payready(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except (ValueError, TypeError):
         await update.message.reply_text(
             "Payoneer panelinde gerçek tutar, alıcı ve hesap uygunluğunu kontrol ettikten sonra: "
-            "/payready CHATID 2500 EUR ALICI_ETIKETI TALEP_REFERANSI. Bu komut ödeme oluşturmaz.")
+            "/payready CHATID 5000 EUR ALICI_ETIKETI TALEP_REFERANSI. Bu komut ödeme oluşturmaz.")
         return
     await update.message.reply_text("Talep sahibi tarafından kontrol edildi olarak kaydedildi. Tahsilat değildir.")
 
@@ -752,7 +934,7 @@ async def cmd_verifypayment(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     except (ValueError, TypeError):
         await update.message.reply_text(
             "Payoneer panelinde yerleşmiş ödemeyi kontrol ettikten sonra: "
-            "/verifypayment CHATID 2500 EUR ISLEM_REFERANSI. Talep tutarı eşleşmeli; referans tek kullanımlık.")
+            "/verifypayment CHATID 5000 EUR ISLEM_REFERANSI. Talep tutarı eşleşmeli; referans tek kullanımlık.")
         return
     await update.message.reply_text("Sahip doğrulaması kaydedildi. Sözleşme/erişim onayı olmadan iş başlamaz.")
     # DeepSeek Success Alert: ödeme doğrulandığında owner'a bildir
@@ -869,10 +1051,20 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         logger.exception("status ozeti olusturulamadi")
         await update.message.reply_text(f"⚠️ Durum özeti oluşturulamadı: {exc}"[:400])
         return
-    await update.message.reply_text(
-        f"Operatör sohbeti (chat_id={update.effective_chat.id}) tanınıyor.\n\n"
+    text = (
+        f"Operatör sohbeti (chat_id={update.effective_chat.id}) tanınıyor.\n"
+        f"{telegram_bot_api.status_line()}\n\n"
         + digest
     )
+    try:
+        await update.message.reply_text(text)
+        return
+    except Exception:
+        # Satış botu Telegram'da cezalıysa yedek hattan (tek flood kapısı)
+        # düşür; kimse temiz değilse task_queue'ya yazılır.
+        await asyncio.to_thread(
+            owner_notify.send, text.replace("*", ""),
+            chat_id=int(update.effective_chat.id), high_priority=True)
 
 
 async def cmd_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -931,6 +1123,104 @@ async def cmd_release(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(f"Bot tekrar yanıtlıyor: {target}")
 
 
+# --- İnsan devri (Human-in-the-Loop) -----------------------------------------
+# Rapor: bildirimin altındaki [ Sohbete Bağlan / Reply] butonuna basan patron
+# otonom yanıtlayıcıyı duraklatır ve yazdığı mesaj DOĞRUDAN müşteriye gider.
+
+HANDOFF_CALLBACK_PREFIX = "handoff:"
+
+
+def _handoff_target_from_callback(data: str) -> int | None:
+    """'handoff:123456' -> 123456. Bozuk veri sessizce yok sayılır."""
+    text = str(data or "").strip()
+    if not text.startswith(HANDOFF_CALLBACK_PREFIX):
+        return None
+    raw = text[len(HANDOFF_CALLBACK_PREFIX):].strip()
+    if not raw.lstrip("-").isdigit():
+        return None
+    return int(raw)
+
+
+async def on_handoff_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Inline buton: yalnızca operatör basabilir; basınca sohbet ona bağlanır."""
+    query = update.callback_query
+    if query is None:
+        return
+    owner_chat = update.effective_chat.id if update.effective_chat else None
+    target = _handoff_target_from_callback(str(query.data or ""))
+    if owner_chat is None or target is None:
+        await query.answer()
+        return
+    if not _is_owner(owner_chat):
+        # Müşteri ya da yabancı biri bastı: hiçbir yetki açılmaz.
+        await query.answer("Bu buton operatör içindir.", show_alert=False)
+        return
+    telegram_sessions.arm_reply(owner_chat, target)
+    await query.answer("Sohbet sana bağlandı")
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        logger.debug("handoff butonu kaldirilamadi", exc_info=True)
+    await context.bot.send_message(
+        chat_id=owner_chat,
+        text=(f"✅ Bağlandı: müşteri {target}. Otonom yanıtlayıcı DURDU.\n"
+              "Şimdi bu sohbete yazdığın her mesaj doğrudan müşteriye gider.\n"
+              "Bitirmek için: /disarm"),
+    )
+
+
+async def _relay_owner_reply(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                             owner_chat_id: int, text: str) -> bool:
+    """Butonla bağlı patronun mesajını müşteriye iletir.
+
+    Dönüş: True => mesaj devir hattına alındı (oto-yanıtlayıcı çalışmaz).
+    """
+    target = telegram_sessions.armed_target(owner_chat_id)
+    if target is None:
+        return False
+    body = " ".join(str(text or "").split())
+    if not body or not update.message:
+        return True
+    if body.lower() in {"/disarm", "disarm"}:
+        return True
+    try:
+        # Sahiplik: müşteriyi alan bot üzerinden gönder — çapraz bot 403 verir.
+        owner_app = _app_for_chat(target, context.application)
+        bot = owner_app.bot if owner_app is not None else context.bot
+        if not await flood_guard.acquire(target):
+            raise flood_guard.FloodBlocked(target, flood_guard.remaining())
+        await bot.send_message(chat_id=target, text=body)
+    except Exception as exc:
+        await update.message.reply_text(f"Gönderilemedi: {exc}".strip()[:300])
+        return True
+    telegram_sessions.set_takeover(target, True)
+    _remember(target, "assistant", body)
+    task = _proof_tasks.pop(target, None)
+    if task:
+        task.cancel()
+    logger.info("Human handoff relay owner=%s -> customer=%s", owner_chat_id, target)
+    return True
+
+
+async def cmd_disarm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Devri kapat: otonom yanıtlayıcı tekrar çalışır."""
+    if not update.effective_chat or not update.message:
+        return
+    if not _is_owner(update.effective_chat.id):
+        await update.message.reply_text(_not_owner_hint())
+        return
+    target = telegram_sessions.clear_armed(update.effective_chat.id)
+    if target is None:
+        await update.message.reply_text(
+            "Aktif devir yok. Sohbete girmek için bildirimdeki butona bas "
+            "ya da /reply CHATID metin kullan."
+        )
+        return
+    await update.message.reply_text(
+        f"Devir kapandı. Otonom asistan {target} sohbetinde yeniden yanıtlıyor."
+    )
+
+
 async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _confirm_stop(update)
 
@@ -974,8 +1264,23 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    if _is_owner(chat_id):
+        # Buton ile bağlanan patronun mesajı doğrudan müşteriye gider (oto-yanıt DURUR).
+        # Opt-out'tan ÖNCE: patronun "stop" yazısı kendini optout'a düşürmesin.
+        if await _relay_owner_reply(update, context, chat_id, user_text):
+            return
+        # Devir yoksa operatör panel ipucu ver (sessiz kalma).
+        await update.message.reply_text(_owner_intro())
+        return
+
     if optout.is_chat_opted_out(chat_id) or optout.OPT_OUT_RE.search(user_text):
         await _confirm_stop(update)
+        return
+
+    # MUSTERI HATTI WEBCHAT'E TASINDI (WEBCHAT_PUBLIC_URL dolu): Telegram'da
+    # musteri satis akisi BASLATILMAZ — FLOOD_WAIT/ban/hiz limitleri musteri
+    # mimarisinden tamamen cikar; tek satir web adresi verilir.
+    if await _redirect_customer_to_webchat(update, chat_id):
         return
 
     start_m = re.match(r"^/start(?:@\w+)?(?:\s+(\S+))?", user_text, re.I)
@@ -992,8 +1297,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await _greet_from_token(update, context.bot, chat_id, row)
             return
 
-    if _is_owner(chat_id):
-        return
+    # (operatör sohbeti yukarıda, opt-out'tan önce ele alındı)
 
     # Teslimat işçisi (Lane AF): müşteri rapor numarasıyla sorar → kendi raporu.
     # Yalnızca ödemesi doğrulanmış chate; satış akışını hiç etkilemez.
@@ -1077,11 +1381,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         who = str((_briefs.get(chat_id) or {}).get("company") or (_briefs.get(chat_id) or {}).get("host") or "—")
         user = _username(update) or "yok"
         handle = f"@{user}" if user != "yok" else "yok"
+        # İnsan devri: patronun bildirimi BUTONLU gider (tek tıkla sohbete girer).
         await asyncio.to_thread(
-            owner_notify.send,
-            f"🚨 YETKİLİ TALEBİ: Müşteri {handle} doğrudan seninle görüşmek istiyor.\n"
-            f"📌 Site: {who}\n"
-            f"💬 Son Mesajı: \"{user_text[:300]}\""
+            owner_notify.send_handoff_alert,
+            f"🚨 CANLI MÜŞTERİ TALEBİ: {who} yetkilisi kurucu/uzman ile görüşmek istiyor.\n"
+            f"👤 Hesap: {handle}  |  💬 Sohbet: {chat_id}\n"
+            f'💬 Son Mesajı: "{user_text[:300]}"\n'
+            "Sohbete katılmak için aşağıdaki butona tıklayın "
+            f"(ya da /reply {chat_id} metin).",
+            target_chat_id=chat_id,
         )
         telegram_sessions.set_takeover(chat_id, True)
         turkish = _conv_lang(user_text, chat_id)
@@ -1169,14 +1477,26 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.exception("nirvana self-serve close failed")
             ssc_res = None
         if ssc_res and ssc_res.get("ok"):
-            await update.message.reply_text(ssc_res["message"])
+            # ÖDEME LİNKİ — KRİTİK GÖNDERİM (engel yemez): önce link metni
+            # spam-ateşleyici olabilecek kuyruk/proof işlerinden ÖNCE gider.
+            # Havuzdaki botla gönderilir; bu bot 429 yerse sıradaki botla
+            # bypass denenir (flood harici, retry'li).
+            try:
+                await _send_payment_link_critical(
+                    chat_id, ssc_res["message"], update, context, who=None)
+            except Exception:
+                logger.exception("kritik odeme linki gonderilemedi chat %s", chat_id)
+                await update.message.reply_text(ssc_res["message"])
             telegram_sessions._put(chat_id, terms_acknowledged=True, self_serve_link_sent=True)
             telegram_sessions.mark_payment(chat_id)
             who = str((_briefs.get(chat_id) or {}).get("company") or "—")
+            # KRİTİK HAT (ödeme bildirimi): flood harici — cezalı olsa bile gider.
             await asyncio.to_thread(
-                owner_notify.send,
-                f"SELF-SERVE SATIŞ — doğrulanmış ödeme linki gönderildi (chat {chat_id}, {who}). "
-                "Yerleşince insan doğrulaması yapılacak; teslimat o onaydan sonra.")
+                owner_notify.send_handoff_alert,
+                f"💰 SELF-SERVE SATIŞ — doğrulanmış ödeme linki gönderildi "
+                f"(chat {chat_id}, {who}). "
+                "Yerleşince insan doğrulaması yapılacak; teslimat o onaydan sonra.",
+                target_chat_id=chat_id)
             return
         if ssc_res and ssc_res.get("reason") == "terms":
             who = str((_briefs.get(chat_id) or {}).get("company") or "")
@@ -1222,9 +1542,18 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await asyncio.to_thread(owner_notify.send, f"Satın alma ilgisi (kabul/ödeme değil), chat {chat_id}. "
                                     "Kapsam/sözleşme ve Payoneer talep doğrulaması gerekiyor.")
             return
-        await update.message.reply_text(
-            f"Agreed request: {_currency_symbol(request['currency'])}{request['amount']} {request['currency']}. "
-            "Check the recipient and amount on Payoneer before paying.\n" + config.PAYONEER_PAYMENT_URL)
+        # Ödeme linki (sözleşmeli hat) — KRİTİK GÖNDERİM, engel yemez.
+        try:
+            await _send_payment_link_critical(
+                chat_id,
+                f"Agreed request: {_currency_symbol(request['currency'])}{request['amount']} {request['currency']}. "
+                "Check the recipient and amount on Payoneer before paying.\n" + config.PAYONEER_PAYMENT_URL,
+                update, context)
+        except Exception:
+            logger.exception("kritik odeme linki (sozlesmeli) gonderilemedi chat %s", chat_id)
+            await update.message.reply_text(
+                f"Agreed request: {_currency_symbol(request['currency'])}{request['amount']} {request['currency']}. "
+                "Check the recipient and amount on Payoneer before paying.\n" + config.PAYONEER_PAYMENT_URL)
         telegram_sessions._put(chat_id, payment_request=request)
         telegram_sessions.mark_payment(chat_id)
         return
@@ -1240,6 +1569,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         system_prompt += close_block(user_text=user_text, brief=brief, chat_id=chat_id)
     except Exception:
         logger.exception("conversion close_block failed")
+    # Rapor §4.2 — SPIN + Challenger + Voss (bayrak: SPIN_SELLING_ENABLED)
+    if getattr(config, "SPIN_SELLING_ENABLED", True):
+        try:
+            from nirvana import spin_engine
+            _tr_chars = "çğıöşüÇĞİÖŞÜ"
+            _lang = "tr" if any(ch in (user_text or "") for ch in _tr_chars) else "en"
+            system_prompt += "\n" + spin_engine.spin_block(
+                lang=_lang, history=_histories.get(chat_id) or [])
+        except Exception:
+            logger.exception("spin_block failed")
     messages = [
         {"role": "system", "content": system_prompt},
         *_histories[chat_id],
@@ -1345,7 +1684,16 @@ def _offline_reply(user_text: str, row: dict[str, Any] | None) -> tuple[str, boo
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Telegram error: %s", context.error, exc_info=context.error)
     # Flood cezası aktifken kullanıcıya hata mesajı DENEME — döngüyü büyütür.
-    if flood_guard.remaining() > 5:
+    # Sohbet-bazlı kontrol: operatör/müşteri sohbetine yazılan ceza yalnızca
+    # O sohbeti bağlar; temiz bir sohbete hata bildirimi engellenmez.
+    affected = None
+    try:
+        upd = update
+        if isinstance(upd, Update) and upd.effective_chat is not None:
+            affected = int(upd.effective_chat.id)
+    except Exception:
+        affected = None
+    if flood_guard.remaining(affected) > 5:
         return
     # Sessiz ölüm olmasın: handler içinde patlarsa kullanıcıya da söyle.
     chat_id = None
@@ -1410,19 +1758,97 @@ async def _followup_loop(application: Application) -> None:
 
 
 async def _heartbeat_loop(application: Application) -> None:
-    """Self-healing: systemd WATCHDOG=1 + kalıcı kuyruk aktarıcısı (10 sn ritim)."""
+    """Self-healing: systemd WATCHDOG=1 + kalıcı kuyruk aktarıcısı (10 sn ritim).
+
+    KUYRUĞU ASLA EVENT LOOP'TA SENKRON İŞLEME: run_due -> deliver_queued_notify
+    -> httpx post, cezalı/yavaş Telegram hedefinde dakikalarca bloklarsa
+    WATCHDOG=1 kesilir ve systemd servisi SIGABRT ile çökme-restart döngüsüne
+    sokar (canlı arıza, 2026-09: her ~4.7 dk'da bir 'watchdog' ölümü). Bu
+    yüzden iş, timeout'lu thread'e alınır; loop daima 10 sn'de bir nabız vurur.
+    """
     heartbeat.ready()
     while True:
         heartbeat.pulse("salesbot")
         try:
-            relay = task_queue.run_due(
-                "telegram_notify", owner_notify.deliver_queued_notify, limit=10,
+            # ZERO-TOUCH sweep: PASSIVE botun updater'ı durdurulur, cooldown'u
+            # biten bot otomatik (manuel komut/restart olmadan) aktive edilir.
+            await _sync_pool_polling()
+        except Exception:
+            logger.exception("pool polling sweep failed")
+        try:
+            relay = await asyncio.wait_for(
+                asyncio.to_thread(
+                    task_queue.run_due,
+                    "telegram_notify", owner_notify.deliver_queued_notify, limit=10,
+                ),
+                timeout=25.0,
             )
             if relay.get("done"):
                 logger.info("Queued notify relay: %s", relay)
+        except asyncio.TimeoutError:
+            logger.warning("Queued notify relay timed out (>25s) — sonraki tura bırak")
         except Exception:
             logger.exception("Queued notify relay failed")
         await asyncio.sleep(10)
+
+
+_POLLING_ON: set[str] = set()
+
+
+async def _start_polling(app: Application, uname: str) -> None:
+    """ACTIVE botun polling'ini başlat + kamu kimliğini uygula.
+
+    Kimlik çağrıları (set_my_name vb.) da Telegram'a giden İSTEKTÜR:
+    sadece polling başlarken, aktif botta, bir kez yapılır (cezalı bota
+    health/config istekleri gitmez)."""
+    if uname in _POLLING_ON:
+        return
+    await app.updater.start_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+        timeout=30,
+        bootstrap_retries=8,
+    )
+    _POLLING_ON.add(uname)
+    await _apply_public_identity(app)
+    logger.info("Polling AKTİF: @%s", uname)
+
+
+async def _stop_polling(app: Application, uname: str) -> None:
+    """PASSIVE botun polling'ini durdur — ZERO-TOUCH PASSIVE.
+
+    Updater çalışırken PTB getUpdates'i kendisi tekrarlar; exception loop'u
+    bile Telegram'a istek demektir. Tek doğru: updater'ı DURDURMAK."""
+    if uname not in _POLLING_ON:
+        return
+    try:
+        await app.updater.stop()
+    except Exception:
+        logger.exception("updater stop failed for @%s", uname)
+    _POLLING_ON.discard(uname)
+    logger.info("Polling DURDURULDU: @%s — ZERO-TOUCH PASSIVE (cooldown bitene dek tek istek yok)", uname)
+
+
+async def _sync_pool_polling() -> None:
+    """Havuz polling'ini bot_registry durumuyla senkronla.
+
+    Süre Sonu Otomatik Aktivasyon: bot_registry.is_active() cooldown bitmiş
+    pasifleri okuma anında ACTIVE'a çeker; sweep polling'i yeniden başlatır.
+    Hiçbir manuel komut/restart gerekmez."""
+    import bot_registry
+
+    for uname, app in list(_APPS.items()):
+        try:
+            live = bot_registry.is_active(uname)
+        except Exception:  # noqa: BLE001 — kayıt defteri yoksa fail-open
+            live = True
+        if live:
+            try:
+                await _start_polling(app, uname)
+            except Exception:
+                logger.exception("polling start failed for @%s", uname)
+        else:
+            await _stop_polling(app, uname)
 
 
 async def _apply_public_identity(application: Application) -> None:
@@ -1445,9 +1871,23 @@ async def _apply_public_identity(application: Application) -> None:
 
 
 async def _post_init(application: Application, *, primary: bool = True) -> None:
-    # Telegram flood cezası bir daha yaşanmasın: tüm giden çağrılar kapıdan geçer.
-    # (flood_guard her bot için ayrı kurulur — her botun kendi limit havuzu var.)
-    flood_guard.install(application.bot)
+    # Telegram flood cezası bir daha yaşanmasın: TÜM botlar korumalı —
+    # her botun giden çağrıları kapıdan geçer (bot başına limit havuzu).
+    # username post_init anında belli olmayabilir; _serve'de initialize
+    # sonrası gerçek username ile tekrar kurulur.
+    flood_guard.install(application.bot,
+                        bot_username=str(getattr(application.bot, "username", "") or ""))
+    # Bot kimliğini diske yaz: TELEGRAM_BOT_TOKEN id'siz girilmişse normalizasyon
+    # doğru bot id'sini buradan okur; ayrıca botun kendi id'si admin listesinden
+    # çıkarılır (madde: "telegram botu beni patronu olarak biliyor mu").
+    try:
+        config.save_bot_identity(
+            getattr(application.bot, "id", "") or "",
+            str(getattr(application.bot, "username", "") or ""),
+            primary=bool(primary),
+        )
+    except Exception:  # noqa: BLE001 — kimlik kaydı botu bloklamaz
+        logger.debug("bot kimlik kaydi basarisiz", exc_info=True)
     if primary:
         # Arka plan döngüleri yalnızca birincil uygulamada: 3 bot = 3 kopya
         # followup/heartbeat olmasın, routing zaten _app_for_chat ile yapılır.
@@ -1457,14 +1897,16 @@ async def _post_init(application: Application, *, primary: bool = True) -> None:
         application.bot_data["heartbeat_task"] = asyncio.create_task(
             _heartbeat_loop(application), name="tg-heartbeat"
         )
-    await _apply_public_identity(application)
+    # NOT: _apply_public_identity BURADA çağrılmaz — set_my_name vb. de
+    # Telegram'a giden istektür ve ZERO-TOUCH PASSIVE bot için yasaktır.
+    # Kimlik, yalnızca polling başlatıldığında (_start_polling) uygulanır.
 
 
 def _build_application(token: str, *, primary: bool) -> Application:
     async def _post(app: Application) -> None:
         await _post_init(app, primary=primary)
 
-    application = (
+    builder = (
         Application.builder()
         .token(token)
         .connect_timeout(5.0)
@@ -1475,8 +1917,12 @@ def _build_application(token: str, *, primary: bool) -> Application:
         .get_updates_read_timeout(40.0)
         .get_updates_pool_timeout(20.0)
         .post_init(_post)
-        .build()
     )
+    # Yerel (Local) Bot API varsa oraya bağlan: dakikada-30-mesaj ve 20 MB dosya
+    # sınırı kalkar. Sunucu sağlıksızsa otomatik olarak bulut API'ye düşülür.
+    builder, api_choice = telegram_bot_api.apply_to_builder(builder, token=token)
+    logger.info("Telegram API: %s (%s)", api_choice["mode"], api_choice["reason"])
+    application = builder.build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", cmd_admin))
     application.add_handler(CommandHandler("payready", cmd_payready))
@@ -1488,9 +1934,14 @@ def _build_application(token: str, *, primary: bool) -> Application:
     application.add_handler(CommandHandler("status", cmd_status))
     application.add_handler(CommandHandler("reply", cmd_reply))
     application.add_handler(CommandHandler("release", cmd_release))
+    application.add_handler(CommandHandler("disarm", cmd_disarm))
     application.add_handler(CommandHandler("stop", cmd_stop))
     application.add_handler(CommandHandler("unsubscribe", cmd_stop))
     application.add_handler(CommandHandler("resume", cmd_resume))
+    # Canlı müşteri bildirimindeki [ Sohbete Bağlan / Reply] butonu.
+    application.add_handler(
+        CallbackQueryHandler(on_handoff_callback, pattern=r"^handoff:-?\d+$")
+    )
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     application.add_error_handler(on_error)
     return application
@@ -1534,19 +1985,38 @@ async def _serve(apps: list[Application]) -> None:
         uname = str(getattr(app.bot, "username", "") or "")
         if uname:
             _APPS[uname] = app
+            # Gerçek username belli: flood_guard bu botu ismiyle tanır
+            # (FLOOD_WAIT yerse havuzda PASSIVE'a çekilir).
+            try:
+                app.bot._flood_guard_bot = uname
+            except Exception:  # noqa: BLE001
+                pass
         healthy.append(app)
     apps = healthy
+    # Ortak Beyin kayıt defteri: havuz üyeleri ACTIVE doğar; pasiflerin
+    # cooldown'u dolmuşsa okuma anında otomatik reaktive olur. token_hint
+    # parmak izleri de yazılır — 429 cezası sonradan getMe ÇAĞIRMADAN
+    # (zero-touch) doğru bota eşlenir.
+    try:
+        import bot_registry as _registry
+        _registry.register_pool(list(_APPS.keys()))
+        import hashlib as _hashlib
+        for _uname, _app in _APPS.items():
+            _token = str(getattr(_app.bot, "_token", "") or "")
+            if _token:
+                _registry.set_token_hint(
+                    _uname, _hashlib.sha256(_token.encode()).hexdigest()[:12])
+    except Exception:  # noqa: BLE001
+        logger.exception("bot_registry kaydi basarisiz — rotasyon config havuzundan")
     for index, app in enumerate(apps):
         await _post_init(app, primary=(index == 0))
+    # ZERO-TOUCH + SÜRE SONU OTOMATİK AKTİVASYON: yalnızca ACTIVE botlar
+    # polling başlatır. FLOOD_WAIT'te (PASSIVE) botun updater'ı HİÇ
+    # başlatılmaz — getUpdates dâhil tokenine tek istek gitmez. Cooldown
+    # bitince heartbeat sweep'i (aşağıda) botu otomatik aktive eder.
     for app in apps:
         await app.start()
-    for app in apps:
-        await app.updater.start_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True,
-            timeout=30,
-            bootstrap_retries=8,
-        )
+    await _sync_pool_polling()
     logger.info("Sales bot pool live: %d bot(s) — %s", len(apps), ", @".join(_APPS))
     try:
         await stop.wait()
@@ -1563,6 +2033,25 @@ async def _serve(apps: list[Application]) -> None:
                 logger.exception("app stop/shutdown failed")
 
 
+def _ensure_model_background() -> None:
+    """Ollama modeli ARKAPLANDA hazırla — main()'i bloklamaz.
+
+    Neden: Type=notify serviste READY=1 (heartbeat.ready) anahtar verilmeden
+    WatchdogSec (30s) dolarsa systemd SIGABRT ile öldürür. ensure_model (ping
+    yoksa 90 sn bekleme + ilk pull dakikalar) main()'de çağrılırsa bot çökme-
+    restart döngüsüne girer (canlı arıza, 2026-09). Model eksikse ollama_client
+    her chat çağrısında zaten yeniden dener.
+    """
+
+    def _run() -> None:
+        try:
+            ollama_client.ensure_model()
+        except Exception:  # noqa: BLE001 — model yoksa bot yine konuşur
+            logger.warning("Ollama model hazırlığı arkaplanda başarısız oldu", exc_info=True)
+
+    threading.Thread(target=_run, name="ollama-ensure", daemon=True).start()
+
+
 def main() -> None:
     os.chdir(config.ROOT)
     logging.basicConfig(
@@ -1570,7 +2059,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    ollama_client.ensure_model()
+    _ensure_model_background()
     config.require_bot_keys()
     config.ensure_telegram_username()
     pool = config.resolve_bot_pool()

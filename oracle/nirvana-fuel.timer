@@ -1,0 +1,12 @@
+[Unit]
+Description=Nirvana Lane AN schedule — iç yakıt beslemesi her 30 dakika
+
+[Timer]
+OnCalendar=*:0/30
+Persistent=true
+AccuracySec=60s
+RandomizedDelaySec=90
+Unit=nirvana-fuel.service
+
+[Install]
+WantedBy=timers.target

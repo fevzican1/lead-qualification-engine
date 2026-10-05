@@ -1,4 +1,4 @@
-"""Nirvana payment gate — 2.500 EUR Payoneer retainer link, owner-curated.
+"""Nirvana payment gate — 5.000 EUR Payoneer retainer link, owner-curated.
 
 No payment API is used: the owner creates the Payoneer request in the provider
 panel and stores the link in PAYONEER_PAYMENT_URL. Nirvana flows only surface
@@ -28,7 +28,7 @@ def retainer_label() -> str:
 
 
 def price_retainer() -> str:
-    """€-işaretli açık fiyat etiketi — 'fiyat nedir?' yolunda kullanılır (örn. €2.500)."""
+    """€-işaretli açık fiyat etiketi — 'fiyat nedir?' yolunda kullanılır (örn. €5.000)."""
     return config.price_label(explicit=True)
 
 
@@ -37,7 +37,7 @@ def payment_link() -> str:
     url = (config.PAYONEER_PAYMENT_URL or "").strip()
     if not url or PLACEHOLDER in url:
         raise PaymentLinkMissing(
-            "PAYONEER_PAYMENT_URL hâlâ yer tutucu. Gerçek 2.500 EUR Payoneer "
+            "PAYONEER_PAYMENT_URL hâlâ yer tutucu. Gerçek 5.000 EUR Payoneer "
             "talep linkini Oracle /opt/devsolve/.env içine ve repo secret'larına girin."
         )
     return url

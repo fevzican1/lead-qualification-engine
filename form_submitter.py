@@ -163,16 +163,117 @@ MOUSE_CLICK_JS = """() => {
   return true;
 }"""
 
+REQUEST_SUBMIT_FORM_JS = """(f) => {
+  if (!f || typeof f.requestSubmit !== 'function') return false;
+  f.requestSubmit();
+  return true;
+}"""
+
+SUBMIT_BUTTON_ON_FORM_JS = """(f) => {
+  if (!f || !f.querySelectorAll) return false;
+  const sels = ['button[type=submit]', 'input[type=submit]', 'button:not([type])',
+                '.hs-button', '.hs-submit', '[role=button]', 'button'];
+  const re = /send|submit|contact|enquire|inquire|gönder|gonder|ilet|başvur|basvur|teklif|quote|message/i;
+  for (const s of sels) {
+    for (const b of f.querySelectorAll(s)) {
+      const style = window.getComputedStyle(b);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      const rect = b.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) continue;
+      const type = (b.getAttribute('type') || '').toLowerCase();
+      const tag = b.tagName.toLowerCase();
+      const label = ((b.innerText || b.value || b.getAttribute('aria-label') || '') + '').trim();
+      if (s === 'button' && tag === 'button' && type !== 'submit' && !re.test(label)) continue;
+      b.scrollIntoView({behavior: 'instant', block: 'center'});
+      b.click();
+      return true;
+    }
+  }
+  return false;
+}"""
+
+RADIO_RECOVER_JS = """() => {
+  const r = document.querySelector('input[type=radio]:invalid, input[type=checkbox]:invalid');
+  if (!r) return false;
+  r.click();
+  return true;
+}"""
+
+SELECT_RECOVER_JS = """() => Array.from(document.querySelectorAll('select')).find(
+  (s) => s.validity && !s.validity.valid && !(s.value || '').trim()
+) || null"""
+
+TEXT_RECOVER_JS = """() => {
+  const bad = Array.from(document.querySelectorAll('input, textarea')).find((e) => {
+    if (e.hasAttribute('data-nv-seen')) return false;
+    const tag = e.tagName.toLowerCase();
+    const type = (e.getAttribute('type') || 'text').toLowerCase();
+    if (tag !== 'textarea' && !['text', 'email', 'tel', 'url', 'search', 'number', ''].includes(type)) return false;
+    if (!e.willValidate || e.disabled) return false;
+    const style = window.getComputedStyle(e);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    const rect = e.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return false;
+    if (!(e.validity && !e.validity.valid)) return false;
+    if ((e.value || '').trim()) return false;
+    e.setAttribute('data-nv-seen', '1');
+    return true;
+  });
+  return bad || null;
+}"""
+
+NEUTRAL_OPTION_RE = re.compile(
+    r"please (select|choose)|^select\b|^choose\b|^\s*[-–—]|not (specified|sure)|"
+    r"prefer not|no preference|other|belirtmek istemiyorum|seçiniz|seciniz|"
+    r"lütfen seç|diğer|diger|hiçbiri|hicbiri|^yok$|^none$|unspecified",
+    re.I,
+)
+
 
 class FormNetWatcher:
-    """Watch for a real form POST/AJAX — ignore analytics beacons."""
+    """Watch for a real form POST/AJAX — ignore analytics beacons.
+
+    GET-form submit'leri ve thank-you yonlendirmeleri HICBIR POST uretmez;
+    bu yuzden submit sonrasi "yeni URL'e ana-dokuman GET'i" de dogrulama
+    sayilir. ``arm_navigation`` ile acilir, belirsiz tiklamalarda
+    (``disable_navigation``) kapatilir ki sayfa ici link yanlis pozitif olmasin.
+    """
 
     def __init__(self, page: Page) -> None:
         self.hit = False
         self.status: int | None = None
         self.url = ""
+        self.via = ""
         self._page = page
-        page.on("response", self._on_response)
+        self._armed_url = ""
+        self._expect_nav = False
+        self._target: Any = None
+        target: Any = None
+        try:  # context seviyesi: yeni sekmede acilan POST da yakalanir
+            target = page.context
+        except Exception:  # noqa: BLE001
+            target = None
+        try:
+            if target is not None:
+                target.on("response", self._on_response)
+            else:
+                page.on("response", self._on_response)
+        except Exception:  # noqa: BLE001
+            target = page
+            page.on("response", self._on_response)
+        self._target = target if target is not None else page
+
+    def arm_navigation(self) -> None:
+        """Bu andan sonra YENI URL'e GET dokuman navigasyonu dogrulamadir."""
+        self._expect_nav = True
+        try:
+            self._armed_url = (self._page.url or "").lower()
+        except Exception:  # noqa: BLE001
+            self._armed_url = ""
+
+    def disable_navigation(self) -> None:
+        """Belirsiz tiklama (or. sayfa ici 'a.button') icin nav saymayi kapat."""
+        self._expect_nav = False
 
     def _on_response(self, response: Any) -> None:
         if self.hit:
@@ -180,26 +281,41 @@ class FormNetWatcher:
         try:
             request = response.request
             method = (request.method or "").upper()
-            if method not in {"POST", "PUT", "PATCH"}:
-                return
-            resource_type = str(getattr(request, "resource_type", "") or "").lower()
-            if resource_type in {
-                "beacon",
-                "image",
-                "script",
-            }:
-                return
-            if resource_type and resource_type not in {"document", "fetch", "xhr"}:
-                return
             url = (request.url or "").lower()
-            if any(tok in url for tok in _NET_NOISE):
-                return
+            resource_type = str(getattr(request, "resource_type", "") or "").lower()
             code = int(response.status or 0)
-            if 200 <= code < 300:
+            if method in {"POST", "PUT", "PATCH"}:
+                if resource_type in {
+                    "beacon",
+                    "image",
+                    "script",
+                }:
+                    return
+                if resource_type and resource_type not in {"document", "fetch", "xhr"}:
+                    return
+                if any(tok in url for tok in _NET_NOISE):
+                    return
+                if 200 <= code < 300:
+                    self.hit = True
+                    self.status = code
+                    self.url = request.url or ""
+                    self.via = "post"
+                    logger.info("Form network confirm %s %s", code, self.url[:120])
+                return
+            if (
+                self._expect_nav
+                and method == "GET"
+                and resource_type == "document"
+                and 200 <= code < 400
+                and url
+                and url != self._armed_url
+                and not any(tok in url for tok in _NET_NOISE)
+            ):
                 self.hit = True
                 self.status = code
                 self.url = request.url or ""
-                logger.info("Form network confirm %s %s", code, self.url[:120])
+                self.via = "nav"
+                logger.info("Form navigation confirm %s %s", code, self.url[:120])
         except Exception:  # noqa: BLE001
             return
 
@@ -216,7 +332,7 @@ class FormNetWatcher:
 
     def close(self) -> None:
         try:
-            self._page.remove_listener("response", self._on_response)
+            self._target.remove_listener("response", self._on_response)
         except Exception:  # noqa: BLE001
             pass
 
@@ -242,6 +358,9 @@ def submit_lead(
         finally:
             context.close()
             chromium.close()
+            # KURAL 2 — KULLAN-AT: deneme bitti (başarılı/başarısız) → artıkları
+            # da pkill ile imha et; bir sonraki deneme taze Chromium ile başlar.
+            browser.purge_chromium()
 
 
 def submit_leads(
@@ -249,21 +368,14 @@ def submit_leads(
     *,
     headless: Optional[bool] = None,
 ) -> list[dict[str, Any]]:
-    """Submit many leads, reusing one browser. Applies the inter-submit delay."""
-    headless = config.HEADLESS if headless is None else headless
-    updated: list[dict[str, Any]] = []
-    with sync_playwright() as playwright:
-        chromium = browser.launch_browser(playwright, headless=headless)
-        context = browser.submit_context(chromium)
-        page = browser.new_page(context)
-        try:
-            for index, lead in enumerate(leads):
-                logger.info("Submitting %s (%s/%s)", lead.get("url"), index + 1, len(leads))
-                updated.append(_submit_with_page(page, lead))
-        finally:
-            context.close()
-            chromium.close()
-    return updated
+    """Submit many leads — her deneme KULLAN-AT tarayıcıyla (kural 2).
+
+    Eski model tek tarayıcıyı tüm partide tutuyordu (RAM şişip sunucuyu
+    kilitleyebiliyordu); artık her lead kendi taze Chromium'uyla çalışır ve
+    deneme sonunda tamamen imha edilir. Aradaki gönderim gecikmesi
+    ``_submit_with_page`` içinde uygulanır.
+    """
+    return [submit_lead(lead, headless=headless) for lead in leads]
 
 
 def _fast_fail(lead: dict[str, Any]) -> bool:
@@ -437,6 +549,11 @@ def _submit_with_page(
         if lead.get("captcha_detected"):
             logger.info("Skipping submit for %s (captcha_detected)", lead.get("url"))
             result["status"] = "skipped_captcha"
+            # ÇİFT MOTOR: ana hat kilitlemez/atlamaz — hedef captcha_queue'ya
+            # anında yazılır; free_captcha_worker (max 2) arka planda tüketir.
+            result["route_to"] = _enqueue_background_captcha(
+                lead, reason="submitter_captcha_detected"
+            )
             return result
         # Upstream said "no form" — one cheap httpx scan before any skip
         # verdict (quota-isolated: mailto / ajax / depth-2 candidate URL).
@@ -468,23 +585,26 @@ def _submit_with_page(
         import enterprise_forms
         return enterprise_forms.submit(page, lead)
 
-    # FORMLINK GUARD: t.me bağlantısı olmadan form gönderme. username boşsa
-    # mesaj gövdesine sadece "Telegram" kelimesi düşer — tıklanamaz → dönüş 0.
-    # Böyle bir form kuyruğu yakıtını boş yere yakar; fail-closed skip edilir.
+    # FORMLINK GUARD (musteri hatti): musteriye giden link olmadan form gonderme.
+    # Artik birincil kanal WEB SOHBET (WEBCHAT_PUBLIC_URL); t.me yalnizca gecis
+    # donemi yedegi. Ikisi de yoksa fail-closed skip edilir — tiklanamayan
+    # mesaj kuyruk yakiti yakar, donus sifir olur.
+    # MUSTERI HATTI KAPISI: musteriye giden link artik WEB sohbet (Oracle VM).
+    # t.me yalnizca gecis donemi yedegi; ikisi de yoksa form GONDERILMEZ (fail-closed).
     try:
-        live_link = config.require_live_telegram_link(lead.get("telegram_start") or "")
+        live_link = config.require_live_customer_link(lead.get("telegram_start") or "")
     except RuntimeError:
         result["status"] = "skipped_no_telegram_link"
         result["error"] = (
-            "Telegram bot identity eksik: TELEGRAM_BOT_USERNAME ayarlayın "
-            "(ya da bot token ile getMe çözümüne izin verin)."
+            "Canli musteri linki eksik: WEBCHAT_PUBLIC_URL (web sohbet) ayarlayin; "
+            "gecis donemi icin TELEGRAM_BOT_USERNAME yeterli."
         )
-        logger.warning("Skipping submit for %s (no_telegram_link)", lead.get("url"))
+        logger.warning("Skipping submit for %s (no_customer_link)", lead.get("url"))
         return result
-    if "t.me/" not in live_link:
+    if not (live_link.startswith("http://") or live_link.startswith("https://")):
         result["status"] = "skipped_no_telegram_link"
-        result["error"] = "Live Telegram link üretilemedi — boş mesajla firma yakma."
-        logger.warning("Skipping submit for %s (no_telegram_link)", lead.get("url"))
+        result["error"] = "Canli musteri linki uretilemedi — bos mesajla firma yakma."
+        logger.warning("Skipping submit for %s (no_customer_link)", lead.get("url"))
         return result
 
     message = (lead.get("value_proposition") or "").strip()
@@ -498,8 +618,20 @@ def _submit_with_page(
 
     busy_start = time.monotonic()
     paused = 0.0
-    budget = _site_budget(lead)
+    # KURAL 3 — 30 sn HARD WALL: gönderim denemesinin duvar-saati tavanı.
+    # Site 30 sn'de yanıt vermez/kilitlenirse SİSTEM BEKLEMEZ: iptal, karantina
+    # ve sıradaki taze lead (pipeline'daki _arm_hard_kill bunu kesinleştirir).
+    hard_s = max(0.1, float(getattr(config, "SUBMIT_HARD_TIMEOUT_SECONDS", 30.0) or 30.0))
+    budget = min(_site_budget(lead), hard_s)
     fast = _fast_fail(lead)
+
+    def wall_left() -> float:
+        return hard_s - (time.monotonic() - busy_start)
+
+    def wall_guard() -> None:
+        """Duvar-saati dolduysa anında iptal — asla soğumaya/beklemeye geçme."""
+        if wall_left() <= 0:
+            raise TimeoutError(f"hard_timeout: {int(round(hard_s))}s wall clock")
 
     def busy_used() -> float:
         return time.monotonic() - busy_start - paused
@@ -518,13 +650,16 @@ def _submit_with_page(
         if fast:
             logger.info("Fast-fail %.0fs window for %s", budget, lead.get("url"))
         # FAIL-FAST: Max 10 saniye timeout (takilan/yanit vermeyen sitelerde vakit kaybetme)
-        cap_ms = max(4_000, min(int(budget * 1000), 10_000))
+        # KURAL 3: navigation bütçesi kalan duvar-saatiyle de sınırlıdır.
+        cap_ms = max(1_000, min(int(budget * 1000), 10_000,
+                                int(max(1.0, wall_left()) * 1000)))
         try:
             page.set_default_timeout(cap_ms)
             page.set_default_navigation_timeout(cap_ms)
         except Exception:  # noqa: BLE001
             pass
         goto_page(page, form_url, cap_ms)
+        wall_guard()
         dismiss_cookie_banner(page)
         # Enterprise pages (heavy JS application forms) need a wider fingerprint
         # window so a dynamic form is not misread as "no form on page".
@@ -548,10 +683,15 @@ def _submit_with_page(
         if captcha_present(page):
             result["status"] = "skipped_captcha"
             result["captcha_detected"] = True
-            logger.warning("CAPTCHA on %s — not submitting", form_url)
+            logger.warning("CAPTCHA on %s — routing to background queue", form_url)
+            # ÇİFT MOTOR: sayfa kapatılmaz/lead atılmaz — arka plan kuyruğuna.
+            result["route_to"] = _enqueue_background_captcha(
+                {**lead, "url": form_url}, reason="submitter_page_captcha"
+            )
             return result
         if busy_used() > budget:
             raise TimeoutError("site budget before fill")
+        wall_guard()
 
         filled = _fill_form(page, message, subject=subject, last_field=last_field)
         if filled < 2 and not fast:
@@ -561,12 +701,37 @@ def _submit_with_page(
         if filled < 2:
             filled = max(filled, _fill_formless(page, message, subject=subject, last_field=last_field))
         _tick_consent(page)
+        if getattr(config, "FORM_SMART_FILL", True):
+            filled += _tick_required_radios(page) or 0
+        if filled == 0 and getattr(config, "FORM_FILL_RELOAD", True) and wall_left() > 12.0:
+            # SELECTOR YENILEME: tek reload + taze DOM ile ikinci eslesme turu
+            # (43 'could not map any visible form fields' vakasinin kurtarma yolu).
+            try:
+                logger.info("Fill rescue reload for %s", lead.get("url"))
+                goto_page(page, form_url, cap_ms)
+                _wait_widgets(page)
+                _reveal_widgets(page)
+                dismiss_cookie_banner(page)
+                filled = _fill_form(page, message, subject=subject, last_field=last_field)
+                if filled < 2:
+                    filled = max(
+                        filled,
+                        _fill_formless(page, message, subject=subject, last_field=last_field),
+                    )
+                _tick_consent(page)
+                if getattr(config, "FORM_SMART_FILL", True):
+                    filled += _tick_required_radios(page) or 0
+            except Exception:  # noqa: BLE001
+                logger.debug("Fill rescue reload failed", exc_info=True)
         if filled == 0:
             result["status"] = "skipped_submit_failed"
             result["error"] = "Could not map any visible form fields"
             return result
 
         needed = 0.0 if fast else delay_seconds_for(lead)
+        # KURAL 3: jitter bekleme de 30 sn duvar-saatine sayılır — site asla
+        # duvar-saatinin ötesinde bekletilmez.
+        needed = min(float(needed), max(0.0, wall_left() - 1.0))
         jitter_started = time.monotonic()
         if during_delay and needed > 8:
             def _safe_prefetch() -> None:
@@ -581,17 +746,46 @@ def _submit_with_page(
             logger.info("Waiting %.1fs more before submit", remaining)
             pause(lambda: time.sleep(remaining))
 
+        wall_guard()
         if busy_used() > budget:
             raise TimeoutError("site budget before click")
 
         watcher = FormNetWatcher(page)
+        # GET-form/thanks yonlendirmesi: POST gorunmese de nav dogrulamasi sayilir.
+        watcher.arm_navigation()
         clicked = _submit_cascade(page, watcher, last_field)
         success_dom = _looks_successful(page)
         net = bool(watcher.hit)
         if not net:
-            watcher.wait(2.5)
+            # KURAL 3: onay bekleyişi de kalan duvar-saatini aşamaz.
+            watcher.wait(max(0.5, min(2.5, wall_left())))
             net = bool(watcher.hit)
             success_dom = success_dom or _looks_successful(page)
+        if not net and not success_dom and wall_left() > 6.0 and getattr(
+            config, "FORM_INVALID_RECOVERY", True
+        ):
+            # Tik gerceklesmediyse/validation acti: gecersiz zorunlu alanlari
+            # tamamla ve cascade'i TEK kez tekrarla (bounded).
+            try:
+                fixed = _fix_invalid_required(page, last_field=last_field)
+            except Exception:  # noqa: BLE001
+                fixed = 0
+            if fixed:
+                _tick_consent(page)
+                if getattr(config, "FORM_SMART_FILL", True):
+                    _tick_required_radios(page)
+                logger.info("Invalid-field recovery (%s fix) — cascade tekrari", fixed)
+                _submit_cascade(page, watcher, last_field)
+                watcher.wait(max(0.5, min(2.2, wall_left())))
+                net = bool(watcher.hit)
+                success_dom = success_dom or _looks_successful(page)
+        if not net and not success_dom:
+            # Tek ek bekleme turu: yavas POST / gec gelen tesekkur metni icin.
+            extra = min(6.0, max(0.0, wall_left() - 1.5))
+            if extra >= 1.0:
+                watcher.wait(extra)
+                net = bool(watcher.hit)
+                success_dom = success_dom or _looks_successful(page)
 
         result["submit_fields_filled"] = filled
         result["submitted_url"] = form_url
@@ -624,26 +818,33 @@ def _submit_with_page(
         logger.warning("Timeout submitting %s: %s", lead.get("url"), exc)
         result["status"] = "skipped_submit_failed"
         result["error"] = f"timeout: {exc}"
+        if wall_left() <= 0:
+            result["hard_timeout"] = True
         return result
     except TimeoutError as exc:
         logger.warning("Site budget submitting %s: %s", lead.get("url"), exc)
         result["status"] = "skipped_submit_failed"
         result["error"] = f"timeout: {exc}"
+        if "hard_timeout" in str(exc) or wall_left() <= 0:
+            result["hard_timeout"] = True
         return result
     except Exception as exc:  # noqa: BLE001
         logger.exception("Submit failed for %s", lead.get("url"))
         result["status"] = "skipped_submit_failed"
         result["error"] = str(exc)
+        if wall_left() <= 0:
+            result["hard_timeout"] = True
         return result
     finally:
         if watcher is not None:
             watcher.close()
-        _release_page(page)
+        # KALAN DUVAR-SAATİ: sayfa sıfırlama bile 30 sn'yi aşamaz.
+        _release_page(page, timeout_ms=int(min(5_000, max(500, wall_left() * 1000))))
 
 
-def _release_page(page: Page) -> None:
+def _release_page(page: Page, *, timeout_ms: int = 5_000) -> None:
     try:
-        page.goto("about:blank", wait_until="domcontentloaded", timeout=5_000)
+        page.goto("about:blank", wait_until="domcontentloaded", timeout=timeout_ms)
     except Exception:  # noqa: BLE001
         pass
 
@@ -878,6 +1079,14 @@ def _fill_controls(
             except Exception:  # noqa: BLE001
                 tag = "input"
             if tag == "select":
+                if not getattr(config, "FORM_SMART_FILL", True):
+                    continue
+                # Zorunlu select bos kalirsa HTML5 validation submit'i sessizce
+                # bloke eder ("click did not produce POST"larin bir kismi).
+                if not _is_required(el):
+                    continue
+                if _select_neutral_option(el):
+                    filled += 1
                 continue
             kind = "textarea" if tag == "textarea" else el_type
             if contenteditable == "true" and tag not in {"input", "textarea"}:
@@ -984,6 +1193,134 @@ def _tick_consent(page: Page) -> None:
                 continue
 
 
+def _form_handle(last_field: list[Any]) -> Any | None:
+    """Doldurdugumuz kontrolun ait oldugu FORM'un handle'i (dogru hedefleme)."""
+    if not last_field:
+        return None
+    try:
+        handle = last_field[0].evaluate_handle(
+            "e => (e.form || (e.closest ? e.closest('form') : null))"
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        return handle.as_element() if handle is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _is_required(el: Any) -> bool:
+    try:
+        return bool(
+            el.evaluate("e => !!(e.required || e.getAttribute('aria-required') === 'true')")
+        )
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _pick_select_option(options: list[dict[str, Any]]) -> int:
+    """Zorunlu select icin submit'i bloke etmeyen GERCEK secenek (DOM index).
+
+    Placeholder (value bos) secenek HTML5 'required' kilidini ACMAZ; atlanir.
+    Notr etiketli ('Other'/'Diger'/'Prefer not to say') varsa o tercih edilir.
+    """
+    first = -1
+    for opt in options:
+        if not isinstance(opt, dict):
+            continue
+        value = str(opt.get("value") or "")
+        label = str(opt.get("label") or "")
+        if not value or bool(opt.get("disabled")):
+            continue
+        if NEUTRAL_OPTION_RE.search(label):
+            return int(opt.get("i", -1))
+        if first < 0:
+            first = int(opt.get("i", -1))
+    return first
+
+
+def _select_neutral_option(el: Any) -> bool:
+    """Bos zorunlu select'e notr secenek sec (validation kilidini acar)."""
+    try:
+        options = el.evaluate(
+            """(e) => Array.from(e.options || []).map((o) => ({
+                i: o.index,
+                value: o.value,
+                label: (o.label || o.text || '').trim(),
+                disabled: !!o.disabled,
+            }))"""
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    idx = _pick_select_option(options if isinstance(options, list) else [])
+    if idx < 0:
+        return False
+    try:
+        el.select_option(index=int(idx), timeout=1500)
+        logger.info("Required select dolduruldu (notr secenek)")
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _tick_required_radios(page: Page) -> int:
+    """Bos zorunlu radio/checkbox gruplarini isaretle (submit'i bloke ediyorlardi)."""
+    n = 0
+    for scope in _scopes(page):
+        for _ in range(4):
+            try:
+                if not scope.evaluate(RADIO_RECOVER_JS):
+                    break
+                n += 1
+                logger.info("Ticked required radio/checkbox")
+            except Exception:  # noqa: BLE001
+                break
+        if n:
+            break
+    return n
+
+
+def _fix_invalid_required(page: Page, *, last_field: list[Any] | None = None) -> int:
+    """Tik sonrasi gecersiz-zorunlu alanlari tamamla (validation kilidini acar)."""
+    values = _sender_values("", "")
+    fixed = 0
+    for scope in _scopes(page):
+        for _ in range(4):
+            try:
+                if not scope.evaluate(RADIO_RECOVER_JS):
+                    break
+                fixed += 1
+            except Exception:  # noqa: BLE001
+                break
+        try:
+            handle = scope.evaluate_handle(SELECT_RECOVER_JS)
+            el = handle.as_element() if handle is not None else None
+            if el is not None and _select_neutral_option(el):
+                fixed += 1
+        except Exception:  # noqa: BLE001
+            pass
+        for _ in range(4):
+            el = None
+            try:
+                handle = scope.evaluate_handle(TEXT_RECOVER_JS)
+                el = handle.as_element() if handle is not None else None
+            except Exception:  # noqa: BLE001
+                el = None
+            if el is None:
+                break
+            try:
+                kind = (el.get_attribute("type") or "text").lower()
+            except Exception:  # noqa: BLE001
+                break
+            val = values.get({"email": "email", "tel": "phone", "url": "website"}.get(kind, "")) or ""
+            if not val or not _type_value(page, el, val, last_field=last_field):
+                continue
+            fixed += 1
+        if fixed:
+            break
+    return fixed
+
+
 def _find_submit_button(page: Page) -> Any | None:
     selectors = (
         "form button[type='submit']",
@@ -1028,14 +1365,38 @@ def _scroll_focus(page: Page, btn: Any) -> None:
 
 
 def _submit_cascade(page: Page, watcher: FormNetWatcher, last_field: list[Any]) -> bool:
-    """A requestSubmit, B MouseEvent click, C Enter. Stop as soon as a POST is seen."""
+    """A0 form-kapsamli requestSubmit/button, A requestSubmit, B click, C Enter.
+
+    Her adim oncesi ``arm_navigation`` cagrilir; boylece GET-form submit'i ve
+    thank-you yonlendirmesi de dogrulama sayilir. Belirsiz JS tiklama adiminda
+    (sayfa ici 'a.button' olabilir) nav sayimi kapatilir — yanlis pozitif yok.
+    """
+    form_el = _form_handle(last_field)
     btn = _find_submit_button(page)
     if btn is not None:
         _scroll_focus(page, btn)
 
+    # A0 — DOLDURDUGUMUZ formu hedefle: sayfadaki baska bir formu (newsletter,
+    # arama kutusu) tetiklemek yerine dogru forma gonder.
+    if form_el is not None:
+        for act in ("requestSubmit", "button"):
+            try:
+                watcher.arm_navigation()
+                if act == "requestSubmit":
+                    ok = form_el.evaluate(REQUEST_SUBMIT_FORM_JS)
+                else:
+                    ok = form_el.evaluate(SUBMIT_BUTTON_ON_FORM_JS)
+                if ok:
+                    logger.info("Submit cascade A0 scoped %s", act)
+                    if watcher.wait(1.8):
+                        return True
+            except Exception:  # noqa: BLE001
+                continue
+
     # A — requestSubmit (does not skip React/Vue listeners the way form.submit() does)
     for scope in _scopes(page):
         try:
+            watcher.arm_navigation()
             if scope.evaluate(REQUEST_SUBMIT_JS):
                 logger.info("Submit cascade A requestSubmit")
                 if watcher.wait(1.8):
@@ -1048,11 +1409,10 @@ def _submit_cascade(page: Page, watcher: FormNetWatcher, last_field: list[Any]) 
     clicked = False
     if btn is not None:
         try:
+            watcher.arm_navigation()
             btn.evaluate(
                 """(e) => {
                     e.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true, view: window}));
-            btn.click(timeout=10_000, force=True)
-
                 }"""
             )
             clicked = True
@@ -1062,6 +1422,7 @@ def _submit_cascade(page: Page, watcher: FormNetWatcher, last_field: list[Any]) 
         except Exception:  # noqa: BLE001
             pass
         try:
+            watcher.arm_navigation()
             btn.click(timeout=3000, force=True)
             clicked = True
             logger.info("Submit cascade B force click")
@@ -1071,6 +1432,8 @@ def _submit_cascade(page: Page, watcher: FormNetWatcher, last_field: list[Any]) 
             pass
     for scope in _scopes(page):
         try:
+            # Sayfa ici link olabilir: nav dogrulamasi bu adimda kapali.
+            watcher.disable_navigation()
             if scope.evaluate(MOUSE_CLICK_JS):
                 clicked = True
                 logger.info("Submit cascade B JS button click")
@@ -1083,6 +1446,7 @@ def _submit_cascade(page: Page, watcher: FormNetWatcher, last_field: list[Any]) 
     # C — Enter on the last filled control
     if last_field:
         try:
+            watcher.arm_navigation()
             last_field[0].focus()
             last_field[0].press("Enter")
             clicked = True
@@ -1091,6 +1455,7 @@ def _submit_cascade(page: Page, watcher: FormNetWatcher, last_field: list[Any]) 
                 return True
         except Exception:  # noqa: BLE001
             try:
+                watcher.arm_navigation()
                 page.keyboard.press("Enter")
                 clicked = True
                 if watcher.wait(1.8):
@@ -1109,6 +1474,30 @@ def _looks_successful(page: Page) -> bool:
     except Exception:  # noqa: BLE001
         return False
     return bool(SUCCESS_RE.search(str(text or "")))
+
+
+def _enqueue_background_captcha(lead: dict[str, Any], *, reason: str) -> str:
+    """CAPTCHA'lı hedefi ARKA PLAN motoruna devret (ana hat asla beklemez).
+
+    captcha_queue'ya anında yazar; free_captcha_worker (max 2 eşzamanlı, Oracle
+    systemd timer) kuyruğu tüketir. Kuyruk hatası asla ana akışı düşürmez.
+    """
+    try:
+        from nirvana.stealth_former import enqueue_captcha_target
+
+        url = str(lead.get("url") or lead.get("final_url") or "")
+        payload = {
+            k: str(v) for k, v in {
+                "value_proposition": lead.get("value_proposition") or "",
+                "form_subject": lead.get("form_subject") or "",
+                "target_email": lead.get("target_email") or "",
+            }.items() if v
+        }
+        out = enqueue_captcha_target(url, payload, reason=reason)
+        return "captcha_queue" if out.get("ok") or out.get("deduped") else ""
+    except Exception as exc:  # noqa: BLE001 — kuyruk hatası submitter'ı durdurmaz
+        logger.warning("captcha_queue devri başarısız (%s): %s", reason, exc)
+        return ""
 
 
 def delay_seconds_for(lead: dict[str, Any] | None = None) -> float:

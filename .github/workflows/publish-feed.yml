@@ -2,16 +2,9 @@ name: publish-feed
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
-  workflow_run:
-    workflows:
-      - discover-cc-longtail
-      - discover-cc-tr
-      - discover-cc-global
-      - discover-cc-eu
-      - discover-cc-platform
-      - discover-tranco-sitemap
-    types: [completed]
+    # 30 dk'da bir, kendi dakikalarinda — cascade tetikleyici YOK:
+    # publish-feed'i fleet'lerin workflow_run'i degil, yalniz bu cron calistirir.
+    - cron: "26,56 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -23,7 +16,6 @@ concurrency:
 
 jobs:
   publish:
-    if: ${{ vars.ENABLE_LEGACY_SMB_WORKFLOWS == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
