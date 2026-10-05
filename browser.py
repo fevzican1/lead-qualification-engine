@@ -127,13 +127,32 @@ def _is_chromium(args: str) -> bool:
     return "chromium" in low or "chrome" in low
 
 
-def purge_chromium(*, stale_after_s: float = 30.0) -> int:
-    """Kullan-at artık süpürmesi (kural 2): kalan Chromium artıklarını imha et.
+def _is_playwright_driver(args: str) -> bool:
+    """Playwright sürücü süreci (node) — tarayıcı değil, ONUN SAHİBİ.
 
-    1) **Kendi işlem ağacımızdaki** tüm Chromium süreçleri (yaş sınırı yok):
-       ``browser.close()`` sonrası bile kalan renderer/gpu/zygote artıklarını
-       da kapsar — ``pkill -9 -f chromium`` mantığı, tam olarak bu sürecin
-       çocuklarına odaklı.
+    Canlı arıza 2026-10-05: ``submit_lead`` 37 dk asılı kaldı ve ``purge_chromium``
+    yalnızca chrome kromunu öldürdüğü için çağrı hiç açılmadı. Playwright'ın sync
+    API'si Python tarafında değil **node sürücüsü** üzerinden konuşur; sürücü
+    ölmezse takılan çağrı kendiliğinden dönmez. Kural 3'ün (30 sn duvar-saati)
+    gerçekten işe yaraması için driver da imha edilmeli.
+    """
+    low = args.lower()
+    return "playwright" in low and "driver" in low
+
+
+def _is_browser_proc(args: str) -> bool:
+    """Hard-kill hedefi: Chromium kromu + Playwright sürücüsü."""
+    return _is_chromium(args) or _is_playwright_driver(args)
+
+
+def purge_chromium(*, stale_after_s: float = 30.0) -> int:
+    """Kullan-at artık süpürmesi (kural 2): kalan tarayıcı artıklarını imha et.
+
+    1) **Kendi işlem ağacımızdaki** tüm Chromium + Playwright sürücüsü süreçleri
+       (yaş sınırı yok): ``browser.close()`` sonrası bile kalan
+       renderer/gpu/zygote artıklarını da kapsar — ``pkill -9 -f chromium``
+       mantığı, tam olarak bu sürecin çocuklarına odaklı. Sürücü (node) dâhil:
+       yalnızca chrome öldürülürse takılmış bir sync çağrısı asılı kalır.
     2) POSIX'te **sahipsiz** (ppid=1) ve ``stale_after_s``'den eski yetim
        chromium zombileri: çökmüş eski oturumlardan kalan RAM hırsızları.
 
@@ -163,13 +182,13 @@ def purge_chromium(*, stale_after_s: float = 30.0) -> int:
             if pid in seen:
                 continue
             seen.add(pid)
-            if _is_chromium(args) and _kill_pid(pid):
+            if _is_browser_proc(args) and _kill_pid(pid):
                 killed += 1
             stack.append(pid)
     # 2) Yetim + yaşlı zombiler (ppid=1): crash sonrası terk edilmiş artıklar.
     for pid, ppid, age, args in rows:
         if pid in seen or ppid != 1 or age < stale_after_s:
             continue
-        if _is_chromium(args) and _kill_pid(pid):
+        if _is_browser_proc(args) and _kill_pid(pid):
             killed += 1
     return killed

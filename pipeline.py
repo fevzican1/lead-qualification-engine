@@ -1035,6 +1035,19 @@ def _run_browser_pipeline(
                 _dispose_bundle(bundle)
                 bundle = None
                 gc.collect()
+                # VERİMSİZLİK KAPATI: hard-kill (30 sn) tetiklendiyse mevcut
+                # bundle ölmüş bir tarayıcı/sürücü referansı taşır. Aynı bundle
+                # üzerinden devam etmek, bir sonraki lead'i de aynı kilide
+                # yakalar ve hatta bütün turu 37 dk boyunca asılı tutar (canlı
+                # arıza 2026-10-05). Bu durumda döngü KENDİSİNİ SONLANDIRIR;
+                # dış koşucu (auto_runner) taze bir motor başlatır. Böylece tek
+                # bir takılı lead, günlük 400 formun tamamını götüremez.
+                if submitted.get("hard_timeout"):
+                    logger.error(
+                        "Hard-kill sonrası tur sonlandırılıyor (%s) — taze motor "
+                        "akışa dönsün, kuyruk bekletmesin", qualified.get("url"),
+                    )
+                    return processed
         finally:
             _dispose_bundle(bundle)
 

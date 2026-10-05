@@ -320,8 +320,19 @@ def _run(cmd: list[str], *, timeout: float = 30, cmd_fn: Any = None) -> dict[str
 
 
 def kill_chromium(*, cmd_fn: Any = None) -> dict[str, Any]:
-    """Chromium kilidi: 5 dk form yok → tüm chromium süreçlerini -9 ile indir."""
-    return _run(["pkill", "-9", "-f", "chromium"], timeout=15, cmd_fn=cmd_fn)
+    """Chromium kilidi: 5 dk form yok → tarayıcı + SÜRÜCÜ süreçlerini -9 ile indir.
+
+    Canlı arıza 2026-10-05: ``pkill -f chromium`` yalnızca tarayıcı kromunu
+    öldürdü; Playwright'ın node sürücüsü hayatta kaldığı için ``submit_lead``
+    içindeki takılmış sync çağrısı hiç dönmedi (37 dk) ve sayaç dondu. Sürücü
+    ölünce pipe kapanır, çağrı hata fırlatır, tur taze lead ile devam eder.
+    """
+    last = _run(["pkill", "-9", "-f", "chromium"], timeout=15, cmd_fn=cmd_fn)
+    _run(["pkill", "-9", "-f", "chrome_crashpad"], timeout=15, cmd_fn=cmd_fn)
+    driver = _run(["pkill", "-9", "-f", "run-driver"], timeout=15, cmd_fn=cmd_fn)
+    if driver.get("ok") and not last.get("ok"):
+        return driver
+    return last
 
 
 def _port_clear_candidates(port: int) -> list[list[str]]:
@@ -1001,7 +1012,23 @@ def run_batch(**kwargs: Any) -> dict[str, Any]:
         if swept:
             notes.append(f"kaçak/asılı süreç temizlendi: {', '.join(swept)}")
     # Form durgunluğu: Chromium kilidi kök neden girdisi (5 dk form yok → müdahale).
-    state["forms_idle_s"] = form_idle_update(state, sig, now=now)
+    idle_s = state["forms_idle_s"] = form_idle_update(state, sig, now=now)
+    # KÖR NOKTA KAPATI (canlı arıza 2026-10-05 12:38→18:11): `checks["forms"]`
+    # yalnızca günlük hedefi (`today >= want`) değerlendirir. Sayaç 129'da
+    # donduğu hâlde 129 >= 86 olduğu için sinyal SAHTE YEŞİL kaldı ve motor
+    # 5,5 saat boyunca "sağlıklı" göründü. DÜRÜSTLÜK KURALI: onaylı form
+    # sayımı belirli bir süredir artmıyorsa hatt üretmiyor demektir — kota
+    # hedefi karşılanmış olsa bile sinyal KIRMIZIDIR. Donma hemen tespit
+    # edilir, müdahale (Chromium imhası) tetiklenir.
+    if idle_s is not None and float(idle_s) >= FORM_IDLE_S:
+        verdict["checks"]["forms"] = {
+            "ok": False,
+            "detail": (f"form DONMUŞ: {int(idle_s)} sn'dir artış yok (bugün "
+                       f"{sig.get('forms_today')}, hedef ≥"
+                       f"{int(sig.get('forms_expected') or 0)}) — motor takılmış"),
+        }
+        verdict["red"] = [n for n in verdict["red"] if n != "forms"] + ["forms"]
+        verdict["ok"] = not verdict["red"]
 
     for name in ("queue", "fuel", "forms", "webchat"):
         row = dict(signals.get(name) or {})
