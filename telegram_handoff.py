@@ -450,6 +450,21 @@ def form_subject(
     return f"{technical} — Report {rid}"[:120]
 
 
+def roi_line(*, turkish: bool = True, monthly_rev: float = 20000.0) -> str:
+    """Form/chat ciktisina eklenen dinamik ROI projeksiyonu (5000 EUR retainer)."""
+    try:
+        from analytics import audit_generator as _ag  # type: ignore
+        roi = _ag.roi_projection(monthly_rev, 10.0)
+        if turkish:
+            return (f"Aylik {roi['retainer_eur']} EUR retainer; kacirilmis musterileri "
+                    f"geri kazanarak ~{roi['recovered_eur']} EUR/ay toparlar "
+                    f"(net ~{roi['net_eur']} EUR, ROI %{roi['roi_pct']}).")
+        return (f"EUR {roi['retainer_eur']}/mo retainer recovers ~EUR {roi['recovered_eur']}/mo "
+                f"(net ~EUR {roi['net_eur']}, ROI {roi['roi_pct']}%).")
+    except Exception:
+        return ""
+
+
 def form_copy(
     host: str,
     hints: list[str],

@@ -620,6 +620,27 @@ def openai_client():
     raise RuntimeError("OpenAI was removed. This project uses local Ollama (see ollama_client.py).")
 
 
+# --- 6-maddelik uretim plani: dusuk-gecikme cikarim + outreach + chat --------
+OLLAMA_FALLBACK_MODEL: str = _get("OLLAMA_FALLBACK_MODEL", "qwen2.5:7b")
+LLM_FAST_TIMEOUT_S: float = _get_float("LLM_FAST_TIMEOUT_S", 0.9)
+LLM_TOTAL_TIMEOUT_S: float = _get_float("LLM_TOTAL_TIMEOUT_S", 6.0)
+LLM_MAX_CONCURRENCY: int = _get_int("LLM_MAX_CONCURRENCY", 4)
+LITELLM_PROXY_ENABLED: bool = _get_bool("LITELLM_PROXY_ENABLED", False)
+LITELLM_PROXY_URL: str = _get("LITELLM_PROXY_URL", "http://127.0.0.1:4000")
+OUTREACH_EXCLUDE_REGION: tuple = tuple(
+    r.strip().upper() for r in _get("OUTREACH_EXCLUDE_REGION", "TR").split(",") if r.strip()
+) or ("TR",)
+OUTREACH_MIN_BUDGET_EUR: int = _get_int("OUTREACH_MIN_BUDGET_EUR", 5000)
+CHAT_RECONNECT_MAX: int = _get_int("CHAT_RECONNECT_MAX", 12)
+CHAT_BACKOFF_S: float = _get_float("CHAT_BACKOFF_S", 1.0)
+CHAT_SESSION_TIMEOUT_S: float = _get_float("CHAT_SESSION_TIMEOUT_S", 1800.0)
+# Oracle Always Free korkuluklari: thread/process/RAM tavanlari.
+ORACLE_MAX_THREADS: int = _get_int("ORACLE_MAX_THREADS", 16)
+ORACLE_MAX_PROCESSES: int = _get_int("ORACLE_MAX_PROCESSES", 32)
+ORACLE_RAM_LIMIT_MB: int = _get_int("ORACLE_RAM_LIMIT_MB", 16384)
+WEBCHAT_MAX_CONCURRENCY: int = _get_int("WEBCHAT_MAX_CONCURRENCY", 4)
+
+
 def async_openai_client():
     raise RuntimeError("OpenAI was removed. This project uses local Ollama (see ollama_client.py).")
 

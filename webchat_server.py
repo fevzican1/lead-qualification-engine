@@ -227,7 +227,17 @@ async def _brain_reply(session, user_text):
     msgs = [{"role": "system", "content": system}] + history
     reply = ""
     try:
-        import ollama_client  # type: ignore
+        # Dusuk-gecikme hatti (core/llm_router): cache -> hizli model -> ana
+        # model -> fallback. Basarisizsa asagidaki klasik yola dusulur.
+        try:
+            from core import llm_router as _router  # type: ignore
+            routed = await _router.aroute(msgs, temperature=0.6, max_tokens=280, lang=lang)
+            reply = str((routed or {}).get("text") or "").strip()
+        except Exception as _re:
+            logger.debug("llm_router atlandi: %s", _re)
+            reply = ""
+        if not reply:
+            import ollama_client  # type: ignore
         def _call() -> str:
             """HIZLI MODEL (llama3.2:3b) — 4 vCPU'da kisa yanit hedefi.
 
@@ -445,6 +455,17 @@ def _reg_ws(f):
         return f
     @f.websocket("/ws/{sid}")
     async def ws_chat(ws: WebSocket, sid: str):  # type: ignore[name-defined]
+        # 6-madde HA: zamanasimi asmis oturum yeni sid dalina tasinir; kopan
+        # istemci ayni sid ile donerse gecmis + karsilama diskten korunur.
+        try:
+            from api import chat_handler as _ch  # type: ignore
+            if not _ch.session_alive(str(sid)):
+                _old = get_session(str(sid))
+                if _old and float(_old.get("last_at") or 0) > 0:
+                    row2, _s2 = ensure_session(str(sid) + "-r", lang=str(_old.get("lang") or "tr"))
+                    append_history(str(row2.get("sid")), "user", "(onceki oturum zamanasimi — devam)")
+        except Exception:
+            pass
         await ws.accept(); _conns[str(sid)] = ws
         try:
             # Form linkiyle gelen musteri (dsXXXXXXXX token) icin oturum BURADA acilir:

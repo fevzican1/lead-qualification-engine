@@ -25,6 +25,11 @@ WatchdogSec=3600
 KillSignal=SIGTERM
 TimeoutStopSec=30
 Nice=5
+# 6-madde uretim korkuluklari (400/gun hatti Ampere sinirlarinda):
+MemoryHigh=4G
+MemoryMax=6G
+TasksMax=128
+LimitNOFILE=4096
 
 [Install]
 WantedBy=multi-user.target

@@ -119,15 +119,23 @@ function connect(){
         sys(m.error||"hata");
       }
     };
-    ws.onclose=function(){if(retry>12){sys("Baglanti koptu — sayfayi yenileyin.");return}
-      st.textContent="Yeniden baglaniyor…";setTimeout(connect,Math.min(8000,1000*Math.pow(2,retry++)))};
+    ws.onclose=function(){if(retry>12){sys("Baglanti koptu — sayfayi yenileyin.");flushQueue(true);return}
+      st.textContent="Yeniden baglaniyor…";healthPing();setTimeout(connect,Math.min(8000,1000*Math.pow(2,retry++)))};
     ws.onerror=function(){try{ws.close()}catch(e){}};
+    // Gonderilememis metin kuyrugu: kopma/donma aninda yazilan kaybolmaz.
+    ws._pending=[];
+    ws._send=function(t){try{if(ws.readyState===1){ws.send(JSON.stringify({text:t}));return true}}catch(e){}ws._pending.push(t);return false};
+    ws._flush=function(){while(ws._pending.length&&ws.readyState===1){var t=ws._pending.shift();try{ws.send(JSON.stringify({text:t}))}catch(e){ws._pending.unshift(t);break}}};
+    var _oldOpen=ws.onopen;ws.onopen=function(){_oldOpen();ws._flush()};
+    function flushQueue(show){if(ws&&ws._pending&&ws._pending.length&&show){sys(ws._pending.length+" ileti baglanti donunce gonderilecek.")}}
+    function healthPing(){fetch("/health",{cache:"no-store"}).then(function(r){if(!r.ok)st.textContent="Sunucu mesgul — otomatik tekrar denenecek"}).catch(function(){})}
   });
 }
 audioOn.addEventListener("click",function(){audioBlocked=false;audioOn.style.display="none";
   var last=log.querySelectorAll("audio");if(last.length)playAudio(last[last.length-1])});
 var engaged=false,exitShown=false;
 function sendText(t){t=(t||"").trim();if(!t)return false;
+  if(ws&&ws._send){var wasOpen=(ws.readyState===1);add("user",t,null,false);inp.value="";typing.style.display="block";var ok=ws._send(t);if(!ok)sys("Baglanti zayif — iletiniz kuyrukta, baglaninca gonderilecek.");engaged=true;return true}
   if(ws&&ws.readyState===1){add("user",t,null,false);inp.value="";typing.style.display="block";
     ws.send(JSON.stringify({text:t}));engaged=true;return true}
   inp.value=t;return false}
