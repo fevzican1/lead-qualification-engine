@@ -87,7 +87,7 @@ jobs:
                       telegram_sales_bot.py auto_runner.py owner_notify.py payment_safety.py \
                       webchat_server.py webchat_core.py templates/chat.html \
                       core/__init__.py core/llm_router.py api/__init__.py api/chat_handler.py \
-                      services/qualification_analyzer.py analytics/audit_generator.py config.yaml \
+                      services/outreach_engine.py analytics/audit_generator.py config.yaml \
                       oracle/nirvana-webchat.service oracle/deploy_webchat.sh \
                       oracle/webchat-nginx.conf; do
             grep -qE "(^|/)${need}$" /tmp/nirvana-list.txt \

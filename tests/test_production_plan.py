@@ -233,7 +233,7 @@ def test_deploy_package_includes_router_and_chat_shield():
     wf = (ROOT / ".github" / "workflows" / "nirvana-oracle-deploy.yml").read_text(encoding="utf-8")
     assert "templates core api services analytics config.yaml" in wf
     for need in ("core/llm_router.py", "api/chat_handler.py", "config.yaml",
-                 "services/qualification_analyzer.py", "analytics/audit_generator.py"):
+                 "services/outreach_engine.py", "analytics/audit_generator.py"):
         assert need in wf, f"deploy kapisinda {need} kilidi yok"
 
 
