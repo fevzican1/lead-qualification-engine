@@ -98,9 +98,26 @@ function ensureSid(cb){
     if(j&&j.sid){sid=j.sid;history.replaceState(null,"","/chat?sid="+sid);
       if(j.greeting)add("agent",j.greeting,null,true)}
     cb(sid);
-  }).catch(function(){sys("Baglanti hatasi — sayfayi yenileyin.");send.disabled=true});
+  }).catch(function(){send.disabled=true});  // zero-notice: musteriye hata yazilmaz
 }
-var ws=null,retry=0,greeted=false;
+var ws=null,retry=0,greeted=false,pending=[];
+// --- Akis suzucusu (zero-notice) -------------------------------------------
+// API SSE akisinda JSON hata govdesi ya da HTTP 404/500 donerse bunu metin
+// olarak asla basmayiz. '[object Object]' / raw JSON / HTTP hata satiri
+// sohbete girmez; cagiran `false` doner ve mesaj sessizce atlanir.
+// Musteriye hicbir "aksama/yeniden baglaniyor/hata" yazisi gosterilmez.
+function cleanReply(t){
+  if(t===null||t===undefined)return false;
+  if(typeof t!=="string")return false;                      // obje metin olamaz
+  var s=t.trim();
+  if(!s)return false;
+  if(s.indexOf("[object ")!==-1)return false;               // '[object Object]'
+  if((s[0]==="{"&&s[s.length-1]==="}")||(s[0]==="["&&s[s.length-1]==="]"))return false;
+  if(/^\s*(?:http\s+)?(?:error|detail|message|errors)?\s*:?\s*\{/i.test(s))return false;
+  if(s.length<=60&&/^(?:HTTP\s+)?(?:404|429|500|502|503|504)\b/i.test(s)&&
+     /(?:not\s*found|error|bad\s*request|internal|server|forbidden|unauthorized)/i.test(s))return false;
+  return s;
+}
 function connect(){
   ensureSid(function(id){
     if(!id)return;
@@ -110,32 +127,38 @@ function connect(){
     ws.onmessage=function(ev){
       try{var m=JSON.parse(ev.data)}catch(e){return}
       typing.style.display="none";
-      if(m.type==="agent"){add("agent",m.text,m.voice_url||null,!greeted);greeted=true;
+      if(m.type==="agent"){
+        var txt=cleanReply(m.text);
+        if(txt===false){typing.style.display="block";return} // sessiz atla (zero-notice)
+        add("agent",txt,m.voice_url||null,!greeted);greeted=true;
         if(m.score!=null)setChip(m.score,m.tone);}
       else if(m.type==="voice"&&m.voice_url){add("agent","Sesli not hazir — dinleyin:",m.voice_url,true)}
       else if(m.type==="ready"){st.textContent="Cevrimici — Teknik Ekip bagli"}
       else if(m.type==="error"){
         if(m.error==="unknown_session"){sid="";retry=0;try{ws.close()}catch(e){};connect();return}
-        sys(m.error||"hata");
+        // zero-notice: sunucudan gelen hata metni musteriye BASILMAZ.
       }
     };
-    ws.onclose=function(){if(retry>12){sys("Baglanti koptu — sayfayi yenileyin.");flushQueue(true);return}
-      st.textContent="Yeniden baglaniyor…";healthPing();setTimeout(connect,Math.min(8000,1000*Math.pow(2,retry++)))};
+    ws.onclose=function(){if(retry>=12){flushQueue(true);return}
+      healthPing();setTimeout(connect,Math.min(8000,1000*Math.pow(2,retry++)))};
     ws.onerror=function(){try{ws.close()}catch(e){}};
     // Gonderilememis metin kuyrugu: kopma/donma aninda yazilan kaybolmaz.
-    ws._pending=[];
-    ws._send=function(t){try{if(ws.readyState===1){ws.send(JSON.stringify({text:t}));return true}}catch(e){}ws._pending.push(t);return false};
-    ws._flush=function(){while(ws._pending.length&&ws.readyState===1){var t=ws._pending.shift();try{ws.send(JSON.stringify({text:t}))}catch(e){ws._pending.unshift(t);break}}};
+    // ONEMLI: kuyruk socket nesnesine degil, disarida tutulur — yeniden
+    // baglaninca yeni WebSocket olustugu icin socket uzerinde tutulsaydi
+    // kuyruk her reconnect'te sifirlanir ve mesajlar kalici kaybolurdu.
+    if(!pending.length)flushQueue(true);
+    ws._send=function(t){if(ws.readyState===1){try{ws.send(JSON.stringify({text:t}));return true}catch(e){}}pending.push(t);return false};
+    ws._flush=function(){while(pending.length&&ws.readyState===1){var t=pending.shift();try{ws.send(JSON.stringify({text:t}))}catch(e){pending.unshift(t);break}}};
     var _oldOpen=ws.onopen;ws.onopen=function(){_oldOpen();ws._flush()};
-    function flushQueue(show){if(ws&&ws._pending&&ws._pending.length&&show){sys(ws._pending.length+" ileti baglanti donunce gonderilecek.")}}
-    function healthPing(){fetch("/health",{cache:"no-store"}).then(function(r){if(!r.ok)st.textContent="Sunucu mesgul — otomatik tekrar denenecek"}).catch(function(){})}
+    function flushQueue(show){}  // zero-notice: kuyruk durumu musteriye yazilmaz
+    function healthPing(){fetch("/health",{cache:"no-store"}).catch(function(){})}
   });
 }
 audioOn.addEventListener("click",function(){audioBlocked=false;audioOn.style.display="none";
   var last=log.querySelectorAll("audio");if(last.length)playAudio(last[last.length-1])});
 var engaged=false,exitShown=false;
 function sendText(t){t=(t||"").trim();if(!t)return false;
-  if(ws&&ws._send){var wasOpen=(ws.readyState===1);add("user",t,null,false);inp.value="";typing.style.display="block";var ok=ws._send(t);if(!ok)sys("Baglanti zayif — iletiniz kuyrukta, baglaninca gonderilecek.");engaged=true;return true}
+  if(ws&&ws._send){add("user",t,null,false);inp.value="";typing.style.display="block";ws._send(t);engaged=true;return true}
   if(ws&&ws.readyState===1){add("user",t,null,false);inp.value="";typing.style.display="block";
     ws.send(JSON.stringify({text:t}));engaged=true;return true}
   inp.value=t;return false}

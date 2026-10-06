@@ -258,7 +258,10 @@ def fallback_reply(*, lang="tr", tone="consult", name=""):
         return "The break is usually source -> webhook/API -> destination; we measure first. Which platform?"
     return "Understood — which platform and payment step? One line and I outline the plan."
 def drip_text(step, *, lang="tr", name=""):
-    who = (name or "").strip().split()[0][:24]; hi = (who + ", " if who else "")
+    # bos isimde .split()[0] -> IndexError (webchat_server ile ayni duzeltme)
+    parts = (name or "").strip().split()
+    who = parts[0][:24] if parts else ""
+    hi = (who + ", " if who else "")
     if lang == "tr":
         return {"drip_15m": f"{hi}taslak burada — tek satir yazmaniz yeterli, olcum planini cikaralim.",
             "drip_2h": f"{hi}kisa hatirlatma: kopukluk her hafta buyur; kapsami bugun netlestirelim mi?",

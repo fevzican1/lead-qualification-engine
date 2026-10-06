@@ -71,8 +71,12 @@ jobs:
           # depodan dinamik türetilir.
           TOP_PY="$(git ls-tree -r --name-only HEAD | grep -E '^[^/]+\.py$' | tr '\n' ' ')"
           # templates: musteri sohbet UI'i (webchat_server /chat ile sunar).
+          # DIZIN PAKETLERI zorunlu: core/ (llm_router) + api/ (chat_handler)
+          # olmadan webchat_server'daki zirh importlari CALISMAZ; services/
+          # qualification_analyzer, analytics/ telegram_handoff icin gerekir.
+          # config.yaml: yerel Ollama model sabitleme (dis servisler pasif).
           git archive -o /tmp/nirvana-deploy.tgz HEAD $TOP_PY nirvana oracle knowledge \
-            templates requirements.txt .env.example
+            templates core api services analytics config.yaml requirements.txt .env.example
           test -s /tmp/nirvana-deploy.tgz
           # Liste dosyaya yazılır: 'tar | grep -q' + pipefail birlikte yanlış
           # sonuç verir (grep erken çıkınca tar SIGPIPE alıp "write error" der).
@@ -82,6 +86,8 @@ jobs:
           for need in heartbeat.py task_queue.py circuit_breaker.py config.py knowledge.py \
                       telegram_sales_bot.py auto_runner.py owner_notify.py payment_safety.py \
                       webchat_server.py webchat_core.py templates/chat.html \
+                      core/__init__.py core/llm_router.py api/__init__.py api/chat_handler.py \
+                      services/qualification_analyzer.py analytics/audit_generator.py config.yaml \
                       oracle/nirvana-webchat.service oracle/deploy_webchat.sh \
                       oracle/webchat-nginx.conf; do
             grep -qE "(^|/)${need}$" /tmp/nirvana-list.txt \

@@ -1,0 +1,14 @@
+# Model yapilandirmasi — core/llm_router.py bu dosyayi okur.
+# Oncelik: ortam degiskeni > bu dosya > kod ici varsayilan.
+#
+# YEREL OLLAMA TEK BIRINCIL KAYNAKTIR. Dis servisler (Groq/Cerebras/OpenRouter)
+# tamamen pasiftir; LLM_EXTERNAL_ENABLED=1 ile bile dis kaynakli 404/500/kota
+# hatasi musteriye asla yansimaz (core/llm_router.is_model_not_found).
+models:
+  primary: "ollama/qwen2.5:7b"        # birincil (yüksek kalite)
+  fast: "ollama/qwen2.5:3b"           # ultra hizli yanit (dense fallback)
+  base_url: "http://localhost:11434/v1"
+  num_ctx: 1024                       # dar baglam penceresi -> ön isleme ~ms
+  num_thread: 4                       # Ampere A1 (4 OCPU) ile eslesir
+  max_concurrency: 8                  # eszamanli musteri sohbeti
+  external_enabled: false             # dis servisler KAPALI

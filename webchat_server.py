@@ -100,7 +100,12 @@ def fallback_reply(*, lang="tr", tone="consult", name=""):
     if tone == "educate": return "Break is usually source-webhook/API-destination; we measure first. Which platform?"
     return "Understood - which platform and payment step? One line please."
 def drip_text(step, *, lang="tr", name=""):
-    who = (name or "").strip().split()[0][:24]; hi = (who + ", " if who else "")
+    # BOŞ/BOŞLUKLU isimde .split()[0] -> IndexError atiyordu; bu tek satir
+    # _drip_loop'unun TUM oturumlari turunu kesiyordu (biri isimsiz olunca
+    # baska musterilerin drip mesaji da gitmiyordu).
+    parts = (name or "").strip().split()
+    who = parts[0][:24] if parts else ""
+    hi = (who + ", " if who else "")
     if lang == "tr":
         return {"drip_15m": f"{hi}taslak burada - tek satir yazin, olcum planini cikaralim.", "drip_2h": f"{hi}kisa hatirlatma: kopukluk her hafta buyur; kapsami bugun netlestirelim mi?", "drip_24h": f"{hi}dunku bulgu gecerli - pilot slot icin bugun bir satir yeterli; degilse STOP."}.get(step, f"{hi}buradayim.")
     return {"drip_15m": f"{hi}still here - one line and I outline the plan.", "drip_2h": f"{hi}nudge: gap compounds weekly; scope today?", "drip_24h": f"{hi}finding stands - one line for pilot slot; STOP if not."}.get(step, f"{hi}here.")
@@ -258,6 +263,37 @@ async def _brain_reply(session, user_text):
     if not reply: reply = fallback_reply(lang=lang, tone=str(scored.get("tone") or "educate"), name=name)
     return audit_reply(reply, lang=lang), scored
 def _voice_path(sid): return VOICE_DIR / f"{re.sub(r'[^A-Za-z0-9_-]', '', str(sid))[:32]}.mp3"
+def _guarded_reply(text) -> dict:
+    """Musteriye giden HER agent metni buradan gecer (zero-notice zirhi).
+
+    JSON hata govdesi, '[object Object]' ve HTTP 404/500 metni suzulur.
+    Bozuk yanit bos doner -> cagiran mesaji ATLAR; musteriye hicbir hata
+    veya kesinti metni gosterilmez.
+
+    ASLA YUKSELMEZ: modul/paket eksik olsa bile (deploy paketinde core/api
+    bulunmasa) ic ice try/except yuzunden akis kirilmaz; son savunma olarak
+    satir-ici yerel denetim calisir.
+    """
+    def _local(t) -> dict:
+        # Paket disi son savunma hatti (saf Python, dis bagimlilik yok).
+        if t is None or isinstance(t, (dict, list)):
+            return {"text": "", "degraded": True}
+        s = str(t).strip()
+        if not s or "[object " in s or (s[:1] in "{[" and s[-1:] in "}]"):
+            return {"text": "", "degraded": True}
+        if len(s) <= 60 and re.match(r"^(?:HTTP\s+)?(?:404|429|500|502|503|504)\b", s, re.I):
+            return {"text": "", "degraded": True}
+        return {"text": s, "degraded": False}
+    try:
+        from api import chat_handler as _ch  # type: ignore
+        return _ch.guard_reply(text)
+    except Exception:
+        try:
+            from core.llm_router import sanitize_reply as _san
+            s, ok = _san(text)
+            return {"text": s if ok else "", "degraded": not ok}
+        except Exception:
+            return _local(text)
 async def ensure_voice(sid, text, *, lang="tr"):
     snippet = (text or "").strip()
     if not snippet: return None
@@ -455,17 +491,21 @@ def _reg_ws(f):
         return f
     @f.websocket("/ws/{sid}")
     async def ws_chat(ws: WebSocket, sid: str):  # type: ignore[name-defined]
-        # 6-madde HA: zamanasimi asmis oturum yeni sid dalina tasinir; kopan
+        # 6-madde HA: zamanasimi asmis oturum ayni sid ile tazelenir; kopan
         # istemci ayni sid ile donerse gecmis + karsilama diskten korunur.
         try:
             from api import chat_handler as _ch  # type: ignore
             if not _ch.session_alive(str(sid)):
                 _old = get_session(str(sid))
                 if _old and float(_old.get("last_at") or 0) > 0:
-                    row2, _s2 = ensure_session(str(sid) + "-r", lang=str(_old.get("lang") or "tr"))
-                    append_history(str(row2.get("sid")), "user", "(onceki oturum zamanasimi — devam)")
-        except Exception:
-            pass
+                    # ensure_session TEK deger dondurur; eski "row2, _s2 = ..." her
+                    # zaman ValueError atiyor ve sessizce yutuluyordu -> bu dal hic
+                    # calismiyordu. Oturumu ayni sid ile tazele (yedek sid degil,
+                    # istemci yine eski sid ile donuyor).
+                    append_history(str(sid), "user", "(onceki oturum zamanasimi — devam)")
+                    logger.info("oturum tazelendi (asili degil): %s", sid)
+        except Exception as _he:
+            logger.warning("oturum tazeleme atlandi %s: %s", sid, _he)
         await ws.accept(); _conns[str(sid)] = ws
         try:
             # Form linkiyle gelen musteri (dsXXXXXXXX token) icin oturum BURADA acilir:
@@ -523,7 +563,15 @@ def _reg_ws(f):
                 except asyncio.TimeoutError:
                     s0 = get_session(sid) or {}
                     res = {"reply": fallback_reply(lang=str(s0.get("lang") or "tr"), tone="consult", name=str(s0.get("name") or "")), "score": {"score": 20, "tone": "consult"}, "voice_url": None}
-                await ws.send_json({"type": "agent", "text": res.get("reply"), "score": (res.get("score") or {}).get("score"), "tone": (res.get("score") or {}).get("tone"), "voice_url": res.get("voice_url")})
+                # Akis zirhi (zero-notice): JSON hata govdesi / '[object Object]'
+                # / HTTP 404-500 metni MUSTERIYE GONDERILMEZ — sessizce atlanir,
+                # akis yerel Ollama'dan kesintisiz devam eder.
+                guarded = _guarded_reply(res.get("reply"))
+                if not guarded["text"]:
+                    logger.debug("bozuk yanit sessizce atlandi (sid=%s)", sid)
+                    continue
+                await ws.send_json({"type": "agent", "text": guarded["text"],
+                                    "score": (res.get("score") or {}).get("score"), "tone": (res.get("score") or {}).get("tone"), "voice_url": res.get("voice_url")})
         except Exception as exc: logger.warning("ws kapandi %s: %s", sid, exc)
         finally: _conns.pop(str(sid), None)
     return f

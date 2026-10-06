@@ -189,6 +189,9 @@ def chat(
         "options": {
             "temperature": temperature,
             "num_predict": max_tokens,
+            # Dar baglam + 4 CPU parcasi -> on isleme milisaniye (Ampere A1)
+            "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "1024") or 1024),
+            "num_thread": int(os.getenv("OLLAMA_NUM_THREAD", "4") or 4),
         },
     }
     last_exc: Optional[Exception] = None
@@ -226,6 +229,8 @@ def generate(
         "options": {
             "temperature": temperature,
             "num_predict": max_tokens,
+            "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "1024") or 1024),
+            "num_thread": int(os.getenv("OLLAMA_NUM_THREAD", "4") or 4),
         },
     }
     if system:
