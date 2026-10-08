@@ -75,8 +75,10 @@ jobs:
           # olmadan webchat_server'daki zirh importlari CALISMAZ; services/
           # qualification_analyzer, analytics/ telegram_handoff icin gerekir.
           # config.yaml: yerel Ollama model sabitleme (dis servisler pasif).
+          # config/ : B2B whitelabel system prompt (llm_router dinamik okur).
+          # pipeline/: otonom event dispatcher (partner_onboarded yayini tasir).
           git archive -o /tmp/nirvana-deploy.tgz HEAD $TOP_PY nirvana oracle knowledge \
-            templates core api services analytics config.yaml requirements.txt .env.example
+            templates core api services analytics config.yaml config pipeline requirements.txt .env.example
           test -s /tmp/nirvana-deploy.tgz
           # Liste dosyaya yazılır: 'tar | grep -q' + pipefail birlikte yanlış
           # sonuç verir (grep erken çıkınca tar SIGPIPE alıp "write error" der).
@@ -89,7 +91,10 @@ jobs:
                       core/__init__.py core/llm_router.py api/__init__.py api/chat_handler.py \
                       services/outreach_engine.py analytics/audit_generator.py config.yaml \
                       oracle/nirvana-webchat.service oracle/deploy_webchat.sh \
-                      oracle/webchat-nginx.conf; do
+                      oracle/webchat-nginx.conf \
+                      config/prompts/agency_partner.txt core/agency_state.py \
+                      core/premium_markets.py services/notifier.py pipeline_loader.py \
+                      pipeline/event_dispatcher.py; do
             grep -qE "(^|/)${need}$" /tmp/nirvana-list.txt \
               || { echo "::error::${need} pakette yok — deploy iptal (ModuleNotFoundError riski)"; exit 1; }
           done

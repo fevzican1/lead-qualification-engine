@@ -24,11 +24,55 @@ from typing import Any
 logger = logging.getLogger(__name__)
 FAST_TIMEOUT_S = float(os.getenv("LLM_FAST_TIMEOUT_S", "1.5") or 1.5)
 TOTAL_TIMEOUT_S = float(os.getenv("LLM_TOTAL_TIMEOUT_S", "6.0") or 6.0)
-MAX_CONCURRENCY = max(1, min(16, int(os.getenv("LLM_MAX_CONCURRENCY", "8") or 8)))
+# Sunucuyu koruyan guvenli ayar: en fazla 5 eszamanli LLM cagrisi.
+try:
+    _cap = int(os.getenv("LLM_MAX_CONCURRENCY", "5") or 5)
+except ValueError:
+    _cap = 5
+MAX_CONCURRENCY = max(1, min(5, _cap))
 NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "1024") or 1024)   # dar baglam penceresi
 NUM_THREAD = int(os.getenv("OLLAMA_NUM_THREAD", "4") or 4)   # CPU is parcalari
 EXTERNAL_ENABLED = os.getenv("LLM_EXTERNAL_ENABLED", "0").strip() == "1"
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# --- B2B Whitelabel: system prompt izolasyonu (dinamik dosya okuma) -----------
+AGENCY_PROMPT_PATH = os.getenv("AGENCY_PROMPT_PATH", "").strip() or os.path.join(_ROOT, "config", "prompts", "agency_partner.txt")
+_AGENCY_PROMPT_CACHE: dict[str, Any] = {"mtime": 0.0, "text": ""}
+AGENCY_MODEL = os.getenv("AGENCY_MODEL", "").strip() or "qwen2.5:3b"
+def load_agency_prompt(*, refresh: bool = False) -> str:
+    """config/prompts/agency_partner.txt dosyasindan oku (cache + fail-open)."""
+    try:
+        mtime = os.path.getmtime(AGENCY_PROMPT_PATH) if os.path.isfile(AGENCY_PROMPT_PATH) else 0.0
+    except OSError:
+        mtime = 0.0
+    if not refresh and _AGENCY_PROMPT_CACHE.get("text") and _AGENCY_PROMPT_CACHE.get("mtime") == mtime:
+        return str(_AGENCY_PROMPT_CACHE.get("text") or "")
+    text = ""
+    try:
+        if os.path.isfile(AGENCY_PROMPT_PATH):
+            with open(AGENCY_PROMPT_PATH, encoding="utf-8") as fh:
+                text = str(fh.read() or "").strip()
+    except Exception:
+        logger.debug("agency prompt okunamadi", exc_info=True)
+        text = ""
+    if not text:
+        text = "White-Label Altyapi Saglayicisi olarak davran. Ajanslari Whitelabel Retainer (5.000 EUR/ay) modeline dahil et. Kisa yaz, teknik hata yazma."
+    _AGENCY_PROMPT_CACHE["mtime"] = mtime
+    _AGENCY_PROMPT_CACHE["text"] = text
+    return text
+async def aload_agency_prompt() -> str:
+    try:
+        return await asyncio.to_thread(load_agency_prompt)
+    except Exception:
+        return load_agency_prompt()
+def agency_system_prompt() -> str:
+    return load_agency_prompt()
+def default_payment_link() -> str:
+    try:
+        import config as _cfg  # type: ignore
+        return str(getattr(_cfg, "PAYONEER_PAYMENT_URL", "") or "").strip()
+    except Exception:
+        return os.getenv("PAYONEER_PAYMENT_URL", "").strip()
+
 
 def _load_yaml() -> dict:
     """config.yaml'daki [models] blogu (yoksa bos dict — fail-open)."""
@@ -131,12 +175,23 @@ def litellm_proxy_config() -> dict:
             "cache_ttl_s": 86400, "fast_timeout_s": FAST_TIMEOUT_S,
             "total_timeout_s": TOTAL_TIMEOUT_S, "max_concurrency": MAX_CONCURRENCY}
 _sem_lock: asyncio.Semaphore | None = None
+_sem_loop: asyncio.AbstractEventLoop | None = None
 
 def _sem() -> asyncio.Semaphore:
-    """Eslesen model cagrisi kapisi (loop basina bir kez yaratilir)."""
-    global _sem_lock
-    if _sem_lock is None:
-        _sem_lock = asyncio.Semaphore(MAX_CONCURRENCY)
+    """Cokmesiz semafor: loop degisirse yeniden yaratilir, 5 tavan korunur."""
+    global _sem_lock, _sem_loop
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None  # type: ignore[assignment]
+    if _sem_lock is None or (_sem_loop is not None and loop is not None and _sem_loop is not loop):
+        try:
+            _sem_lock = asyncio.Semaphore(MAX_CONCURRENCY)
+        except Exception:
+            # Asiri yukte bile yukselme: kilitsiz gecici semafor.
+            _sem_lock = asyncio.Semaphore(1)
+        _sem_loop = loop
+    assert _sem_lock is not None
     return _sem_lock
 
 def _steps() -> list[tuple[str, float]]:
@@ -220,3 +275,59 @@ def route_sync(messages: list, **kw: Any) -> dict:
     except RuntimeError: return asyncio.run(aroute(messages, **kw))
     import concurrent.futures as cf
     with cf.ThreadPoolExecutor(1) as ex: return ex.submit(lambda: asyncio.run(aroute(messages, **kw))).result()
+
+# --- B2B Whitelabel onboarding chati (Ollama qwen2.5:3b) ----------------------
+async def aroute_agency(messages: list, *, session: dict | None = None, temperature: float = 0.6, max_tokens: int = 240, lang: str = "en") -> dict:
+    """Ajans ortak sohbeti: prompt dosyadan, model qwen2.5:3b, hata-izole."""
+    t0 = time.monotonic()
+    try:
+        system = await aload_agency_prompt()
+    except Exception:
+        system = load_agency_prompt()
+    pay_link = default_payment_link()
+    if pay_link and pay_link not in system:
+        system = system + "\nGuncel Payoneer istek baglantisi: " + pay_link
+    convo: list = [{"role": "system", "content": system}]
+    try:
+        convo.extend([m for m in (messages or []) if isinstance(m, dict)])
+    except Exception:
+        convo.append({"role": "user", "content": str(messages or "")[:1200]})
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None  # type: ignore[assignment]
+    last = ""
+    models = [AGENCY_MODEL, FAST_MODEL, PRIMARY_MODEL]
+    seen: list[str] = []
+    for m in models:
+        if m and m not in seen:
+            seen.append(m)
+    for model in seen:
+        try:
+            if loop is None:
+                txt = _local_call(model, convo, temperature=temperature, max_tokens=max_tokens, timeout=TOTAL_TIMEOUT_S)
+            else:
+                async with _sem():
+                    txt = await asyncio.wait_for(loop.run_in_executor(None, lambda _m=model: _local_call(_m, convo, temperature=temperature, max_tokens=max_tokens, timeout=TOTAL_TIMEOUT_S)), timeout=TOTAL_TIMEOUT_S + 2.0)
+        except Exception as e:
+            last = str(e)[:160]
+            logger.warning("agency llm %s fail: %s", model, last)
+            continue
+        safe, ok = sanitize_reply(txt)
+        if not ok:
+            last = "yanit suzuldu"
+            continue
+        return {"text": safe, "model": model, "latency_s": round(time.monotonic() - t0, 3)}
+    try:
+        import webchat_core as _wc
+        fb = _wc.fallback_reply(lang=lang if lang in ("tr", "en") else "en", tone="consult")
+    except Exception:
+        fb = "Teknik ekibimiz kisa surede donus yapacak."
+    safe, _ok = sanitize_reply(fb)
+    return {"text": safe if _ok else "", "model": "fallback", "latency_s": round(time.monotonic() - t0, 3), "error": last}
+
+def route_agency_sync(messages: list, **kw: Any) -> dict:
+    try: asyncio.get_running_loop()
+    except RuntimeError: return asyncio.run(aroute_agency(messages, **kw))
+    import concurrent.futures as cf
+    with cf.ThreadPoolExecutor(1) as ex: return ex.submit(lambda: asyncio.run(aroute_agency(messages, **kw))).result()

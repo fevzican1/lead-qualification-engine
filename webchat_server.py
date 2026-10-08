@@ -223,6 +223,73 @@ async def _brain_reply(session, user_text):
     if not session.get("lang"):
         try: put_session(sid, lang=lang)
         except Exception: pass
+    # --- B2B Whitelabel: suphe -> canli demo; ajans niyeti -> agency hatti ----
+    try:
+        from core import proof_demo as _pd
+        _site = _pd.extract_site(user_text or "")
+        if _site:
+            try:
+                _scan = await _pd.alive_scan_snippet(user_text or "")
+            except Exception:
+                _scan = ""
+            if _scan:
+                _scored_site = score_lead(user_text or "")
+                try:
+                    from core import margin_proof as _mp
+                    _scan = _scan + " || " + _mp.margin_line({"dom_ms": 1800, "bad_reqs": [], "slow_res": [1]}, lang=lang)
+                except Exception:
+                    pass
+                return audit_reply(_scan, lang=lang), _scored_site
+        if _pd.is_skeptic(user_text or ""):
+            _scored_sk = score_lead(user_text or "")
+            return audit_reply(_pd.demo_reply(lang), lang=lang), _scored_sk
+    except Exception:
+        logger.debug("proof_demo atlandi", exc_info=True)
+    try:
+        from core import agency_state as _ag
+        from core import llm_router as _agr
+        _pay = ""
+        try: _pay = str(_agr.default_payment_link() or "")
+        except Exception: _pay = ""
+        _nst, _ndata, _changed = _ag.next_state(session or {}, user_text or "", default_payment_link=_pay)
+        if _pay and not str(_ndata.get("payment_checkout_link") or "").strip():
+            _ndata["payment_checkout_link"] = _pay
+        if _nst != _ag.get_state(session) or _changed:
+            try: put_session(sid, partner_state=_nst, partner_data=_ndata)
+            except Exception: pass
+            try: session["partner_state"] = _nst; session["partner_data"] = _ndata
+            except Exception: pass
+        if _nst in (_ag.QUALIFIED, _ag.PARTNER_ONBOARDED):
+            _hist = list(session.get("history") or []) + [{"role": "user", "content": (user_text or "")[:1200]}]
+            try:
+                _routed = await _agr.aroute_agency(_hist[-MAX_HISTORY:], session=session, temperature=0.6, max_tokens=240, lang=lang)
+                _atext = str((_routed or {}).get("text") or "").strip()
+            except Exception:
+                _atext = ""
+            if _atext:
+                if _nst == _ag.PARTNER_ONBOARDED and not (session or {}).get("partner_notified"):
+                    try: put_session(sid, partner_notified=True, partner_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+                    except Exception: pass
+                    try:
+                        import pipeline_loader as _pl
+                        _payload = {"sid": sid, "agency_name": str(_ndata.get("agency_name") or ""), "contact_info": str(_ndata.get("contact_info") or ""), "payment_checkout_link": str(_ndata.get("payment_checkout_link") or _pay or "")}
+                        try: _pl.emit_sync("partner_onboarded", _payload)
+                        except Exception:
+                            try:
+                                import asyncio as _aio
+                                _aio.get_event_loop().create_task(_pl.emit("partner_onboarded", _payload))
+                            except Exception: pass
+                    except Exception: pass
+                    try:
+                        from services import notifier as _nt
+                        import asyncio as _aio2
+                        try: _aio2.get_event_loop().create_task(_nt.notify_partner_onboarded(str(_ndata.get("agency_name") or ""), str(_ndata.get("contact_info") or ""), str(_ndata.get("payment_checkout_link") or _pay or "")))
+                        except Exception: pass
+                    except Exception: pass
+                _scored_ag = score_lead(user_text or "")
+                return audit_reply(_atext, lang=lang), _scored_ag
+    except Exception:
+        logger.debug("agency hatti atlandi", exc_info=True)
     history = list(session.get("history") or []) + [{"role": "user", "content": (user_text or "")[:1200]}]
     history = history[-MAX_HISTORY:]
     scored = score_lead(user_text or "")
@@ -530,7 +597,11 @@ def _reg_ws(f):
                 from fastapi import WebSocketDisconnect as _D  # type: ignore
             except Exception: _D = Exception  # type: ignore
             while True:
-                try: data = await ws.receive_json()
+                try: data = await asyncio.wait_for(ws.receive_json(), timeout=300.0)
+                except asyncio.TimeoutError:
+                    try: await ws.send_json({"type": "ping"})
+                    except Exception: break
+                    continue
                 except _D: break
                 except Exception:
                     # Bozuk kare oturumu DUSURMEZ (kesintisiz musteri deneyimi).
@@ -559,7 +630,13 @@ def _reg_ws(f):
                         "score": int(s0.get("score") or 20), "tone": str(s0.get("tone") or "consult"),
                         "voice_url": None})
                     continue
-                try: res = await asyncio.wait_for(fut, timeout=150.0)
+                try:
+                    try:
+                        from core import b2b_targets as _bt
+                        _ws_timeout = float(_bt.WS_REPLY_TIMEOUT_S)
+                    except Exception:
+                        _ws_timeout = 150.0
+                    res = await asyncio.wait_for(fut, timeout=_ws_timeout)
                 except asyncio.TimeoutError:
                     s0 = get_session(sid) or {}
                     res = {"reply": fallback_reply(lang=str(s0.get("lang") or "tr"), tone="consult", name=str(s0.get("name") or "")), "score": {"score": 20, "tone": "consult"}, "voice_url": None}

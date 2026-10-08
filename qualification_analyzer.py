@@ -93,6 +93,18 @@ _FORM_PAIN = {
 def qualify_lead(lead: dict[str, Any], *, model: Optional[str] = None) -> dict[str, Any]:
     del model  # Form copy is evidence-based; DeepSeek is reserved for Telegram.
     updated = dict(lead)
+    # TR MUTLAK RED + premium pazar kilidi: TR hicbir yere gonderilmez.
+    try:
+        from core import premium_markets as _pm  # type: ignore
+        _url0 = str(lead.get("url") or "")
+        _txt0 = f"{lead.get('company_name') or ''} {lead.get('description') or ''} {lead.get('page_excerpt') or ''}"
+        _pv = _pm.qualifies_premium(_url0, _txt0, int(lead.get("budget_eur") or 5000))
+        updated["premium_verdict"] = _pv
+        if not _pv.get("ok"):
+            updated.update({"fit_score": 0, "fit_rationale": "Market disi: %s." % str(_pv.get("reason") or ""), "pain_points": [], "value_proposition": "", "form_subject": "", "should_contact": False, "risk_flags": ["market_excluded"]})
+            return updated
+    except Exception:
+        pass
     # 6-madde outreach notasyonu: Tier-1/TR/B2C hukmu karta islenir ancak mevcut
     # TR agirlikli boru hatti davranisi degismez (fail-open; testler yesil kalir).
     # Siki Tier-1 filtresi services.outreach_engine.submit() yolunda uygulanir.

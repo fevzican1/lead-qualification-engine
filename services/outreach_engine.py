@@ -23,6 +23,12 @@ def _host(u: str) -> str:
     except ValueError: return ""
 def is_excluded(url: str, text: str = "", excl=("TR",)) -> bool:
     if "TR" not in {s.upper() for s in excl}: return False
+    try:
+        from core import premium_markets as _pm  # type: ignore
+        if _pm.is_turkey(url, text):
+            return True
+    except Exception:
+        pass
     h = _host(url)
     if _TR_HOST.search(h): return True
     blob = f"{h} {text}"

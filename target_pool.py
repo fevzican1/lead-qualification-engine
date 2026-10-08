@@ -93,6 +93,12 @@ def stage_candidate(
     host = domain_store.host_of(canonical)
     if not canonical or not host:
         return
+    try:
+        from core import premium_markets as _pm  # type: ignore
+        if _pm.is_turkey(canonical, ""):
+            return
+    except Exception:
+        pass
     if optout.is_url_opted_out(canonical) or domain_store.is_enterprise(canonical):
         return
     payload = _load_review()
