@@ -22,11 +22,15 @@ def resolve_chat_id() -> str:
         if cid:
             return cid
     return ""
-def partner_message(agency: str, contact: str, link: str, model: str = "Whitelabel Retainer (5.000 EUR/ay)") -> str:
+def partner_message(agency: str, contact: str, link: str, model: str = "Whitelabel Retainer (5.000 EUR/ay)", profit_eur: Any = "") -> str:
     a = (agency or "-").strip() or "-"
     c = (contact or "-").strip() or "-"
     li = (link or "-").strip() or "-"
-    return ("YENI B2B IS ORTAGI KAZANILDI!\n-----------------------------------\nAjans: %s\nIletisim: %s\nModel: %s\nOdeme Baglantisi: %s" % (a, c, model, li))
+    msg = ("YENI B2B IS ORTAGI KAZANILDI!\n-----------------------------------\nAjans: %s\nIletisim: %s\nModel: %s\nOdeme Baglantisi: %s" % (a, c, model, li))
+    pe = str(profit_eur or "").strip()
+    if pe:
+        msg += "\nHesaplanan aylik net ek gelir: %s EUR/ay (kar recetesi)" % pe
+    return msg
 def _dedupe_key(agency: str, contact: str) -> str:
     raw = ("%s|%s" % ((agency or "").strip().lower(), (contact or "").strip().lower())).encode("utf-8", "ignore")
     return hashlib.sha256(raw).hexdigest()[:24]
@@ -121,17 +125,17 @@ class TelegramNotifier:
                 pass
             self._queue(body, high_priority)
             return False
-    async def notify_partner_onboarded(self, agency_name: str, contact_info: str, payment_checkout_link: str) -> bool:
+    async def notify_partner_onboarded(self, agency_name: str, contact_info: str, payment_checkout_link: str, profit_eur: str = "") -> bool:
         if already_notified(agency_name, contact_info):
             return True
-        ok = await self.send(partner_message(agency_name, contact_info, payment_checkout_link), high_priority=True)
+        ok = await self.send(partner_message(agency_name, contact_info, payment_checkout_link, profit_eur=profit_eur), high_priority=True)
         if ok:
             mark_notified(agency_name, contact_info)
         return ok
-async def notify_partner_onboarded(agency: str, contact: str, link: str, notifier=None) -> bool:
+async def notify_partner_onboarded(agency: str, contact: str, link: str, notifier=None, profit_eur: str = "") -> bool:
     nb = notifier or TelegramNotifier()
     try:
-        return await nb.notify_partner_onboarded(agency, contact, link)
+        return await nb.notify_partner_onboarded(agency, contact, link, profit_eur=profit_eur)
     except Exception:
         logger.debug("notify_partner izole hata", exc_info=True)
         return False

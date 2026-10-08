@@ -287,6 +287,15 @@ async def aroute_agency(messages: list, *, session: dict | None = None, temperat
     pay_link = default_payment_link()
     if pay_link and pay_link not in system:
         system = system + "\nGuncel Payoneer istek baglantisi: " + pay_link
+    # KÂR REÇETESİ bağlamı: demoda hesaplanan tek rakam sistem prompt'a eklenir —
+    # LLM uydurma/karışık rakam üretemez; form, demo ve webchat aynı sayıyı görür.
+    try:
+        _ctx = (session or {}).get("demo_context")
+        if isinstance(_ctx, dict) and _ctx.get("headline_eur"):
+            from core import profit_recipe as _pr  # type: ignore
+            system = system + "\n\n" + _pr.context_block(_ctx, lang=lang)
+    except Exception:
+        pass
     convo: list = [{"role": "system", "content": system}]
     try:
         convo.extend([m for m in (messages or []) if isinstance(m, dict)])

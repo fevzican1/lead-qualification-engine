@@ -272,7 +272,7 @@ async def _brain_reply(session, user_text):
                     except Exception: pass
                     try:
                         import pipeline_loader as _pl
-                        _payload = {"sid": sid, "agency_name": str(_ndata.get("agency_name") or ""), "contact_info": str(_ndata.get("contact_info") or ""), "payment_checkout_link": str(_ndata.get("payment_checkout_link") or _pay or "")}
+                        _payload = {"sid": sid, "agency_name": str(_ndata.get("agency_name") or ""), "contact_info": str(_ndata.get("contact_info") or ""), "payment_checkout_link": str(_ndata.get("payment_checkout_link") or _pay or ""), "monthly_profit_eur": int((session.get("demo_context") or {}).get("headline_eur") or 0) if isinstance(session.get("demo_context"), dict) else 0}
                         try: _pl.emit_sync("partner_onboarded", _payload)
                         except Exception:
                             try:
@@ -283,11 +283,32 @@ async def _brain_reply(session, user_text):
                     try:
                         from services import notifier as _nt
                         import asyncio as _aio2
-                        try: _aio2.get_event_loop().create_task(_nt.notify_partner_onboarded(str(_ndata.get("agency_name") or ""), str(_ndata.get("contact_info") or ""), str(_ndata.get("payment_checkout_link") or _pay or "")))
+                        _prof_eur = ""
+                        try:
+                            _d0 = session.get("demo_context") if isinstance(session, dict) else None
+                            if isinstance(_d0, dict): _prof_eur = str(_d0.get("headline_eur") or "")
+                        except Exception: _prof_eur = ""
+                        try: _aio2.get_event_loop().create_task(_nt.notify_partner_onboarded(str(_ndata.get("agency_name") or ""), str(_ndata.get("contact_info") or ""), str(_ndata.get("payment_checkout_link") or _pay or ""), profit_eur=_prof_eur))
                         except Exception: pass
                     except Exception: pass
                 _scored_ag = score_lead(user_text or "")
-                return audit_reply(_atext, lang=lang), _scored_ag
+                _final_ag = audit_reply(_atext, lang=lang)
+                # BÖLÜM 4 zirhi: en gec 2. ajans mesajinda net kapanis + Payoneer
+                # linki KOD tarafinda garanti edilir (LLM uretmezse de akar; audit
+                # URL'leri kesebilecegi icin link audit SONRASI eklenir).
+                try:
+                    _ctx2 = session.get("demo_context") if isinstance(session, dict) else None
+                    if isinstance(_ctx2, dict) and _ctx2.get("headline_eur") and _pay:
+                        _cnt = int(session.get("agency_msg_count") or 0) + 1
+                        try: put_session(sid, agency_msg_count=_cnt)
+                        except Exception: pass
+                        if _cnt >= 2 and _pay not in _final_ag:
+                            _final_ag = (f"{_final_ag}\n\nAylik net karinizi hemen artirmaya baslamak ve "
+                                         f"Whitelabel altyapi lisansinizi (5.000 EUR) aninda aktif etmek icin "
+                                         f"guvenli Payoneer odeme adimini tamamlayin: {_pay}")
+                except Exception:
+                    pass
+                return _final_ag, _scored_ag
     except Exception:
         logger.debug("agency hatti atlandi", exc_info=True)
     history = list(session.get("history") or []) + [{"role": "user", "content": (user_text or "")[:1200]}]
@@ -497,6 +518,21 @@ def _lazy_app():
         p = TEMPLATES_DIR / "chat.html"
         html = p.read_text(encoding="utf-8") if p.exists() else "<html><body><h1>DevSolve Live Chat</h1></body></html>"
         return HTMLResponse(html)
+    @f.get("/demo")
+    async def demo_page(agency: str = "", profit: str = "", clients: str = ""):
+        # BOLUM 3: ajansa ozel kanitli kar recetesi sayfasi. Rakam HER ZAMAN
+        # sunucuda girdilerden uretilir; URL'deki profit yalnizca capraz kontroldur
+        # (fark varsa kanonik hesap kazanir) -> form/demo/webchat ayni rakam,
+        # formatlar arasi kar marji karisikligi sifir.
+        try:
+            from core import profit_recipe as _pr
+            recipe = _pr.resolve(agency, clients=clients, requested_profit=profit)
+            tpl = TEMPLATES_DIR / "demo.html"
+            html = _pr.render_page(recipe, tpl.read_text(encoding="utf-8") if tpl.exists() else "")
+        except Exception as exc:
+            logger.warning("demo render fail: %s", exc)
+            html = "<html><body><h1>Demo</h1></body></html>"
+        return HTMLResponse(html)
     @f.post("/api/session")
     async def api_session(payload: dict[str, Any]):
         data = payload or {}
@@ -518,10 +554,36 @@ def _lazy_app():
         base = WEBCHAT_PUBLIC_URL or f"http://127.0.0.1:{WEBCHAT_PORT}"
         seeded = bool(row.get("brief"))
         insight = profile_insight(str(row.get("profile_key") or ""))
-        greet = row.get("greeting") or greeting(name=str(row.get("name") or ""),
-                                                lang=str(row.get("lang") or "tr"),
-                                                seeded=seeded, insight=insight,
-                                                source=str(row.get("source") or ""))
+        # Ajans demo linki (?agency=...): kanitli kar recetesi oturuma tohumlanir,
+        # partner hatti QUALIFIED'dan baslar ve karsilama hesaplanan rakami soyle
+        # (BÖLÜM 4: isim + hesaplanan net kar + guven cumlesi).
+        demo_ctx = None
+        agency_q = str(data.get("agency") or "")[:120]
+        if agency_q:
+            try:
+                from core import profit_recipe as _pr
+                demo_ctx = _pr.context_payload(_pr.resolve(
+                    agency_q, clients=str(data.get("clients") or "")[:8],
+                    requested_profit=str(data.get("profit") or "")[:16]))
+                try:
+                    from core import agency_state as _ag
+                    from core import llm_router as _lr
+                    put_session(sid, demo_context=demo_ctx,
+                                partner_state=_ag.QUALIFIED,
+                                partner_data={"agency_name": str(demo_ctx.get("agency") or agency_q),
+                                              "payment_checkout_link": str(_lr.default_payment_link() or "")})
+                except Exception:
+                    put_session(sid, demo_context=demo_ctx)
+            except Exception:
+                logger.debug("demo context atlandi", exc_info=True)
+                demo_ctx = None
+        if demo_ctx:
+            greet = row.get("greeting") or _pr.demo_greeting(demo_ctx, lang=str(lang or "tr"))
+        else:
+            greet = row.get("greeting") or greeting(name=str(row.get("name") or ""),
+                                                    lang=str(row.get("lang") or "tr"),
+                                                    seeded=seeded, insight=insight,
+                                                    source=str(row.get("source") or ""))
         if not row.get("greeting"):
             append_history(sid, "assistant", greet)
             put_session(sid, greeting=greet)
@@ -705,10 +767,18 @@ async def _worker_loop(idx, queue):
                     except Exception: link = ""
                     if link:
                         reply = f"{reply}\n\nOdeme adimi: {link}"
+                    _kar = ""
+                    try:
+                        _d1 = s2.get("demo_context") if isinstance(s2, dict) else None
+                        if isinstance(_d1, dict) and _d1.get("headline_eur"):
+                            _kar = f" | hesaplanan kar={_d1.get('headline_eur')} EUR/ay"
+                    except Exception:
+                        _kar = ""
                     await asyncio.to_thread(
                         notify_admin,
                         (f"ODEME ISTEGI (webchat) {who} skor={sc}"
                          f" | {'link GONDERILDI' if link else 'LINK YOK - PAYONEER_LINK kontrol'}"
+                         f"{_kar}"
                          f" | talep={(text or '')[:160]}"
                          f" | oturum={webchat_url(sid)}"),
                         high_priority=True)

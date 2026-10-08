@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${agency} İçin Hazırlanan Özel Whitelabel Kâr Reçetesi</title>
+<style>
+:root{--bg:#0b1020;--card:#121a33;--line:#24304f;--txt:#e8ecf7;--mut:#9aa6c4;--acc:#3ddc97;--cta:#ffb020}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(160deg,#0b1020,#141b3a);color:var(--txt);font:16px/1.55 system-ui,Segoe UI,Roboto,Arial,sans-serif}
+.wrap{max-width:920px;margin:0 auto;padding:32px 18px 64px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;margin-bottom:18px}
+h1{font-size:26px;margin:0 0 8px}
+h2{font-size:18px;margin:0 0 4px}
+.sub{color:var(--mut);font-size:14px}
+.big{font-size:22px;font-weight:700;color:var(--acc);margin:10px 0 0}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:14px}
+th,td{border-bottom:1px solid var(--line);padding:9px 8px;text-align:left;vertical-align:top}
+th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+td.v{white-space:nowrap;font-weight:600;color:var(--acc)}
+td.s{color:var(--mut);font-size:12.5px}
+.formula{font-family:ui-monospace,Consolas,monospace;font-size:13.5px;background:#0d1428;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px;overflow-x:auto}
+.flow{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.step{flex:1 1 210px;background:#0d1428;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:14px}
+.step b{color:var(--cta)}
+.cta{display:block;width:100%;border:0;border-radius:12px;background:var(--cta);color:#1a1200;font-size:18px;font-weight:700;padding:16px 18px;cursor:pointer;margin-top:6px}
+.note{color:var(--mut);font-size:12.5px;margin-top:12px}
+.badge{display:inline-block;background:#1b2a1f;border:1px solid #2f5a41;color:var(--acc);border-radius:999px;font-size:12px;padding:3px 10px;margin-bottom:10px}
+.ov{display:none;position:fixed;inset:0;background:rgba(4,7,18,.86);z-index:99;align-items:center;justify-content:center;padding:14px}
+.ovbox{width:min(480px,100%);height:min(720px,94vh);background:#fff;border-radius:16px;overflow:hidden;position:relative}
+.ovbox iframe{width:100%;height:100%;border:0;display:block}
+.ovclose{position:absolute;top:6px;right:8px;z-index:2;border:0;background:rgba(0,0,0,.45);color:#fff;font-size:20px;width:34px;height:34px;border-radius:50%;cursor:pointer}
+.altlink{display:inline-block;margin-top:10px;color:var(--acc);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+<span class="badge">Ozel hazirlandi</span>
+<h1>${agency} İçin Hazırlanan Özel Whitelabel Kâr Reçetesi</h1>
+<p class="sub">Sitenizdeki kurumsal müşteri portföyünüzü ve hizmetlerinizi inceledik; hesap aşağıdaki kanıt satırlarıyla sunucu tarafında üretildi.</p>
+<p class="big">${clients} Aktif Müşteri Portföyü Analizi → Otomasyon Eklentisiyle Aylık ${profit_fmt} € Net Ek Gelir.</p>
+</div>
+<div class="card">
+<h2>Rakamsal kanıt — adım adım döküm</h2>
+<p class="sub">Her satır kendi kaynağıyla listelenir; rakam URL ile oynanamaz.</p>
+<table>
+<thead><tr><th>Kalem</th><th>Değer</th><th>Kaynak / hesap</th></tr></thead>
+<tbody>${proof_rows}</tbody>
+</table>
+<div class="formula">${formula}</div>
+<p class="note">${band_note}</p>
+</div>
+<div class="card">
+<h2>İşleyiş özeti</h2>
+<p>Müşteriniz size öder, siz altyapı için sadece ${license_fmt} € lisans bedeli ödersiniz. Operasyon bizden, kâr ve marka sizden.</p>
+<div class="flow">
+<div class="step"><b>1) Müşteriniz size öder</b><br>${clients} portföy × ${price_fmt} €/ay — fatura sizin markanızla sizde.</div>
+<div class="step"><b>2) Altyapı bizden</b><br>Otomasyon, teslimat hatti ve olcum kartlari DevSolve tarafindan calisir.</div>
+<div class="step"><b>3) Tek seferlik lisans</b><br>${license_fmt} € Whitelabel altyapi lisansi (${amort_fmt} €/ay amortisman).</div>
+</div>
+</div>
+<div class="card">
+<button class="cta" id="ctaBtn" type="button">${cta_label}</button>
+<a class="altlink" href="${chat_url}">Buton calismazsa webchat'i dogrudan acin</a>
+<p class="note">Butona bastiginizda ayni kanitlanmis rakamla webchat acilir: isminizle ve hesaplanan ${profit_fmt} €/ay net karla karsilanirsiniz.</p>
+</div>
+</div>
+<div class="ov" id="ov"><div class="ovbox">
+<button class="ovclose" id="ovClose" type="button" aria-label="Kapat">×</button>
+<iframe id="ovFrame" title="Whitelabel kapanis sohbeti" src="about:blank"></iframe>
+</div></div>
+<script>
+(function(){var u="${chat_url}",ov=document.getElementById("ov"),f=document.getElementById("ovFrame");
+function open(){f.src=u;ov.style.display="flex"}function close(){ov.style.display="none";f.src="about:blank"}
+document.getElementById("ctaBtn").addEventListener("click",open);
+document.getElementById("ovClose").addEventListener("click",close);
+ov.addEventListener("click",function(e){if(e.target===ov){close()}});
+document.addEventListener("keydown",function(e){if(e.key==="Escape"){close()}})})();
+</script>
+</body>
+</html>

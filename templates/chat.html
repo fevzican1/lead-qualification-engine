@@ -68,7 +68,7 @@
 <audio id="greetAudio" style="display:none" controls autoplay></audio>
 <script>
 (function(){
-var q=new URLSearchParams(location.search);var sid=q.get("sid")||"";var nm=q.get("name")||"";
+var q=new URLSearchParams(location.search);var sid=q.get("sid")||"";var nm=q.get("name")||"";var agency=q.get("agency")||"",profit=q.get("profit")||"",clients=q.get("clients")||"";
 var utm={source:q.get("utm_source")||"",campaign:q.get("utm_campaign")||""};
 if(!utm.source&&document.referrer){try{utm.source=new URL(document.referrer).hostname.replace(/^www\./,"")}catch(e){}}
 var log=document.getElementById("log"),inp=document.getElementById("inp"),f=document.getElementById("f"),
@@ -93,7 +93,7 @@ function setChip(score,tone){if(score==null){chip.style.display="none";return}
 function ensureSid(cb){
   if(sid){cb(sid);return}
   fetch("/api/session",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({name:nm,lang:(navigator.language||"tr").slice(0,2),brief:"",form:{},utm:utm})})
+    body:JSON.stringify({name:nm,lang:(navigator.language||"tr").slice(0,2),brief:"",form:{},utm:utm,agency:agency,profit:profit,clients:clients})})
   .then(function(r){return r.json()}).then(function(j){
     if(j&&j.sid){sid=j.sid;history.replaceState(null,"","/chat?sid="+sid);
       if(j.greeting)add("agent",j.greeting,null,true)}
