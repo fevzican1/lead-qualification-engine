@@ -428,7 +428,12 @@ PIPELINE_TIMEOUT_SECONDS: int = _get_int("PIPELINE_TIMEOUT_SECONDS", 30)
 # auto_runner tek turda pipeline.py'yi bu duvar-saati sınırıyla koşar. Neden:
 # takılı bir Chromium/POST, timeout verilmediğinde form hattını saatlerce
 # kilitliyordu (canlı arıza 2026-09: son log 18:20'de kalıp gün boyu 0 form).
-PIPELINE_RUN_TIMEOUT_SECONDS: int = _get_int("PIPELINE_RUN_TIMEOUT_SECONDS", 2400)
+# 1 DAKIKA KURALI (kok duzeltme 2026-10-08): tur tavani 600s.
+# 2400s (40 dk) oldugunda her kilitlenme = 40 dk kayip + SAHTE 'hat canli'
+# bildirimiydi. 600s: 24 host'luk dilim 30s hard-wall ile ~12-15 dk'da biter;
+# kilitlenirse en fazla 10 dk kayip, Dis Nobetci (60s) taze turu atesler.
+# Deger asla 600s uzerine cikamaz; yuksek deger verilirse asagiya kelepcelenir.
+PIPELINE_RUN_TIMEOUT_SECONDS: int = min(_get_int("PIPELINE_RUN_TIMEOUT_SECONDS", 600), 600)
 DEFER_MINUTES: int = _get_int("DEFER_MINUTES", 20)
 HTTP_RESERVE_FOR_PIPELINE: int = _get_int("HTTP_RESERVE_FOR_PIPELINE", 20)
 CHROMIUM_DIRECT_MIN: int = _get_int("CHROMIUM_DIRECT_MIN", 65)
@@ -447,6 +452,9 @@ SITE_TIMEOUT_SECONDS: int = _get_int("SITE_TIMEOUT_SECONDS", 45)
 # _arm_hard_kill bunu kesinleştirir (duvar-saati dolan an tarayıcı pkill ile
 # imha edilir; ana motor/systemd asla durmaz).
 SUBMIT_HARD_TIMEOUT_SECONDS: float = _get_float("SUBMIT_HARD_TIMEOUT_SECONDS", 30.0)
+# KOD ICI HARD-KILL tavani (ms): browser.launch asla bundan uzun surmez.
+# 1 dakika kurali katman 3 — Dis Nobetci (60s) + systemd (60s) ile zincirlenir.
+PLAYWRIGHT_LAUNCH_TIMEOUT_MS: int = _get_int("PLAYWRIGHT_LAUNCH_TIMEOUT_MS", 25000)
 # Hard timeout ile karantinaya alınan host'un dokunulmazlık süresi (saat).
 SUBMIT_QUARANTINE_HOURS: float = _get_float("SUBMIT_QUARANTINE_HOURS", 6.0)
 # --- Submit verim kurtarma (2026-10 revizyonu) ------------------------------

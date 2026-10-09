@@ -68,7 +68,7 @@ print("OK — captcha_queue:", sf.CAPTCHA_QUEUE_NAME, "| max_workers=2 | $0 (par
 PY
 
 echo "[5/6] systemd unit + timer kurulumu"
-for f in nirvana-watchdog.service nirvana-watchdog.timer nirvana-idleguard.service nirvana-idleguard.timer nirvana-delivery.service nirvana-delivery.timer nirvana-deliveryworker.service nirvana-deliveryworker.timer nirvana-linkedin.service nirvana-linkedin.timer nirvana-captcha.service nirvana-captcha.timer nirvana-dispatch.service nirvana-dispatch.timer nirvana-salesbot.service nirvana-pipeline.service nirvana-fuel.service nirvana-fuel.timer nirvana-jobwatch.service nirvana-jobwatch.timer; do
+for f in nirvana-watchdog.service nirvana-watchdog.timer nirvana-supervisor.service nirvana-supervisor.timer nirvana-idleguard.service nirvana-idleguard.timer nirvana-delivery.service nirvana-delivery.timer nirvana-deliveryworker.service nirvana-deliveryworker.timer nirvana-linkedin.service nirvana-linkedin.timer nirvana-captcha.service nirvana-captcha.timer nirvana-dispatch.service nirvana-dispatch.timer nirvana-salesbot.service nirvana-pipeline.service nirvana-fuel.service nirvana-fuel.timer nirvana-jobwatch.service nirvana-jobwatch.timer; do
   # 217/USER kok nedeni: /etc'deki ESKI unit'te 'User=devsolve' kalmissa ve
   # VM'de o kullanici yoksa timer hic calismaz. install dosyayi ezer.
   install -m 644 "$UNIT_SRC/$f" /etc/systemd/system/
@@ -138,6 +138,7 @@ else
   done
 fi
 systemctl enable --now nirvana-watchdog.timer
+systemctl enable --now nirvana-supervisor.timer
 systemctl enable --now nirvana-idleguard.timer
 systemctl enable --now nirvana-delivery.timer
 systemctl enable --now nirvana-deliveryworker.timer

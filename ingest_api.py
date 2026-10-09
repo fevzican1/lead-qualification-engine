@@ -64,7 +64,16 @@ def handle_payment_webhook(payload: dict[str, Any]) -> dict[str, Any]:
         f"🎉 SATIŞ KAPANDI (webhook doğrulamalı)!\n💰 Tutar: {amount} {currency}\n"
         f"🌐 Müşteri: {who} (chat {chat_id})\n"
         f"⚙️ Durum: ödeme onaylandı — pipeline otomatik başlatıldı, insan onayı gerekmedi.")
-    return {"ok": True, "chat_id": chat_id, "company": who}
+    # ANINDA TEDARİK: portal + API anahtari + ilk teslimat isi + kontenjan kapatma.
+    # Hata-izole: tedarik basarisizligi webhook 200'unu engellemez.
+    provision_report: dict[str, Any] = {}
+    try:
+        from core import whitelabel_provision as _prov  # type: ignore
+        provision_report = _prov.provision_paid_chat(chat_id, amount=amount, currency=currency) or {}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Instant provisioning atlandi (chat %s): %s", chat_id, exc)
+        provision_report = {"ok": False, "reason": "provision_error"}
+    return {"ok": True, "chat_id": chat_id, "company": who, "provision": provision_report}
 
 
 def _token_ok(header_value: str | None) -> bool:

@@ -41,8 +41,13 @@ def _abort_types(types: frozenset[str], extra_ext: tuple[str, ...]) -> Callable[
 def launch_browser(playwright: Playwright, *, headless: bool | None = None) -> Browser:
     if headless is None:
         headless = config.HEADLESS
+    # KOD ICI HARD-KILL (1 dakika kurali, katman 3): HICBIR sayfa yukleme veya
+    # tarayici islemi 25 sn'den uzun suremez. Dis Nobetci (60s) + systemd
+    # WatchdogSec(60s) + bu 25s tavan = kilitlenme en fazla 60 sn yasar.
+    launch_timeout = int(float(getattr(config, "PLAYWRIGHT_LAUNCH_TIMEOUT_MS", 25000) or 25000))
     return playwright.chromium.launch(
         headless=headless,
+        timeout=launch_timeout,
         args=[
             "--disable-dev-shm-usage",
             "--disable-gpu",

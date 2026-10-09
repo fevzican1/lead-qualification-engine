@@ -24,17 +24,33 @@ td.s{color:var(--mut);font-size:12.5px}
 .step{flex:1 1 210px;background:#0d1428;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:14px}
 .step b{color:var(--cta)}
 .cta{display:block;width:100%;border:0;border-radius:12px;background:var(--cta);color:#1a1200;font-size:18px;font-weight:700;padding:16px 18px;cursor:pointer;margin-top:6px}
-.note{color:var(--mut);font-size:12.5px;margin-top:12px}
+.scarce{color:#ffd27a;font-size:13.5px;font-weight:600;margin-top:10px}
+.trust{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.tbadge{background:#0d1428;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--mut);padding:4px 12px}
 .badge{display:inline-block;background:#1b2a1f;border:1px solid #2f5a41;color:var(--acc);border-radius:999px;font-size:12px;padding:3px 10px;margin-bottom:10px}
 .ov{display:none;position:fixed;inset:0;background:rgba(4,7,18,.86);z-index:99;align-items:center;justify-content:center;padding:14px}
 .ovbox{width:min(480px,100%);height:min(720px,94vh);background:#fff;border-radius:16px;overflow:hidden;position:relative}
 .ovbox iframe{width:100%;height:100%;border:0;display:block}
 .ovclose{position:absolute;top:6px;right:8px;z-index:2;border:0;background:rgba(0,0,0,.45);color:#fff;font-size:20px;width:34px;height:34px;border-radius:50%;cursor:pointer}
 .altlink{display:inline-block;margin-top:10px;color:var(--acc);font-size:13px}
+.paybar{position:sticky;top:0;z-index:50;display:flex;gap:10px;align-items:center;justify-content:space-between;background:linear-gradient(90deg,#3a2400,#6b4200);border:1px solid #8a5f10;border-radius:12px;padding:10px 14px;margin-bottom:14px;font-size:13.5px}
+.paybar b{color:#ffd27a}
+.paybar a{background:var(--cta);color:#1a1200;font-weight:700;border-radius:10px;padding:8px 14px;text-decoration:none;white-space:nowrap}
+.sticky-cta{position:fixed;right:14px;bottom:14px;z-index:60;display:flex;gap:8px;align-items:center}
+.sticky-cta a{background:var(--cta);color:#1a1200;font-weight:800;border-radius:999px;padding:14px 20px;text-decoration:none;box-shadow:0 10px 30px rgba(0,0,0,.45);font-size:15px}
+#saleWidget{position:fixed;left:14px;bottom:14px;z-index:60;width:min(360px,calc(100vw - 28px));background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+#saleWidget .sw-head{padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px;font-weight:700}
+#saleWidget .sw-log{max-height:220px;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;font-size:13px}
+#saleWidget .sw-row{display:flex;gap:6px;padding:10px;border-top:1px solid var(--line)}
+#saleWidget input{flex:1;border:1px solid var(--line);background:#0a1327;color:var(--txt);border-radius:10px;padding:8px 10px;font-size:13px}
+#saleWidget button{border:0;border-radius:10px;padding:8px 12px;font-weight:700;background:var(--acc);color:#04263b;cursor:pointer}
+.sw-a{background:#1a2b52;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.sw-u{background:#243a6b;border-radius:10px;padding:8px 10px;align-self:flex-end}
 </style>
 </head>
 <body>
 <div class="wrap">
+<div class="paybar"><span>${pay_banner} <b id="payTimer">35:00:00</b></span><a href="${pay_url}">Lisansi Aktif Et</a></div>
 <div class="card">
 <span class="badge">Ozel hazirlandi</span>
 <h1>${agency} İçin Hazırlanan Özel Whitelabel Kâr Reçetesi</h1>
@@ -50,6 +66,8 @@ td.s{color:var(--mut);font-size:12.5px}
 </table>
 <div class="formula">${formula}</div>
 <p class="note">${band_note}</p>
+<p class="scarce">${scarcity}</p>
+
 </div>
 <div class="card">
 <h2>İşleyiş özeti</h2>
@@ -63,7 +81,11 @@ td.s{color:var(--mut);font-size:12.5px}
 <div class="card">
 <button class="cta" id="ctaBtn" type="button">${cta_label}</button>
 <a class="altlink" href="${chat_url}">Buton calismazsa webchat'i dogrudan acin</a>
+<div class="trust"><span class="tbadge">Sunucu tarafi hesap</span><span class="tbadge">URL ile degistirilemez</span><span class="tbadge">Ayni rakam chat kapanisinda</span></div>
+
 <p class="note">Butona bastiginizda ayni kanitlanmis rakamla webchat acilir: isminizle ve hesaplanan ${profit_fmt} €/ay net karla karsilanirsiniz.</p>
+<div class="sticky-cta"><a href="${pay_url}">Ortakligi Baslat / Paneli Kalici Yap</a></div>
+<div id="saleWidget"><div class="sw-head">Satis ekibi — sor, net cevabi al</div><div class="sw-log" id="swLog"></div><div class="sw-row"><input id="swInp" placeholder="Sorunuzu yazin..."><button id="swSend" type="button">Sor</button></div></div>
 </div>
 </div>
 <div class="ov" id="ov"><div class="ovbox">
@@ -73,6 +95,29 @@ td.s{color:var(--mut);font-size:12.5px}
 <script>
 (function(){var u="${chat_url}",ov=document.getElementById("ov"),f=document.getElementById("ovFrame");
 function open(){f.src=u;ov.style.display="flex"}function close(){ov.style.display="none";f.src="about:blank"}
+var exp=parseInt("${demo_expires_ts}"||"0",10),payUrl="${pay_url}",profitTxt="${profit_fmt}",licTxt="${license_fmt}",agencyTxt="${agency}",clientsTxt="${clients}";
+function tick(){try{var el=document.getElementById("payTimer");if(!el||!exp)return;var r=exp-Math.floor(Date.now()/1000);if(r<0)r=0;var h=Math.floor(r/3600),m=Math.floor(r%3600/60),s=r%60;function p(n){return(n<10?"0":"")+n}el.textContent=p(h)+":"+p(m)+":"+p(s)}catch(e){}}
+setInterval(tick,1000);tick();
+var swLog=document.getElementById("swLog"),swInp=document.getElementById("swInp"),swSend=document.getElementById("swSend");
+function swAdd(cls,txt,html){var d=document.createElement("div");d.className=cls;if(html){d.innerHTML=txt}else{d.textContent=txt}swLog.appendChild(d);swLog.scrollTop=swLog.scrollHeight}
+function swAnswer(q){q=(" "+(q||"")+" ").toLowerCase();
+if(q.indexOf("odeme")>=0||q.indexOf("payoneer")>=0||q.indexOf("link")>=0||q.indexOf("pay ")>=0||q.indexOf("nasil oder")>=0||q.indexOf("satin al")>=0){return "Odeme: Payoneer uzerinden tek seferlik "+licTxt+" EUR lisans. Odemeyi bu sayfadaki butondan yapin: <a href='"+payUrl+"'>Lisansi Aktif Et</a>. Webhook gelince sandbox milisaniyede kalici Whitelabel ortama donusur, portal + API anahtari otomatik acilir."}
+if(q.indexOf("sure")>=0||q.indexOf("saat")>=0||q.indexOf("demo")>=0||q.indexOf("bitiyor")>=0||q.indexOf("kac gun")>=0){return "Demo sandbox suresi 35 saattir, ustteki sayac isliyor. Sure dolmadan lisansi aktif edin, panel kalici olur. Kalan sure sayacta yaziyor."}
+if(q.indexOf("guven")>=0||q.indexOf("dolan")>=0||q.indexOf("garanti")>=0||q.indexOf("kanit")>=0){return "Rakamlar sunucu tarafinda uretildi, URL ile degistirilemez. Ayni "+profitTxt+" EUR/ay net kar demo, chat kapanisi ve bildirimde birebir aynidir. Operasyon DevSolve, fatura sizin markanizla sizde."}
+if(q.indexOf("nasil cal")>=0||q.indexOf("surec")>=0||q.indexOf("operasyon")>=0||q.indexOf("isleyis")>=0){return "1) Musteriniz size oder ("+clientsTxt+" portfoy). 2) Otomasyon ve teslimat DevSolve altyapisinda calisir. 3) Siz tek seferlik "+licTxt+" EUR lisans odersiniz. Kar ve marka sizde kalir."}
+if(q.indexOf("fiyat")>=0||q.indexOf("lisans")>=0||q.indexOf("ucret")>=0||q.indexOf("ne kadar")>=0||q.indexOf("price")>=0){return "Lisans tek seferlik "+licTxt+" EUR (aylik amortisman tabloda). Karsiliginda aylik "+profitTxt+" EUR net ek gelir hesaplandi ("+clientsTxt+" musteri). Deneme/bedava yok, net model budur."}
+if(q.indexOf("kar")>=0||q.indexOf("profit")>=0||q.indexOf("kazanc")>=0||q.indexOf("gelir")>=0){return agencyTxt+" icin hesaplanan net ek gelir: aylik "+profitTxt+" EUR ("+clientsTxt+" aktif musteri). Formul ve kanit tablosu yukarida, chatte ayni rakam karsiniza cikar."}
+if(q.indexOf("rakip")>=0||q.indexOf("fark")>=0||q.indexOf("neden siz")>=0||q.indexOf("benchmark")>=0){return "Fark: Crawl4AI + Playwright disposable browser hatti, sub-second hizda olcum. Supheniz varsa bir domain verin, canli tarama ciktisini paylasalim. Uydurma metrik yok, gozlemlenen deger var."}
+if(q.indexOf("iptal")>=0||q.indexOf("iade")>=0||q.indexOf("vazgec")>=0){return "Lisans tek seferliktir, abonelik tuzagi yok. Sandbox odemeden once 35 saat aciktir; odeme sonrasi kalici ortama gecersiniz, cikmak isterseniz markaniz ve musteri faturalari sizde kalir."}
+if(q.indexOf("destek")>=0||q.indexOf("kurulum")>=0||q.indexOf("kim")>=0||q.indexOf("iletisim")>=0||q.indexOf("insan")>=0){return "Kurulum ve operasyon DevSolve tarafinda. Sorunuzu buraya yazin veya sagdaki kapanis sohbetini acin, teknik ekip ayni rakamla devam eder."}
+return "Net ozet: "+agencyTxt+" icin aylik "+profitTxt+" EUR net ek gelir, tek seferlik "+licTxt+" EUR lisans, 35 saatlik sandbox. Baslamak icin: <a href='"+payUrl+"'>Payoneer ile Lisansi Aktif Et</a> veya kapanis sohbetini acin."}
+function swAsk(){var q=swInp.value||"";if(!q.trim())return;swAdd("sw-u",q,false);swInp.value="";swAdd("sw-a","...",false);
+var payload={agency:agencyTxt,profit:profitTxt,clients:clientsTxt,lang:"tr",question:q};
+function local(){var d=swLog.lastChild;if(d)d.parentNode.removeChild(d);swAdd("sw-a",swAnswer(q),true)}
+try{fetch("/api/demo-ask",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}).then(function(r){return r.json()}).then(function(j){var d=swLog.lastChild;if(d)d.parentNode.removeChild(d);if(j&&j.reply){swAdd("sw-a",String(j.reply),false)}else{local()}}).catch(function(){local()})}catch(e){local()}}
+if(swSend){swSend.addEventListener("click",swAsk)}
+if(swInp){swInp.addEventListener("keydown",function(e){if(e.key==="Enter"){swAsk()}})}
+swAdd("sw-a","Merhaba, "+agencyTxt+" icin hesaplanan aylik "+profitTxt+" EUR net kari sorabilirsiniz. Ornek: odeme nasil, sure ne kadar, guven nedir?",false);
 document.getElementById("ctaBtn").addEventListener("click",open);
 document.getElementById("ovClose").addEventListener("click",close);
 ov.addEventListener("click",function(e){if(e.target===ov){close()}});

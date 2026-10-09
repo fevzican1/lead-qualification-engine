@@ -248,6 +248,30 @@ def context_block(payload: dict, *, lang: str = "tr") -> str:
             % (p.get("agency") or "-", profit, clients, first, p.get("formula") or "-"))
 
 
+def scarcity_suffix(payload: dict, lang: str = "tr") -> str:
+    try:
+        from core import whitelabel_slots as _slots  # type: ignore
+        ag = ""
+        try:
+            ag = str((payload or {}).get("agency") or "")
+        except Exception:
+            ag = ""
+        return _slots.scarcity_line(_slots.segment_of(ag), lang=lang) or ""
+    except Exception:
+        return ""
+
+
+def context_block_plus(payload: dict, lang: str = "tr") -> str:
+    base = context_block(payload, lang=lang)
+    try:
+        extra = scarcity_suffix(payload, lang)
+        if extra and extra not in base:
+            base = base + "\n" + extra
+    except Exception:
+        pass
+    return base
+
+
 def demo_greeting(payload: dict, *, lang: str = "tr") -> str:
     """BÖLÜM 4 karşılama: ajans adı + hesaplanan net kâr + güven cümlesi."""
     p = payload or {}
@@ -265,6 +289,35 @@ def demo_greeting(payload: dict, *, lang: str = "tr") -> str:
             "hazırız. Operasyon bizde, faturalandırma sizin logonuzla sizde. "
             "Tek soru: ilk ay kaç müşteriye paketi sunacaksınız?"
             % (agency, profit, clients))
+
+
+def pay_url() -> str:
+    """Canli Payoneer odeme linki (fail-open: bos ise sablon duzgun duser)."""
+    try:
+        import config as _cfg  # type: ignore
+        return str(getattr(_cfg, "PAYONEER_PAYMENT_URL", "") or "").strip()
+    except Exception:
+        pass
+    try:
+        return (os.getenv("PAYONEER_PAYMENT_URL", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def demo_expires_ts(hours: int = 35) -> int:
+    """Demo sandbox bitis damgasi (epoch sn): simdi + 35 saat."""
+    try:
+        return int(time.time()) + int(hours) * 3600
+    except (TypeError, ValueError):
+        return int(time.time()) + 35 * 3600
+
+
+def pay_banner_tr() -> str:
+    return ("Demo sureniz doluyor - Lisansi aktif edin, sandbox kalici Whitelabel ortama donusur.")
+
+
+def pay_banner_en() -> str:
+    return ("Your demo is expiring - activate the license and the sandbox becomes permanent Whitelabel.")
 
 
 def chat_url(payload: dict) -> str:
@@ -309,6 +362,10 @@ def render_page(recipe: dict, template_html: str) -> str:
         "proof_rows": rows,
         "band_note": band_note,
         "cta_label": "%s €/Ay Ek Gelir İçin Whitelabel Lisansını Aktif Et" % money(r.get("headline_eur") or 0),
+        "scarcity": scarcity_suffix(r, "tr"),
+        "pay_url": pay_url(),
+        "demo_expires_ts": str(demo_expires_ts()),
+        "pay_banner": pay_banner_tr(),
         "chat_url": chat_url(r),
         "generated_at": _clean(r.get("generated_at")),
     }

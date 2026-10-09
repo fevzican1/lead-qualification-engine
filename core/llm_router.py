@@ -293,7 +293,11 @@ async def aroute_agency(messages: list, *, session: dict | None = None, temperat
         _ctx = (session or {}).get("demo_context")
         if isinstance(_ctx, dict) and _ctx.get("headline_eur"):
             from core import profit_recipe as _pr  # type: ignore
-            system = system + "\n\n" + _pr.context_block(_ctx, lang=lang)
+            try:
+                _blk = _pr.context_block_plus(_ctx, lang=lang)
+            except Exception:
+                _blk = _pr.context_block(_ctx, lang=lang)
+            system = system + "\n\n" + _blk
     except Exception:
         pass
     convo: list = [{"role": "system", "content": system}]

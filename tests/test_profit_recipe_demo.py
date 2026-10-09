@@ -61,6 +61,30 @@ def test_demo_page_renders_bolum3_layout():
     assert "${" not in html  # yer tutucusuz render
 
 
+def test_demo_payoneer_trio_renders():
+    """Payoneer uclusu: sabit CTA + 35 saat bandi + webhook tedarik hatti."""
+    from core import profit_recipe as p
+    rec = p.resolve("Nova Medya", clients="12")
+    tpl = (ROOT / "templates" / "demo.html").read_text(encoding="utf-8")
+    html = p.render_page(rec, tpl)
+    assert "paybar" in html and "payTimer" in html          # 1) sayacli banner
+    assert "sticky-cta" in html and "Paneli Kalici Yap" in html  # 2) sabit buton
+    assert "link.payoneer.com" in html                      # canli odeme linki
+    assert "${" not in html
+    assert p.demo_expires_ts() > int(__import__("time").time()) + 34 * 3600
+    src = (ROOT / "ingest_api.py").read_text(encoding="utf-8")
+    assert "provision_paid_chat" in src                     # 3) webhook->tedarik
+
+
+def test_demo_widget_hits_live_brain():
+    """Satis widget'i CANLI beyne bagli: once /api/demo-ask, dusus yerel."""
+    html = (ROOT / "templates" / "demo.html").read_text(encoding="utf-8")
+    assert "saleWidget" in html and "/api/demo-ask" in html
+    src = (ROOT / "webchat_server.py").read_text(encoding="utf-8")
+    assert '"/api/demo-ask"' in src and "_brain_reply" in src
+    assert "demo-widget" in src and "demo_context" in src
+
+
 def test_router_appends_recipe_and_prompt_has_closing():
     from core import llm_router as r
     src = (ROOT / "core" / "llm_router.py").read_text(encoding="utf-8")

@@ -421,6 +421,48 @@ def greeting(*, name="", lang="tr", seeded=False, insight="", source=""):
     return (f"Hello {who}{src_note}DevSolve technical team here. {ins_line}Write your platform in one line "
             "and I'll outline the measurement plan.")
 
+# --- Whitelabel retargeting: demoyu gorup odemeyen ajanslar (12s/24s/48s) ----
+AGENCY_DRIP_STEPS = (("adrip_12h", 12*3600), ("adrip_24h", 24*3600), ("adrip_48h", 48*3600))
+AGENCY_DRIP_TOL = {"adrip_12h": 3600.0, "adrip_24h": 3600.0, "adrip_48h": 7200.0}
+
+def is_agency_lead(row) -> bool:
+    """Retargeting havuzu: demo gormus ya da ortaklik hattina girmis, odememis."""
+    try:
+        r = row or {}
+        if r.get("partner_paid"):
+            return False
+        if isinstance(r.get("demo_context"), dict) and (r["demo_context"] or {}).get("headline_eur"):
+            return True
+        if str(r.get("partner_state") or "") in ("QUALIFIED", "PARTNER_ONBOARDED"):
+            return True
+    except Exception:
+        pass
+    return False
+
+def agency_drip_text(step, *, lang="tr", name="", profit=""):
+    first = (name or "").strip().split()[0] if (name or "").strip() else ""
+    who = f"{first} — " if first else ""
+    kar = f" ({profit} EUR/ay net kar)" if str(profit or "").strip() else ""
+    en = (lang or "tr").lower().startswith("en")
+    if step == "adrip_12h":
+        if en:
+            return (f"{who}quick one: your receipt{kar} is still open. "
+                    "One question: how many clients will you pitch first?")
+        return (f"{who}hizli bir soru: kar receteniz{kar} hala acik. "
+                "Ilk ay kac musterinize paketi sunacaksiniz?")
+    if step == "adrip_24h":
+        if en:
+            return (f"{who}demo vs whitelabel: same clients, one automation layer. "
+                    "Want me to map your first 3 clients to the package?")
+        return (f"{who}mevcut durum vs whitelabel: ayni portfoy, tek otomasyon katmani. "
+                "Ilk 3 musterinizi pakete esleyelim mi?")
+    # adrip_48h — son cagri + kontenjan
+    if en:
+        return (f"{who}last call: your segment holds max 3 whitelabel partners. "
+                "Reply START and I open your payment step.")
+    return (f"{who}son cagri: segmentinizde en fazla 3 whitelabel ortak kontenjani var. "
+            "BASLA yazin, odeme adiminizi acayim.")
+
 def append_history(sid, role, content):
     _ensure_loaded()
     with _store_lock:

@@ -6,6 +6,10 @@ from __future__ import annotations
 import asyncio, hashlib, json, logging, os, re, time, uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+try:  # annotation, _lazy_app icinde de gorunur olsun (modul globals)
+    from fastapi import Request  # type: ignore
+except Exception:  # pragma: no cover - fastapi yoksa sunucu zaten acilmaz
+    Request = Any  # type: ignore
 logger = logging.getLogger("webchat")
 try:
     import config  # type: ignore
@@ -417,6 +421,8 @@ async def ensure_voice(sid, text, *, lang="tr"):
 # import onlari GOLGELER — testler (tests/test_webchat.py) core'u dogruladigi icin
 # test edilen davranis = canli davranis. Yeni kural buraya degil core'a yazilir.
 from webchat_core import (  # noqa: E402
+    AGENCY_DRIP_STEPS as _CORE_AGENCY_DRIP_STEPS,
+    AGENCY_DRIP_TOL as _CORE_AGENCY_DRIP_TOL,
     DRIP_STEPS as _CORE_DRIP_STEPS,
     DRIP_TOL as DRIP_TOLERANCE,
     MAX_HISTORY as _CORE_MAX_HISTORY,
@@ -432,6 +438,7 @@ from webchat_core import (  # noqa: E402
     WEBCHAT_PUBLIC_URL as _CORE_WEBCHAT_PUBLIC_URL,
     _voice_path as _core_voice_path,
     all_sessions as _core_all_sessions,
+    agency_drip_text as _core_agency_drip_text,
     append_history as _core_append_history,
     audit_reply as _core_audit_reply,
     build_prompt as _core_build_prompt,
@@ -441,6 +448,7 @@ from webchat_core import (  # noqa: E402
     ensure_session as _core_ensure_session,
     fallback_reply as _core_fallback_reply,
     get_session as _core_get_session,
+    is_agency_lead as _core_is_agency_lead,
     greeting as _core_greeting,
     mark_drip as _core_mark_drip,
     notify_admin as _core_notify_admin,
@@ -459,6 +467,8 @@ from webchat_core import (  # noqa: E402
 )
 
 # Golgeleme (canli yol core'dan akar):
+AGENCY_DRIP_STEPS = _CORE_AGENCY_DRIP_STEPS
+AGENCY_DRIP_TOL = _CORE_AGENCY_DRIP_TOL
 DRIP_STEPS = _CORE_DRIP_STEPS
 MAX_HISTORY = _CORE_MAX_HISTORY
 N_WORKERS = _CORE_N_WORKERS
@@ -474,6 +484,7 @@ WEBCHAT_PUBLIC_URL = _CORE_WEBCHAT_PUBLIC_URL
 _voice_path = _core_voice_path
 all_sessions = _core_all_sessions
 append_history = _core_append_history
+agency_drip_text = _core_agency_drip_text
 audit_reply = _core_audit_reply
 build_system_prompt = _core_build_prompt
 create_session = _core_create_session
@@ -503,7 +514,7 @@ app = None; _conns: dict[str, Any] = {}; _queues: list = []; _tasks: list = []
 def _lazy_app():
     global app
     if app is not None: return app
-    from fastapi import FastAPI, WebSocket  # type: ignore
+    from fastapi import FastAPI, Request, WebSocket  # type: ignore
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse  # type: ignore
     f = FastAPI(title="Nirvana Web Live Chat Engine", version="1.0.0")
     @f.get("/health")
@@ -531,8 +542,107 @@ def _lazy_app():
             html = _pr.render_page(recipe, tpl.read_text(encoding="utf-8") if tpl.exists() else "")
         except Exception as exc:
             logger.warning("demo render fail: %s", exc)
-            html = "<html><body><h1>Demo</h1></body></html>"
+            try:
+                from core import profit_recipe as _prfb  # type: ignore
+                html = _prfb.render_page({}, "")
+            except Exception:
+                html = "<!doctype html><html lang='tr'><body><p>Demo hazirlaniyor - <a href='/chat'>canli sohbete gecin</a>.</p></body></html>"
         return HTMLResponse(html)
+
+    @f.get("/demo/")
+    async def _demo_slash(request: Request):
+        try:
+            qs = str(request.url.query or "")
+            return RedirectResponse(url="/demo" + ("?" + qs if qs else ""), status_code=307)
+        except Exception:
+            return RedirectResponse(url="/demo", status_code=307)
+    @f.get("/api/demo-ask")
+    async def _demo_ask_info():
+        return JSONResponse({"ok": True, "usage": "POST {agency,profit,clients,lang,question}"})
+
+    @f.post("/api/demo-ask")
+    async def _demo_ask(req: Request):
+        from fastapi.responses import JSONResponse as _JR
+        try:
+            return await _demo_ask_impl(req)
+        except Exception as exc_outer:
+            logger.warning("demo-ask outer fail: %s", exc_outer)
+            try:
+                from core import profit_recipe as _prf  # type: ignore
+                _r = _prf.resolve("Partner Ajans")
+                _fb = _prf.demo_greeting(_prf.context_payload(_r), lang="tr")
+            except Exception:
+                _fb = "Hesaplanan kar ile devam edelim - sorunuzu tek cumleyle yazin."
+            return _JR({"ok": True, "reply": _fb, "agency": "Partner Ajans",
+                        "profit": 22000, "clients": 12})
+
+    async def _demo_ask_impl(req: Request):
+        try:
+            body = await req.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        agency = str(body.get("agency") or "")[:48]
+        question = str(body.get("question") or body.get("text") or "")[:1200]
+        lang = str(body.get("lang") or "tr")[:8] or "tr"
+        if not question.strip():
+            return JSONResponse({"ok": False, "error": "empty_question"})
+        try:
+            profit_n = int(float(str(body.get("profit") or "0").replace(".", "").replace(",", ".")))
+        except (TypeError, ValueError):
+            profit_n = 0
+        try:
+            clients_n = int(float(str(body.get("clients") or "0")))
+        except (TypeError, ValueError):
+            clients_n = 0
+        if profit_n <= 0:
+            try:
+                from core import profit_recipe as _pr0  # type: ignore
+                _r0 = _pr0.resolve(agency or "Partner Ajans", clients=str(clients_n or None) if clients_n else None)
+                profit_n = int(_r0.get("headline_eur") or 0)
+                clients_n = clients_n or int(_r0.get("clients") or 0)
+            except Exception:
+                pass
+        agency = agency or "Partner Ajans"
+        sid = "demo-" + hashlib.md5(agency.encode()).hexdigest()[:12]
+        sess = ensure_session(sid, name=agency, lang=lang[:2] if lang[:2] in ("tr", "en") else "tr", source="demo-widget")
+        try:
+            from core import profit_recipe as _pr  # type: ignore
+            _r = _pr.resolve(agency, clients=str(clients_n) if clients_n else None)
+            put_session(sid, demo_context=_pr.context_payload(_r), partner_state="QUALIFIED",
+                        partner_data={"agency_name": agency})
+            sess = get_session(sid) or sess
+        except Exception:
+            pass
+        try:
+            try:
+                reply, _sc = await asyncio.wait_for(_brain_reply(sess, question), timeout=8.0)
+            except asyncio.TimeoutError:
+                logger.warning("demo-ask beyin zamanasimi (8s) - fallback")
+                reply = ""
+        except Exception as exc:
+            logger.warning("demo-ask beyin hatasi: %s", exc)
+            reply = ""
+        if not (reply or "").strip():
+            try:
+                from core import profit_recipe as _pr2  # type: ignore
+                _r2 = _pr2.resolve(agency, clients=str(clients_n) if clients_n else None)
+                reply = _pr2.demo_greeting(_pr2.context_payload(_r2), lang="tr") + " Sorunuzu tek cumleyle yazin, olcum planini cikaralim."
+            except Exception:
+                reply = "Anladim — tek cumleyle yazin, olcum planini cikaralim."
+        if not (reply or "").strip():
+            pass
+        try:
+            from core import llm_router as _payr  # type: ignore
+            _pay0 = str(_payr.default_payment_link() or "")
+            if _pay0 and _pay0 not in (reply or "") and ("payoneer" in (reply or "").lower() or "odeme" in (reply or "").lower() or "lisans" in (reply or "").lower() or len((reply or "")) < 400):
+                reply = (reply or "").rstrip() + " Guvenli Payoneer adimi: " + _pay0
+        except Exception:
+            pass
+        return JSONResponse({"ok": True, "reply": reply, "agency": agency,
+                             "profit": profit_n, "clients": clients_n})
+
     @f.post("/api/session")
     async def api_session(payload: dict[str, Any]):
         data = payload or {}
@@ -805,6 +915,28 @@ async def _drip_loop():
                 if last <= 0: continue
                 age = now - last; sent = set(row.get("drips_sent") or [])
                 lang = str(row.get("lang") or "tr"); name = str(row.get("name") or "")
+                # Whitelabel retargeting: demoyu gorup odemeyen ajans -> 12s/24s/48s.
+                try:
+                    _is_ag = bool(_core_is_agency_lead(row))
+                except Exception:
+                    _is_ag = False
+                if _is_ag:
+                    try:
+                        _dctx = row.get("demo_context") if isinstance(row, dict) else None
+                        _profit = str((_dctx or {}).get("headline_eur") or "") if isinstance(_dctx, dict) else ""
+                    except Exception:
+                        _profit = ""
+                    for step, at in AGENCY_DRIP_STEPS:
+                        if step in sent: continue
+                        if age >= at and age <= at + max(AGENCY_DRIP_TOL.get(step, 3600.0), 600.0):
+                            t = agency_drip_text(step, lang=lang, name=name, profit=_profit)
+                            append_history(sid, "assistant", t); mark_drip(sid, step)
+                            ws = _conns.get(sid)
+                            if ws is not None:
+                                try: await ws.send_json({"type": "agent", "kind": step, "text": t})
+                                except Exception: push_inbox(sid, t, kind=step)
+                            else: push_inbox(sid, t, kind=step)
+                    continue
                 for step, at in DRIP_STEPS:
                     if step in sent: continue
                     if age >= at and age <= at + max(DRIP_TOLERANCE.get(step, 300.0), 600.0):

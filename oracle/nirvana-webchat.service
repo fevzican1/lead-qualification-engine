@@ -26,6 +26,8 @@ LimitNOFILE=4096
 # WATCHDOG=1 sinyali 30 sn gelmezse systemd SIGABRT ile oldurup 1 sn icinde
 # tertemiz bellekle yeniden baslatir. Oturumlar diske senkron (veri kaybi yok).
 # Onunde nginx reverse-proxy (80/443 -> 127.0.0.1:8765).
+# 1 DAKIKA KURALI disari bagimli degil: ic nabiz 15 sn, systemd tavan 30 sn.
+# OOM kilidi: bellek 3 GB'i gecerse systemd temiz restart (kilitlenme yok).
 
 [Install]
 WantedBy=multi-user.target

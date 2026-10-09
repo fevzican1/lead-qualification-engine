@@ -478,15 +478,26 @@ def main() -> None:
             if pipeline_code == 124:
                 logger.error(
                     "pipeline turu %ss sınırında kesildi — takılı Chromium öldürüldü",
-                    getattr(config, "PIPELINE_RUN_TIMEOUT_SECONDS", 2400),
+                    getattr(config, "PIPELINE_RUN_TIMEOUT_SECONDS", 600),
                 )
+                # DOGRULUK KAPISI: 'Hat canli' iddiasi YASAK — once olc, sonra konus.
+                # 0 form + timeout = SAHTE canlilik degil, gercek kesinti raporu.
+                today_n, hour_n = knowledge.submit_counts()
                 owner_notify.send(
-                    "Pipeline turu zaman aşımına uğradı (takılı Chromium öldürüldü). "
-                    "Hat canlı: sonraki tur hemen başlıyor."
+                    f"KESINTI (dogrulandi): pipeline turu {int(getattr(config, 'PIPELINE_RUN_TIMEOUT_SECONDS', 600) or 600)}s duvar-saatinde kesildi; "
+                    f"takili Chromium kill -9 ile olduruldu, kilitli host 6 saat karantinaya alindi. "
+                    f"Olculen: bu tur 0 onayli form | saat {hour_n}/{knowledge.hourly_cap()} | gun {today_n}/{knowledge.daily_cap()} | "
+                    f"kuyruk={domain_store.queue_depth()}/{cap}. "
+                    f"Dis Nobetci (60s) taze turu atesledi; sonraki mesaj yalnizca onayli form sayisiyla gelir."
                 )
             elif pipeline_code != 0:
                 logger.warning("pipeline exited %s — will retry next cycle", pipeline_code)
-                owner_notify.send(f"Pipeline turu hata ile bitti (kod {pipeline_code}). Sonraki tur denenecek.")
+                today_n, hour_n = knowledge.submit_counts()
+                owner_notify.send(
+                    f"KESINTI (dogrulandi): pipeline turu hata ile bitti (kod {pipeline_code}; 0 onayli form varsayilmaz — olculen: "
+                    f"saat {hour_n}/{knowledge.hourly_cap()} | gun {today_n}/{knowledge.daily_cap()} | kuyruk={domain_store.queue_depth()}/{cap}). "
+                    f"Dis Nobetci (60s) devrede; sonraki tur hemen deneniyor."
+                )
 
         # Faz A — kurumsal contractor başvuru kanalı. Aynı Oracle kotasını
         # paylaşır: sub-cap'li (gün 4 / saat 2), kota daralırsa pipeline önce.

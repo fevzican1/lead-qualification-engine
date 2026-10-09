@@ -1,0 +1,17 @@
+[Unit]
+Description=Nirvana Dis Nobetci — bagimsiz otonom onarim (60 sn tarama)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/devsolve
+EnvironmentFile=-/opt/devsolve/.env
+# Uygulamadan BAGIMSIZ: ayri surec, ayri timer. 60 snde biter (HARD_CAP 55s).
+# Webchat /health + pipeline nabzi + zombi chrome + RAM; mudahalede TEK SATIR Telegram.
+ExecStart=/opt/devsolve/.venv/bin/python /opt/devsolve/scripts/nirvana_supervisor.py
+Nice=15
+IOSchedulingClass=idle
+CPUQuota=10%
+MemoryMax=256M
+TimeoutStartSec=70
