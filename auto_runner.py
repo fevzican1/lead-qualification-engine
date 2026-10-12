@@ -299,6 +299,25 @@ def main() -> None:
     # onarmanın en temiz yolu (elle kill yok, harici bekçi yok).
     heartbeat.ready()
     cycle = 0
+    # KALP ATISI: inline ag/is bloklari (feed senkronu, ingest, heal, kurumsal
+    # basvuru) SUBPROCESS DEGIL; nabiz sadece cycle_start/end ve _run alt-surecte
+    # atiliyordu. Uzun bir GitHub feed senkronu SUPERVISOR_PIPELINE_MAX_AGE_S(180s)
+    # degerini asinca DIS NOBETCI nabizi "olu" sayip kill -9 + restart atiyor;
+    # auto_runner her seferinde "Tur 1"den baslayip [3/3] submit asamasina HIC
+    # ulasamiyor (canli ariza: gunlerce 0 form + kesinti bildirimi spami). Bu
+    # bagimsiz thread TUM inline bloklar boyunca nabiz atar; boylece artik
+    # yalnizca GERCEK donma (thread de bloklanirsa) oldurulur — yanlis kill YOK,
+    # submit hatti KIRILMAZ, gunduz/gece 0-gonderim takilmasi ortadan kalkar.
+    _hb_stop = threading.Event()
+
+    def _heartbeat_daemon() -> None:
+        while not _hb_stop.wait(25.0):
+            try:
+                heartbeat.pulse("auto_runner", {"cycle": cycle, "phase": "alive"})
+            except Exception:  # noqa: BLE001
+                pass
+
+    threading.Thread(target=_heartbeat_daemon, name="auto-runner-heartbeat", daemon=True).start()
     while True:
         cycle += 1
         print(f"\n=== Tur {cycle} ===")
