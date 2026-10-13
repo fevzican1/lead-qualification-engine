@@ -98,7 +98,7 @@ jobs:
                       pipeline/event_dispatcher.py \
                       scripts/nirvana_supervisor.py \
                       oracle/nirvana-supervisor.service oracle/nirvana-supervisor.timer \
-                      nirvana/sentinel.py tests/test_sentinel.py \
+                      nirvana/sentinel.py \
                       oracle/nirvana-sentinel.service oracle/nirvana-sentinel.timer \
                       core/profit_recipe.py templates/demo.html; do
             grep -qE "(^|/)${need}$" /tmp/nirvana-list.txt \
