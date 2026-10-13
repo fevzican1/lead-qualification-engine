@@ -545,6 +545,27 @@ def _lazy_app():
                             "ts": row.get("last_run")}
         except Exception: pass
         return JSONResponse(snap)
+    @f.get("/quality")
+    async def quality_status():
+        # Akilli Kalite ve Denetim Motoru panosu: SALT-OKUNUR (onarim tetiklemez).
+        # Timer yazdigi quality_audit.json'u okur; dosya yoksa fail-open.
+        snap: dict = {"ok": True, "score": None, "red": [], "detail": "tur bekleniyor"}
+        try:
+            import json as _js2  # type: ignore
+            from nirvana.registry import state_path as _sp2  # type: ignore
+            p = _sp2("quality_audit.json")
+            if p.exists():
+                row = _js2.loads(p.read_text(encoding="utf-8"))
+                if isinstance(row, dict):
+                    snap = {"ok": not bool(row.get("last_red")),
+                            "score": row.get("last_score"),
+                            "red": row.get("last_red") or [],
+                            "detail": row.get("last_detail") or {},
+                            "repairs": row.get("last_repairs") or [],
+                            "runs": row.get("runs") or 0,
+                            "ts": row.get("last_run")}
+        except Exception: pass
+        return JSONResponse(snap)
     @f.get("/chat")
     async def chat_page(sid: str = "", name: str = ""):
         p = TEMPLATES_DIR / "chat.html"

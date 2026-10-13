@@ -1,0 +1,17 @@
+[Unit]
+Description=Nirvana Lane AQ — quality_audit: akilli kalite denetim motoru (13 satir, delege onarim)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/devsolve
+EnvironmentFile=-/opt/devsolve/.env
+# En kritik 3 satir basta (form kanit/ROI + demo odeme + teslimat infaz sagligi)
+# 13 satir tek turda olculur; kirmizi satir 2 tur + 300 sn cooldown dolmadan
+# onarilmaz. Mudahale SADECE kendi bekcisine delege (sentinel/refill/izole retry);
+# saglikli satura dokunulmaz. Tur 25 sn sert tavanli.
+ExecStart=/opt/devsolve/.venv/bin/python -m nirvana.runner quality_audit
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=40

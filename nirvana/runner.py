@@ -56,6 +56,7 @@ RUNNERS = {
     "local_fuel": "nirvana.local_fuel",
     "job_watchdog": "nirvana.job_watchdog",
     "sentinel": "nirvana.sentinel",
+    "quality_audit": "nirvana.quality_audit",
 }
 
 
@@ -100,6 +101,10 @@ def main(argv: list[str] | None = None) -> int:
         kwargs = {"notify": not args.no_notify, "dry_run": bool(args.no_notify)}
     elif args.module == "sentinel":
         # Master Sentinel: 30 sn üst akıl turu (systemd nirvana-sentinel.timer).
+        # --no-notify: saf rapor (onarım/bildirim yok) — kurulum doğrulaması.
+        kwargs = {"dry_run": bool(args.no_notify)}
+    elif args.module == "quality_audit":
+        # Akıllı Kalite ve Denetim Motoru: 13 satır (5 dk tur, systemd timer).
         # --no-notify: saf rapor (onarım/bildirim yok) — kurulum doğrulaması.
         kwargs = {"dry_run": bool(args.no_notify)}
     elif args.module == "keepalive_guard":

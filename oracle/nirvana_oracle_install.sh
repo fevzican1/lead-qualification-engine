@@ -68,7 +68,7 @@ print("OK — captcha_queue:", sf.CAPTCHA_QUEUE_NAME, "| max_workers=2 | $0 (par
 PY
 
 echo "[5/6] systemd unit + timer kurulumu"
-for f in nirvana-watchdog.service nirvana-watchdog.timer nirvana-supervisor.service nirvana-supervisor.timer nirvana-idleguard.service nirvana-idleguard.timer nirvana-delivery.service nirvana-delivery.timer nirvana-deliveryworker.service nirvana-deliveryworker.timer nirvana-linkedin.service nirvana-linkedin.timer nirvana-captcha.service nirvana-captcha.timer nirvana-dispatch.service nirvana-dispatch.timer nirvana-salesbot.service nirvana-pipeline.service nirvana-fuel.service nirvana-fuel.timer nirvana-jobwatch.service nirvana-jobwatch.timer nirvana-sentinel.service nirvana-sentinel.timer; do
+for f in nirvana-watchdog.service nirvana-watchdog.timer nirvana-supervisor.service nirvana-supervisor.timer nirvana-idleguard.service nirvana-idleguard.timer nirvana-delivery.service nirvana-delivery.timer nirvana-deliveryworker.service nirvana-deliveryworker.timer nirvana-linkedin.service nirvana-linkedin.timer nirvana-captcha.service nirvana-captcha.timer nirvana-dispatch.service nirvana-dispatch.timer nirvana-salesbot.service nirvana-pipeline.service nirvana-fuel.service nirvana-fuel.timer nirvana-jobwatch.service nirvana-jobwatch.timer nirvana-sentinel.service nirvana-sentinel.timer nirvana-quality.service nirvana-quality.timer; do
   # 217/USER kok nedeni: /etc'deki ESKI unit'te 'User=devsolve' kalmissa ve
   # VM'de o kullanici yoksa timer hic calismaz. install dosyayi ezer.
   install -m 644 "$UNIT_SRC/$f" /etc/systemd/system/
@@ -76,7 +76,7 @@ done
 systemctl daemon-reload
 # Eski icerikle damgalanmis failed durumu yeni icerikle de 'failed' gorunebilir;
 # timer'lari temiz baslat (satis hatti bu sira durmaz: salesbot/pipeline ayri).
-for u in nirvana-watchdog nirvana-idleguard nirvana-delivery nirvana-deliveryworker nirvana-linkedin nirvana-captcha nirvana-dispatch nirvana-fuel nirvana-jobwatch nirvana-sentinel; do
+for u in nirvana-watchdog nirvana-idleguard nirvana-delivery nirvana-deliveryworker nirvana-linkedin nirvana-captcha nirvana-dispatch nirvana-fuel nirvana-jobwatch nirvana-sentinel nirvana-quality; do
   systemctl reset-failed "$u.service" 2>/dev/null || true
 done
 systemctl daemon-reload
@@ -95,6 +95,9 @@ echo "[5.66/6] İş bekçisi (job_watchdog) saf rapor — restart/bildirim YOK"
 
 echo "[5.67/6] Üst akıl (sentinel) karar zinciri — müdahale/yazım YOK"
 "$APP_DIR/.venv/bin/python" -m nirvana.sentinel --self-test || true
+
+echo "[5.68/6] Akıllı kalite denetimi (quality_audit) — müdahale/yazım YOK"
+"$APP_DIR/.venv/bin/python" -m nirvana.quality_audit --self-test || true
 
 echo "[5.7/6] Yerel Bot API durumu (tanımlıysa yerel, değilse bulut — fail-safe)"
 "$APP_DIR/.venv/bin/python" - <<'PY'
@@ -156,6 +159,9 @@ systemctl enable --now nirvana-jobwatch.timer
 # ÜST AKIL: 30 sn tarama; 6 katman skorlanır, yalnızca 2 tur kırmızı + cooldown
 # dolu bileşen tek başına onarılır; sağlıklı bileşenlere dokunulmaz, REBOOT YOK.
 systemctl enable --now nirvana-sentinel.timer
+# AKILLI KALİTE: 5 dk tarama; en kritik 3 satır başta 13 satır ölçülür,
+# yalnızca arızalı satır kendi bekçisine delege edilir (REBOOT YOK).
+systemctl enable --now nirvana-quality.timer
 # İlk tur hemen çalışsın: rezervuar taze kurulumda da dolu başlar.
 systemctl start nirvana-fuel.service 2>/dev/null || true
 # Satis botu: Type=notify + WatchdogSec. Import zinciri eksikse (ornek:
@@ -168,4 +174,4 @@ if ! systemctl enable --now nirvana-salesbot.service; then
 fi
 
 systemctl list-timers 'nirvana-*' --no-pager
-echo "NIRVANA ORACLE LIVE — form hattı (nirvana-pipeline: keşif+nitelendirme+400 form/gün), watchdog 5dk, idle_guard 10dk (Always-Free koruması), delivery haftalık, teslimat işçisi 2 saatte bir, captcha worker 10dk (max 2), dispatch hub 1dk tick (CDX feed dilimleri 1/2/4/5dk; diğer modüller 30dk-24sa), İÇ YAKIT 30dk (Tranco/CDX/tohum -> hot_fuel.db; hedef siteye istek YOK), İŞ BEKÇİSİ 5dk (kuyruk+yakıt+form+webchat; iş durursa restart+sahibe tek mesaj), ÜST AKIL 30sn (6 katman skor; yalnızca arızalı bileşen izole onarım, REBOOT YOK)."
+echo "NIRVANA ORACLE LIVE — form hattı (nirvana-pipeline: keşif+nitelendirme+400 form/gün), watchdog 5dk, idle_guard 10dk (Always-Free koruması), delivery haftalık, teslimat işçisi 2 saatte bir, captcha worker 10dk (max 2), dispatch hub 1dk tick (CDX feed dilimleri 1/2/4/5dk; diğer modüller 30dk-24sa), İÇ YAKIT 30dk (Tranco/CDX/tohum -> hot_fuel.db; hedef siteye istek YOK), İŞ BEKÇİSİ 5dk (kuyruk+yakıt+form+webchat; iş durursa restart+sahibe tek mesaj), ÜST AKIL 30sn (6 katman skor; yalnızca arızalı bileşen izole onarım, REBOOT YOK), AKILLI KALİTE 5dk (13 satır: form kanıt + demo ödeme + teslimat infaz sağlığı başta; delege onarım, REBOOT YOK)."

@@ -302,3 +302,10 @@ nirvana:
       entrypoint: "python -m nirvana.runner sentinel"
       description: "Ust akil (Unified Self-Healing Fabric): 6 katmani (pipeline 30 + webchat 25 + db 20 + workers 10 + llm 10 + notify 5) puanlar; yalnizca 2 tur kirmizi + cooldown dolu bileseni tek basina onarir. Saglikli bilesenlere dokunulmaz; REBOOT YOK."
       heavy: false
+    quality_audit:
+      host: oracle
+      letter: AQ
+      schedule: "*/5 * * * *"
+      entrypoint: "python -m nirvana.runner quality_audit"
+      description: "Akilli Kalite ve Denetim Motoru: en kritik 3 satir (form kanit/ROI + demo odeme + teslimat infaz sagligi) basta olmak uzere 13 satiri olcer; yalnizca kirmizi + cooldown dolu satiri kendi bekcisine delege eder. Saglikli satura dokunulmaz; REBOOT YOK."
+      heavy: false

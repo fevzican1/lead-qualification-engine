@@ -1,0 +1,11 @@
+[Unit]
+Description=Nirvana Lane AQ schedule — kalite denetimi her 5 dakika (13 satir, delege onarim)
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+AccuracySec=10s
+Unit=nirvana-quality.service
+
+[Install]
+WantedBy=timers.target
