@@ -1,0 +1,17 @@
+[Unit]
+Description=Nirvana Lane AP — Master Sentinel: 6 katman skor + izole cerrahi onarım (reboot YOK)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/devsolve
+EnvironmentFile=-/opt/devsolve/.env
+# 6 katman tek turda puanlanır (pipeline 30 + webchat 25 + db 20 + workers 10 +
+# llm 10 + notify 5); kırmızı bileşen 2 ardışık tur + 300 sn cooldown dolmadan
+# onarılmaz. Müdahale SADECE arızalı bileşene (port temizle / WAL checkpoint /
+# tek unit restart); sağlıklı bileşenlere dokunulmaz. Tur 25 sn sert tavanlı.
+ExecStart=/opt/devsolve/.venv/bin/python -m nirvana.runner sentinel
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=40

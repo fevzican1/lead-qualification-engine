@@ -12,14 +12,14 @@ ROOT = Path(config.ROOT)
 
 def test_registry_defines_exactly_thirty_modules():
     modules = MODULES()
-    assert len(modules) == 41
+    assert len(modules) == 42
     letters = sorted((m["letter"] for m in modules.values()),
                      key=lambda L: (len(L), L))
     assert letters == (list("ABCDEFGH")
                        + ["I", "J", "K", "L", "M", "N", "O", "P", "Q", "R",
                           "S", "T", "U", "V", "W", "X"]
                        + ["Y", "Z", "AA", "AB", "AC", "AD", "AE", "AF", "AG"]
-                       + ["AH", "AI", "AJ", "AK", "AL", "AM", "AN", "AO"])
+                       + ["AH", "AI", "AJ", "AK", "AL", "AM", "AN", "AO", "AP"])
 
 
 def test_host_assignment_matches_architecture():
@@ -40,7 +40,7 @@ def test_host_assignment_matches_architecture():
                       "queue_fuel_guard", "anti_spam_cadence", "interaction_tracker",
                       "delivery_worker", "stealth_former", "idle_guard",
                       "free_captcha_solver", "free_captcha_worker",
-                      "local_fuel", "job_watchdog"}
+                      "local_fuel", "job_watchdog", "sentinel"}
 
 
 def test_every_module_has_entrypoint_and_runner_binding():
@@ -76,6 +76,7 @@ def test_oracle_units_exist():
                  "nirvana-idleguard.service", "nirvana-idleguard.timer",
                  "nirvana-fuel.service", "nirvana-fuel.timer",
                  "nirvana-jobwatch.service", "nirvana-jobwatch.timer",
+                 "nirvana-sentinel.service", "nirvana-sentinel.timer",
                  "nirvana-salesbot.service",
                  "nirvana_oracle_install.sh"):
         assert (ROOT / "oracle" / name).exists(), name
@@ -84,9 +85,10 @@ def test_oracle_units_exist():
     assert "nirvana-idleguard.timer" in install
     assert "nirvana-dispatch.timer" in install
     assert "nirvana-salesbot.service" in install
-    # İç yakıt + iş bekçisi canlı kurulumda etkinleşir.
+    # İç yakıt + iş bekçisi + üst akıl canlı kurulumda etkinleşir.
     assert "nirvana-fuel.timer" in install
     assert "nirvana-jobwatch.timer" in install
+    assert "nirvana-sentinel.timer" in install
     assert "local_fuel --self-test" in install
 
 

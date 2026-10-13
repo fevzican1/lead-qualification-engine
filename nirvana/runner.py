@@ -55,6 +55,7 @@ RUNNERS = {
     "idle_guard": "nirvana.idle_guard",
     "local_fuel": "nirvana.local_fuel",
     "job_watchdog": "nirvana.job_watchdog",
+    "sentinel": "nirvana.sentinel",
 }
 
 
@@ -97,6 +98,10 @@ def main(argv: list[str] | None = None) -> int:
         # --no-notify: saf rapor (restart/bildirim yok) — kurulum doğrulaması.
         # Bayraksız: iş seviyesi onarım açık (systemd nirvana-jobwatch.timer).
         kwargs = {"notify": not args.no_notify, "dry_run": bool(args.no_notify)}
+    elif args.module == "sentinel":
+        # Master Sentinel: 30 sn üst akıl turu (systemd nirvana-sentinel.timer).
+        # --no-notify: saf rapor (onarım/bildirim yok) — kurulum doğrulaması.
+        kwargs = {"dry_run": bool(args.no_notify)}
     elif args.module == "keepalive_guard":
         # --self-test ile yerel doğrulama: hiçbir API çağrısı yapmadan karar raporlar.
         kwargs = {"dry_run": bool(getattr(args, "self_test", False) or args.no_notify)}

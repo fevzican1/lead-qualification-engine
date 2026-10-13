@@ -295,3 +295,10 @@ nirvana:
       entrypoint: "python -m nirvana.runner job_watchdog"
       description: "Is seviyesi bekci: kuyruk derinligi + yakit + bugunku form + webchat /health ve musteri oturumlari. Servis 'active' olsa bile is durursa 2 tur kirmizida ilgili birimi restart eder ve sahibe tek Telegram mesaji atar (saatte 1)."
       heavy: false
+    sentinel:
+      host: oracle
+      letter: AP
+      schedule: "*/1 * * * *"
+      entrypoint: "python -m nirvana.runner sentinel"
+      description: "Ust akil (Unified Self-Healing Fabric): 6 katmani (pipeline 30 + webchat 25 + db 20 + workers 10 + llm 10 + notify 5) puanlar; yalnizca 2 tur kirmizi + cooldown dolu bileseni tek basina onarir. Saglikli bilesenlere dokunulmaz; REBOOT YOK."
+      heavy: false

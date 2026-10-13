@@ -524,6 +524,27 @@ def _lazy_app():
             fl = _fg.status()
         except Exception: fl = {}
         return JSONResponse({"ok": True, "engine": "webchat", "workers": N_WORKERS, "sessions": len(all_sessions()), "online": len(_conns), "public_url": WEBCHAT_PUBLIC_URL, "flood": fl, "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+    @f.get("/sentinel")
+    async def sentinel_status():
+        # Birleşik otonom çekirdek panosu: SALT-OKUNUR (onarım tetiklemez).
+        # Timer yazdığı sentinel.json'u okur; dosya yoksa/bozuksa fail-open.
+        snap: dict = {"ok": True, "score": None, "red": [], "detail": "tur bekleniyor"}
+        try:
+            import json as _js  # type: ignore
+            from nirvana.registry import state_path as _sp  # type: ignore
+            p = _sp("sentinel.json")
+            if p.exists():
+                row = _js.loads(p.read_text(encoding="utf-8"))
+                if isinstance(row, dict):
+                    snap = {"ok": not bool(row.get("last_red")),
+                            "score": row.get("last_score"),
+                            "red": row.get("last_red") or [],
+                            "detail": row.get("last_detail") or {},
+                            "repairs": row.get("last_repairs") or [],
+                            "runs": row.get("runs") or 0,
+                            "ts": row.get("last_run")}
+        except Exception: pass
+        return JSONResponse(snap)
     @f.get("/chat")
     async def chat_page(sid: str = "", name: str = ""):
         p = TEMPLATES_DIR / "chat.html"
