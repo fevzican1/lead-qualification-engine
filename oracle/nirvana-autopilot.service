@@ -1,0 +1,22 @@
+[Unit]
+Description=Nirvana TMUX Otopilot — sentinel + quality_audit 7/24 aktif tmux dongusu
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/devsolve
+EnvironmentFile=-/opt/devsolve/.env
+# Supervisor: tmux oturumlarini 60sn'de bir denetler; bir oturum dusunce
+# yeniden acar (tmux oturumu == canli dongu). Supervisor kendisi de
+# Restart=always ile garanti altinda → 7/24 aktiflik iki katmanli.
+# Ek emniyet agi: nirvana-sentinel/quality timer'lari ayni isi yapar;
+# singleton lock ayni anda iki turun calismasini onler.
+ExecStart=/bin/bash /opt/devsolve/oracle/tmux_autopilot.sh supervise
+Restart=always
+RestartSec=15
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

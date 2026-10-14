@@ -68,7 +68,7 @@ print("OK — captcha_queue:", sf.CAPTCHA_QUEUE_NAME, "| max_workers=2 | $0 (par
 PY
 
 echo "[5/6] systemd unit + timer kurulumu"
-for f in nirvana-watchdog.service nirvana-watchdog.timer nirvana-supervisor.service nirvana-supervisor.timer nirvana-idleguard.service nirvana-idleguard.timer nirvana-delivery.service nirvana-delivery.timer nirvana-deliveryworker.service nirvana-deliveryworker.timer nirvana-linkedin.service nirvana-linkedin.timer nirvana-captcha.service nirvana-captcha.timer nirvana-dispatch.service nirvana-dispatch.timer nirvana-salesbot.service nirvana-pipeline.service nirvana-fuel.service nirvana-fuel.timer nirvana-jobwatch.service nirvana-jobwatch.timer nirvana-sentinel.service nirvana-sentinel.timer nirvana-quality.service nirvana-quality.timer; do
+for f in nirvana-watchdog.service nirvana-watchdog.timer nirvana-supervisor.service nirvana-supervisor.timer nirvana-idleguard.service nirvana-idleguard.timer nirvana-delivery.service nirvana-delivery.timer nirvana-deliveryworker.service nirvana-deliveryworker.timer nirvana-linkedin.service nirvana-linkedin.timer nirvana-captcha.service nirvana-captcha.timer nirvana-dispatch.service nirvana-dispatch.timer nirvana-salesbot.service nirvana-pipeline.service nirvana-fuel.service nirvana-fuel.timer nirvana-jobwatch.service nirvana-jobwatch.timer nirvana-sentinel.service nirvana-sentinel.timer nirvana-quality.service nirvana-quality.timer nirvana-autopilot.service; do
   # 217/USER kok nedeni: /etc'deki ESKI unit'te 'User=devsolve' kalmissa ve
   # VM'de o kullanici yoksa timer hic calismaz. install dosyayi ezer.
   install -m 644 "$UNIT_SRC/$f" /etc/systemd/system/
@@ -162,6 +162,23 @@ systemctl enable --now nirvana-sentinel.timer
 # AKILLI KALİTE: 5 dk tarama; en kritik 3 satır başta 13 satır ölçülür,
 # yalnızca arızalı satır kendi bekçisine delege edilir (REBOOT YOK).
 systemctl enable --now nirvana-quality.timer
+# TMUX OTOPILOT: sentinel + kalite denetim tmux OTURUMLARINDA 7/24 AKTIF.
+# supervisor (nirvana-autopilot.service) oturumlari 60sn'de bir denetler;
+# systemd timer'lari emniyet agi olarak kalir (singleton lock cakismayi onler).
+echo "[5.69/6] TMUX otopilot — sentinel + quality oturumlari (aktif 7/24)"
+if ! command -v tmux >/dev/null 2>&1; then
+  apt-get install -y tmux >/dev/null 2>&1 || {
+    apt-get update -qq >/dev/null 2>&1 || true
+    apt-get install -y tmux >/dev/null 2>&1 || true
+  }
+fi
+if command -v tmux >/dev/null 2>&1; then
+  bash "$APP_DIR/oracle/tmux_autopilot.sh" up || true
+else
+  echo "UYARI: tmux kurulamadi — sentinel/quality systemd timer ile calisiyor" >&2
+fi
+systemctl enable --now nirvana-autopilot.service || true
+bash "$APP_DIR/oracle/tmux_autopilot.sh" status || true
 # İlk tur hemen çalışsın: rezervuar taze kurulumda da dolu başlar.
 systemctl start nirvana-fuel.service 2>/dev/null || true
 # Satis botu: Type=notify + WatchdogSec. Import zinciri eksikse (ornek:
@@ -174,4 +191,5 @@ if ! systemctl enable --now nirvana-salesbot.service; then
 fi
 
 systemctl list-timers 'nirvana-*' --no-pager
-echo "NIRVANA ORACLE LIVE — form hattı (nirvana-pipeline: keşif+nitelendirme+400 form/gün), watchdog 5dk, idle_guard 10dk (Always-Free koruması), delivery haftalık, teslimat işçisi 2 saatte bir, captcha worker 10dk (max 2), dispatch hub 1dk tick (CDX feed dilimleri 1/2/4/5dk; diğer modüller 30dk-24sa), İÇ YAKIT 30dk (Tranco/CDX/tohum -> hot_fuel.db; hedef siteye istek YOK), İŞ BEKÇİSİ 5dk (kuyruk+yakıt+form+webchat; iş durursa restart+sahibe tek mesaj), ÜST AKIL 30sn (6 katman skor; yalnızca arızalı bileşen izole onarım, REBOOT YOK), AKILLI KALİTE 5dk (13 satır: form kanıt + demo ödeme + teslimat infaz sağlığı başta; delege onarım, REBOOT YOK)."
+echo "TMUX otopilot: $(tmux ls 2>/dev/null | tr '\n' ' ' || echo 'yok')"
+echo "NIRVANA ORACLE LIVE — form hattı (nirvana-pipeline: keşif+nitelendirme+400 form/gün), watchdog 5dk, idle_guard 10dk (Always-Free koruması), delivery haftalık, teslimat işçisi 2 saatte bir, captcha worker 10dk (max 2), dispatch hub 1dk tick (CDX feed dilimleri 1/2/4/5dk; diğer modüller 30dk-24sa), İÇ YAKIT 30dk (Tranco/CDX/tohum -> hot_fuel.db; hedef siteye istek YOK), İŞ BEKÇİSİ 5dk (kuyruk+yakıt+form+webchat; iş durursa restart+sahibe tek mesaj), ÜST AKIL 30sn (6 katman skor; yalnızca arızalı bileşen izole onarım, REBOOT YOK), AKILLI KALİTE 5dk (13 satır: form kanıt + demo ödeme + teslimat infaz sağlığı başta; delege onarım, REBOOT YOK), TMUX OTOPILOT (sentinel+quality tmux oturumlarında 7/24 aktif; supervisor 60sn denetim, timer'lar emniyet ağı)."
