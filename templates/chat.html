@@ -49,7 +49,7 @@
   <div class="typing" id="typing">Yaziyor…</div>
   <button id="audioOn" type="button">🔊 Sesli yanitlari ac</button>
   <form class="bar" id="f"><input id="inp" autocomplete="off" maxlength="2000" placeholder="Sorunuzu yazin…"><button id="send">Gonder</button></form>
-  <div class="tools"><button id="roiBtn" type="button">📈 ROI Hesapla — 30 sn</button></div>
+  <div class="tools"><button id="roiBtn" type="button">📈 ROI Hesapla — 30 sn</button><button id="demoBtn" type="button">🎬 Canlı Demo — 60 sn</button></div>
   <div class="panel" id="roi">
     <b>B2B Retainer ROI (30 saniye)</b>
     <label>Aylık tahmini kazanç/kayıp (EUR)</label>
@@ -170,6 +170,7 @@ var roiBtn=document.getElementById("roiBtn"),roi=document.getElementById("roi"),
     roiOut=document.getElementById("roiOut"),roiSend=document.getElementById("roiSend");
 var lastRoi=null;
 roiBtn.addEventListener("click",function(){roi.style.display=(roi.style.display==="block")?"none":"block"});
+demoBtn.addEventListener("click",function(){location.href="/demo"});
 roiClose.addEventListener("click",function(){roi.style.display="none"});
 roiGo.addEventListener("click",function(){
   var g=parseFloat(roiGain.value||"0"),c=parseFloat(roiCost.value||"0");if(!(c>0))c=5000;

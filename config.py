@@ -574,6 +574,17 @@ def customer_chat_link(session: str = "") -> str:
     return webchat_link(session) or telegram_deeplink(session)
 
 
+def customer_demo_link() -> str:
+    """Canli demo sayfasi (webchat /demo) — WEBCHAT_PUBLIC_URL yoksa bos.
+
+    Form kopyasi, handoff CTA ve sohbet butonu AYNI kaynaktan okur; boylece
+    demo linki tek yerden yonetilir (canli ariza 2026-10-14: musteri formu
+    dolduruyordu ama demoyu hic gormuyordu).
+    """
+    base = str(WEBCHAT_PUBLIC_URL or "").strip().rstrip("/")
+    return f"{base}/demo" if base else ""
+
+
 def require_live_customer_link(session: str = "") -> str:
     """Form gonderimi icin canli musteri linki (fail-closed).
 

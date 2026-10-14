@@ -321,6 +321,20 @@ def form_cta(
     )
     opens_tr = _opens_line(link, turkish=True)
     opens_en = _opens_line(link, turkish=False)
+
+    def _with_demo(text: str) -> str:
+        """Musteri CTA'sina CANLI DEMO satiri ekle (varsa).
+
+        Musteri formdan web sohbete duser ama demoyu gormezdi (canli ariza
+        2026-10-14): WEBCHAT_PUBLIC_URL tanimliyse /demo adresi CTA altina
+        kendi satirinda, tiklanabilir olarak eklenir.
+        """
+        link_url = config.customer_demo_link()
+        if not link_url:
+            return text
+        label = "Canlı demo sayfası" if turkish else "Live demo page"
+        return f"{text}\n{label}: {link_url}"
+
     if variant == "X":
         if turkish:
             return (
@@ -336,12 +350,12 @@ def form_cta(
             f"{opens_en}"
         )
     if turkish:
-        return (
+        return _with_demo(
             f"→ TEK TIK — {domain} {card} (~60 sn önizleme):\n"
             f"{link}\n"
             f"{opens_tr}"
         )
-    return (
+    return _with_demo(
         f"→ ONE TAP — {domain} {card_en} (~60 s preview):\n"
         f"{link}\n"
         f"{opens_en}"

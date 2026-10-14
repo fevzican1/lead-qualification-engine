@@ -890,11 +890,19 @@ def evict_below(score: int) -> int:
 
 
 def chromium_fuel_count(*, min_easy: int | None = None) -> int:
-    """Hosts Chromium can visit this hour without a new HTTP probe."""
+    """Hosts Chromium can visit this hour without a new HTTP probe.
+
+    Tarama sınırı YAKIT HEDEFINE bağlandı (canlı arıza 2026-10-14): sabit
+    ``limit=400`` sayacı her zaman 500'lük ``FUEL_TARGET``'ın altında
+    bırakıyordu → auto_runner her tur "yakıt ince" deyip dakikalarca gereksiz
+    GitHub feed senkronu çekiyordu (kuyruk 1575 iken fuel=400/500 görünüyordu)
+    ve [3/3] submit fazına süre kalmıyordu.
+    """
     if min_easy is None:
         min_easy = int(getattr(config, "CHROMIUM_DIRECT_MIN", 65) or 65)
+    scan_limit = max(600, int(chromium_fuel_target()) + 200)
     n = 0
-    for row in pending_rows(limit=400, min_easy=int(min_easy)):
+    for row in pending_rows(limit=scan_limit, min_easy=int(min_easy)):
         if row.get("form_verified") or row.get("authorized_contact"):
             n += 1
     return n

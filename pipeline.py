@@ -507,6 +507,21 @@ def run_pipeline(args: argparse.Namespace) -> int:
     seen: set[str] = set()
     probes_used = 0
 
+    # YUMUSAK TUR BUTCESI (kok duzeltme 2026-10-14): auto_runner'in 600s
+    # hard-kill'i normal turda ASLA devreye girmez — pipeline kendi butcesini
+    # doldugunda kendini TEMIZ kapatir (leads diske, bundle imha, exit 0).
+    # Eski davranis: 24 lead'lik dilim 12-15 dk suruyordu → 600s'de SIGKILL
+    # → "0 onayli form + KESINTI" bildirimi (canli ariza). Hard-kill artik
+    # yalnizca GERCEK asilma icin son savunma.
+    round_t0 = time.monotonic()
+    soft_budget = max(
+        60, int(getattr(config, "PIPELINE_RUN_TIMEOUT_SECONDS", 600) or 600) - 60
+    )
+    deadline_at = round_t0 + soft_budget
+
+    def _soft_expired() -> bool:
+        return submitting and time.monotonic() >= deadline_at
+
     def _pending_slice(take: int) -> list[str]:
         raw = domain_store.pending_rows(
             limit=min(250, take + len(seen) + 30),
@@ -559,9 +574,18 @@ def run_pipeline(args: argparse.Namespace) -> int:
             min_score=min_score,
             headless=headless,
             submitting=submitting,
+            deadline_at=deadline_at,
         )
 
     while True:
+        if _soft_expired():
+            logger.info(
+                "Soft round budget %ss reached — clean stop before hard kill "
+                "(%s islenen, kuyruk bir sonraki tura devam)",
+                soft_budget,
+                len(all_processed),
+            )
+            break
         leads = load_leads(leads_path)
         today_n, hour_n = knowledge.submit_counts(leads)
         if submitting and (today_n >= cap_daily or hour_n >= cap_hourly):
@@ -585,6 +609,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
                     min_score=min_score,
                     headless=headless,
                     submitting=submitting,
+                    deadline_at=deadline_at,
                 )
                 all_processed.extend(processed)
                 leads = load_leads(leads_path)
@@ -620,6 +645,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
                     min_score=min_score,
                     headless=headless,
                     submitting=submitting,
+                    deadline_at=deadline_at,
                 )
                 all_processed.extend(processed)
                 leads = load_leads(leads_path)
@@ -664,6 +690,7 @@ def run_pipeline(args: argparse.Namespace) -> int:
                     min_score=min_score,
                     headless=headless,
                     submitting=submitting,
+                    deadline_at=deadline_at,
                 )
                 all_processed.extend(processed)
                 leads = load_leads(leads_path)
@@ -745,6 +772,7 @@ def _run_browser_pipeline(
     min_score: int,
     headless: bool,
     submitting: bool,
+    deadline_at: float | None = None,
 ) -> list[dict[str, Any]]:
     min_easy = int(getattr(config, "EASY_SCORE_MIN", 55) or 55)
     jobs.sort(key=lambda row: -int(row.get("easy_score") or 0))
@@ -875,6 +903,17 @@ def _run_browser_pipeline(
                     bundle = _open_bundle()
                 collect_page = bundle["collect_page"]
                 submit_page = bundle["submit_page"]
+                # YUMUSAK TUR BUTCESI: sonraki lead'e BASLAMADAN once sure
+                # kontrol edilir. Boylece tur, 600s hard-kill'e asla takilmaz;
+                # islenen lead'ler diske yazilir ve bundle finally ile imha
+                # edilir (temiz kapanis — "0 form + KESINTI" arizasi yok).
+                if deadline_at is not None and time.monotonic() >= deadline_at:
+                    logger.info(
+                        "Soft round deadline reached — closing slice cleanly "
+                        "(%s islenen; kalan lead'ler siradaki tura)",
+                        len(processed),
+                    )
+                    return processed
                 if prefetch["lead"] is not None:
                     item = prefetch["lead"]
                     prefetch["lead"] = None

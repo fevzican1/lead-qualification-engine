@@ -607,7 +607,7 @@ def _submit_with_page(
         logger.warning("Skipping submit for %s (no_customer_link)", lead.get("url"))
         return result
 
-    message = (lead.get("value_proposition") or "").strip()
+    message = with_demo_line((lead.get("value_proposition") or "").strip())
     if not message:
         result["status"] = "skipped_no_pitch"
         result["error"] = "No value proposition to send"
@@ -1002,6 +1002,20 @@ def _fill_formless(
     return filled
 
 
+def with_demo_line(message: str) -> str:
+    """Gonderilen form METNINE canli demo satiri ekle (idempotent).
+
+    Musteri formu doldurur ama demoyu gormezdi (canli ariza 2026-10-14):
+    config.customer_demo_link() tanimliysa mesajin SONUNA kendi satirinda,
+    tiklanabilir /demo adresi eklenir. Ayni link metinde zaten varsa dokunulmaz.
+    """
+    text = (message or "").strip()
+    link = config.customer_demo_link()
+    if not text or not link or link in text:
+        return text
+    return f"{text}\nCanlı demo sayfası: {link}"
+
+
 def _sender_values(message: str, subject: str) -> dict[str, str]:
     sender = config.sender_payload()
     full = (sender.get("name") or "").strip()
@@ -1017,7 +1031,7 @@ def _sender_values(message: str, subject: str) -> dict[str, str]:
         "phone": sender.get("phone") or "",
         "website": sender.get("website") or "",
         "subject": subject or sender.get("subject") or "",
-        "message": message,
+        "message": with_demo_line(message),
     }
 
 

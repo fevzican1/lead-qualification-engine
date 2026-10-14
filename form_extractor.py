@@ -562,10 +562,19 @@ def _sender_values_for(lead: dict[str, Any]) -> dict[str, str]:
             str(lead.get("value_proposition") or ""), str(lead.get("form_subject") or "")
         )
     except Exception:  # noqa: BLE001
+        text = str(lead.get("value_proposition") or "")[:600]
+        try:
+            import config as _cfg  # yerel: form_submitter import'i zaten kopmus olabilir
+
+            _demo = _cfg.customer_demo_link()
+            if text and _demo and _demo not in text:
+                text = f"{text.strip()}\nCanlı demo sayfası: {_demo}"
+        except Exception:  # noqa: BLE001
+            pass
         return {
             "email": "",
             "name": "",
-            "message": str(lead.get("value_proposition") or "")[:600],
+            "message": text,
             "subject": str(lead.get("form_subject") or "")[:120],
         }
 
