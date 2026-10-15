@@ -236,9 +236,18 @@ def main(argv: list[str] | None = None) -> int:
         mk = {"TRUE": "[TRUE ]", "WARN": "[WARN ]", "FALSE": "[FALSE]"}[x["status"]]
         print(f"{mk} {x['gate']:18s} {x['detail'][:110]}")
     out = ROOT / "manifest_report.json"
-    out.write_text(json.dumps(rep, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    blob = json.dumps(rep, ensure_ascii=False, indent=2) + "\n"
+    # Dayaniklilik: kapiyi root ile kossak bile sonraki non-root kosu raporu
+    # yazamazsa manifest patlamasin — yazim hatasi yalnizca UYARI.
+    try:
+        out.write_text(blob, encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        print(f"UYARI manifest_report.json yazilamadi: {type(e).__name__} (root sahipli olabilir)")
     if a.json_path:
-        Path(a.json_path).write_text(json.dumps(rep, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        try:
+            Path(a.json_path).write_text(blob, encoding="utf-8")
+        except Exception as e:  # noqa: BLE001
+            print(f"UYARI --json raporu yazilamadi: {type(e).__name__}")
     if rep["deploy"] == "FALSE":
         print("SONUC: deploy ENGELLENDI - kirmizi kapilari kapatmadan canliya alma.")
         return 1

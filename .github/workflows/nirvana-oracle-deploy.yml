@@ -277,7 +277,11 @@ jobs:
             exit 1
           fi
           # [1c] Manifest kendisi: yakit ikmali + 14 kapi strict.
-          if ! .venv/bin/python manifest_check.py --prime --strict; then
+          # sudo KOSULLU: hot_fuel.db'yi systemd servisleri root ile yazar
+          # (oracle/*.service User= YOK); manifest de ayni yetkide kosturulur
+          # ki "attempt to write a readonly database" sahte-FALSE vermesin.
+          if ! sudo -n .venv/bin/python manifest_check.py --prime --strict \
+            && ! .venv/bin/python manifest_check.py --prime --strict; then
             echo "::error::MANIFEST FALSE - deploy ENGELLENDI, canli eski yapi oldugu gibi korundu (manifest_report.json)"
             cp -f /opt/devsolve/manifest_report.json /opt/devsolve/logs/manifest_last_failed.json 2>/dev/null || true
             exit 1
