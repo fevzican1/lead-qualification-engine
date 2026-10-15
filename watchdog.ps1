@@ -1,6 +1,7 @@
 $ErrorActionPreference = "SilentlyContinue"
-$root = "C:\Users\Lenovo\lead-qualification-engine"
+$root = "C:\Users\Lenovo\lead-qualification-engine-2"
 $py = Join-Path $root ".venv\Scripts\python.exe"
+if (-not (Test-Path $py)) { $py = "python" }
 
 function Test-ScriptRunning([string]$scriptName) {
     $hit = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
@@ -17,7 +18,7 @@ function Start-Script([string]$scriptName) {
     Start-Process -FilePath $py -ArgumentList "`"$root\$scriptName`"" -WorkingDirectory $root -WindowStyle Minimized
 }
 
-if (-not (Test-Path $py)) { exit 0 }
+if (($py -ne "python") -and (-not (Test-Path $py))) { exit 0 }
 $ollama = Get-Command ollama -ErrorAction SilentlyContinue
 if ($ollama -and -not (Get-Process -Name "ollama" -ErrorAction SilentlyContinue)) {
     Start-Process -FilePath $ollama.Source -ArgumentList "serve" -WindowStyle Minimized

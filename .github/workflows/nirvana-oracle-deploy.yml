@@ -48,6 +48,13 @@ jobs:
       # Runtime'da tanimsiz secret = bos string; asagidaki || '' fallback'i ve
       # deploy_webchat.sh'deki OCI-IP cozumu bunu bilerek karsilar.
       WEBCHAT_PUBLIC_URL: ${{ secrets.WEBCHAT_PUBLIC_URL || '' }}
+      # Form gonderici kimligi (manifest env_sender kapisi 9,28,34,35,54):
+      # daha once gonderilen basarili formlardaki GERCEK kimlik. Secret baglantisi
+      # YOK — GitHub "invalid secrets.SENDER_*" uyarisini tamamen kaldirir;
+      # degerler gizli degil (formda zaten musteriye gorunur), .env'e yazilir.
+      SENDER_NAME: DevSolve Teknik Ekip
+      SENDER_EMAIL: hello@devsolvev2.com
+      SENDER_COMPANY: DevSolve
     steps:
       - uses: actions/checkout@v4
       - name: SSH anahtarı hazırla
@@ -102,7 +109,8 @@ jobs:
                       oracle/nirvana-sentinel.service oracle/nirvana-sentinel.timer \
                       nirvana/quality_audit.py \
                       oracle/nirvana-quality.service oracle/nirvana-quality.timer \
-                      core/profit_recipe.py templates/demo.html; do
+                      core/profit_recipe.py templates/demo.html \
+                    manifest_check.py; do
             grep -qE "(^|/)${need}$" /tmp/nirvana-list.txt \
               || { echo "::error::${need} pakette yok — deploy iptal (ModuleNotFoundError riski)"; exit 1; }
           done
@@ -149,6 +157,9 @@ jobs:
           write_env TG_BOT_API_BASE_URL "${TG_BOT_API_BASE_URL:-}"
           write_env GH_DISPATCH_TOKEN "${GH_DISPATCH_TOKEN:-}"
           write_env WC_PUBLIC_URL "${WEBCHAT_PUBLIC_URL:-}"
+          write_env SENDER_NAME "${SENDER_NAME:-}"
+          write_env SENDER_EMAIL "${SENDER_EMAIL:-}"
+          write_env SENDER_COMPANY "${SENDER_COMPANY:-}"
           chmod 600 "$DEPLOY_ENV"
           echo "deploy env hazir: $(grep -c . "$DEPLOY_ENV") degisken (degerler log'a yazilmaz)"
           scp -i ~/.ssh/oracle.key -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
@@ -184,6 +195,10 @@ jobs:
             "TELEGRAM_BOT_API_BASE_URL|${TG_BOT_API_BASE_URL}" \
             "WEBCHAT_PUBLIC_URL|${WC_PUBLIC_URL}" \
             "WEBCHAT_BIND_HOST|127.0.0.1" \
+            "SENDER_NAME|${SENDER_NAME:-}" \
+            "SENDER_EMAIL|${SENDER_EMAIL:-}" \
+            "SENDER_COMPANY|${SENDER_COMPANY:-}" \
+            "PAYONEER_PAYMENT_URL|${PAYONEER_LINK:-}" \
             "GITHUB_DISPATCH_TOKEN|${GH_DISPATCH_TOKEN}"; do
             key="${kv%%|*}"; val="${kv#*|}"
             if [ -n "$val" ] && [ "$val" != "null" ]; then
@@ -216,7 +231,59 @@ jobs:
             fi
             echo "wrote ${key}"
           done
-          echo "=== [1] Paket açma (reviewed committed code, /opt/devsolve) ==="
+          echo "=== [1] MANIFEST KAPISI (TRUE=canliya alma serbest, FALSE=deploy ENGELLENIR) ==="
+          # Yeni kod daha acilmadi: yalnizca manifest_check.py paketten alinir ve
+          # CANLI sistem uzerinde kosulur. FALSE donerse eski calisan yapiya
+          # hic dokunulmaz (systemd/tmux servisleri ayni kalir, hata loglanir).
+          cd /opt/devsolve
+          tar -xzf /tmp/nirvana-deploy.tgz -C /opt/devsolve manifest_check.py
+          test -f /opt/devsolve/manifest_check.py || { echo "::error::manifest_check.py pakette yok"; exit 1; }
+          # [1a] WEBCHAT_PUBLIC_URL: secret bosken gate FALSE vermemesi icin
+          # deploy_webchat.sh ile AYNI OCI metadata cozumu burada da uygulanir.
+          if ! grep -q '^WEBCHAT_PUBLIC_URL=.' /opt/devsolve/.env 2>/dev/null; then
+            META_IP="$(curl -s --max-time 4 -H 'Authorization: Bearer Oracle' -L \
+              http://169.254.169.254/opc/v2/vnics/ 2>/dev/null | head -c 400 \
+              | sed -n 's/.*\"publicIp\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p')" || true
+            [ -z "${META_IP:-}" ] && META_IP="$(curl -s --max-time 6 https://api.ipify.org 2>/dev/null || true)"
+            if [ -n "${META_IP:-}" ]; then
+              printf 'WEBCHAT_PUBLIC_URL=http://%s\n' "$META_IP" >> /opt/devsolve/.env
+              echo "WEBCHAT_PUBLIC_URL gate icin otomatik yazildi: http://${META_IP}"
+            fi
+          fi
+          # [1b] Kalp atisi tazeliyi: pipeline donukse gate haksiz FALSE verip
+          # deploy'u kilitlemesin — form hatti once canlandirilir, sonra olculur.
+          HRT_RC=0
+          .venv/bin/python - <<'HRT' || HRT_RC=$?
+          import heartbeat, time, subprocess, sys
+          age = heartbeat.age_seconds("auto_runner")
+          if age is None or age > 180:
+              print(f"kalp atisi taze degil ({age}) - nirvana-pipeline canlandiriliyor")
+              subprocess.run(["sudo", "-n", "systemctl", "reset-failed",
+                              "nirvana-pipeline.service"], check=False)
+              subprocess.run(["sudo", "-n", "systemctl", "restart",
+                              "nirvana-pipeline.service"], check=False)
+              for _ in range(40):
+                  time.sleep(3)
+                  a = heartbeat.age_seconds("auto_runner")
+                  if a is not None and a <= 180:
+                      print("kalp atisi tazelendi:", round(a, 1), "s")
+                      sys.exit(0)
+              print("kalp atisi TAZELENEMEDI")
+              sys.exit(3)
+          print("kalp atisi taze:", round(age, 1), "s")
+          HRT
+          if [ "$HRT_RC" -ne 0 ]; then
+            echo "::error::pipeline canlandirilamadi (kod $HRT_RC) - manifest kapisi KAPALI, deploy iptal, canli sistem korundu"
+            exit 1
+          fi
+          # [1c] Manifest kendisi: yakit ikmali + 14 kapi strict.
+          if ! .venv/bin/python manifest_check.py --prime --strict; then
+            echo "::error::MANIFEST FALSE - deploy ENGELLENDI, canli eski yapi oldugu gibi korundu (manifest_report.json)"
+            cp -f /opt/devsolve/manifest_report.json /opt/devsolve/logs/manifest_last_failed.json 2>/dev/null || true
+            exit 1
+          fi
+          echo "MANIFEST TRUE - kod canliya aliniyor"
+          echo "=== [2] Paket açma (reviewed committed code, /opt/devsolve) ==="
           cd /opt/devsolve
           tar -xzf /tmp/nirvana-deploy.tgz -C /opt/devsolve
           # systemd CRLF'de User=root\r → 217/USER verir; kaynakta kökten temizlenir.
