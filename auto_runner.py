@@ -499,24 +499,66 @@ def main() -> None:
                     "pipeline turu %ss sınırında kesildi — takılı Chromium öldürüldü",
                     getattr(config, "PIPELINE_RUN_TIMEOUT_SECONDS", 600),
                 )
-                # DOGRULUK KAPISI: 'Hat canli' iddiasi YASAK — once olc, sonra konus.
-                # 0 form + timeout = SAHTE canlilik degil, gercek kesinti raporu.
+                # Lane AX: hata sınıflandırıcı — GEÇİCİ arızada KESİNTİ mesajı YOK
+                # (sentinel/job_watchdog/systemd sessizce onarır, manifest TRUE).
+                # MANTIKSAL kırılmada nokta atışı Telegram + manifest FALSE + dur.
                 today_n, hour_n = knowledge.submit_counts()
-                owner_notify.send(
-                    f"KESINTI (dogrulandi): pipeline turu {int(getattr(config, 'PIPELINE_RUN_TIMEOUT_SECONDS', 600) or 600)}s duvar-saatinde kesildi; "
-                    f"takili Chromium kill -9 ile olduruldu, kilitli host 6 saat karantinaya alindi. "
-                    f"Olculen: bu tur 0 onayli form | saat {hour_n}/{knowledge.hourly_cap()} | gun {today_n}/{knowledge.daily_cap()} | "
-                    f"kuyruk={domain_store.queue_depth()}/{cap}. "
-                    f"Dis Nobetci (60s) taze turu atesledi; sonraki mesaj yalnizca onayli form sayisiyla gelir."
-                )
+                try:
+                    from nirvana import error_classifier as _ec
+                    _verdict = _ec.classify(
+                        "pipeline turu %ss duvar-saatinde kesildi; takili Chromium "
+                        "kill -9 ile olduruldu" % int(getattr(
+                            config, "PIPELINE_RUN_TIMEOUT_SECONDS", 600) or 600),
+                        exit_code=124)
+                except Exception:
+                    _verdict = {"kind": "transient", "reason": "siniflandirici yok",
+                                "sig": "", "count": 1, "notify_now": False}
+                if _verdict.get("kind") == "logic" and _verdict.get("notify_now"):
+                    try:
+                        from nirvana import manifest_state as _ms
+                        _ms.set_false(
+                            "pipeline",
+                            "duvar-saati kill surekli tekrarliyor (x%s): %s"
+                            % (_verdict.get("count"), _verdict.get("reason")))
+                    except Exception:
+                        pass
+                    owner_notify.send(
+                        f"KESINTI (nokta atisi): pipeline turu duvar-saati sinirinda "
+                        f"{_verdict.get('count')}x takildi — self-heal cozemedi, KOD/MANTIK suphesi. "
+                        f"Olculen: saat {hour_n}/{knowledge.hourly_cap()} | gun {today_n}/{knowledge.daily_cap()} | "
+                        f"kuyruk={domain_store.queue_depth()}/{cap}. Manifest FALSE cekildi; duzeltme bekleniyor.",
+                        high_priority=True,
+                    )
+                else:
+                    logger.info("Gecici tur kesintisi (x%s) — self-heal devrede, KESINTI mesaji atilmadi",
+                                _verdict.get("count"))
             elif pipeline_code != 0:
                 logger.warning("pipeline exited %s — will retry next cycle", pipeline_code)
                 today_n, hour_n = knowledge.submit_counts()
-                owner_notify.send(
-                    f"KESINTI (dogrulandi): pipeline turu hata ile bitti (kod {pipeline_code}; 0 onayli form varsayilmaz — olculen: "
-                    f"saat {hour_n}/{knowledge.hourly_cap()} | gun {today_n}/{knowledge.daily_cap()} | kuyruk={domain_store.queue_depth()}/{cap}). "
-                    f"Dis Nobetci (60s) devrede; sonraki tur hemen deneniyor."
-                )
+                try:
+                    from nirvana import error_classifier as _ec2
+                    _v2 = _ec2.classify("pipeline turu hata ile bitti kod %s" % pipeline_code,
+                                        exit_code=int(pipeline_code))
+                except Exception:
+                    _v2 = {"kind": "transient", "reason": "siniflandirici yok",
+                           "sig": "", "count": 1, "notify_now": False}
+                if _v2.get("kind") == "logic" and _v2.get("notify_now"):
+                    try:
+                        from nirvana import manifest_state as _ms2
+                        _ms2.set_false("pipeline", "pipeline kod %s ile kirildi: %s"
+                                       % (pipeline_code, _v2.get("reason")))
+                    except Exception:
+                        pass
+                    owner_notify.send(
+                        f"KESINTI (nokta atisi): pipeline kod {pipeline_code} ile kirildi "
+                        f"(x{_v2.get('count')}). Olculen: saat {hour_n}/{knowledge.hourly_cap()} | "
+                        f"gun {today_n}/{knowledge.daily_cap()} | kuyruk={domain_store.queue_depth()}/{cap}. "
+                        f"Manifest FALSE cekildi; duzeltme bekleniyor.",
+                        high_priority=True,
+                    )
+                else:
+                    logger.info("Gecici pipeline hatasi kod %s (x%s) — self-heal devrede",
+                                pipeline_code, _v2.get("count"))
 
         # Faz A — kurumsal contractor başvuru kanalı. Aynı Oracle kotasını
         # paylaşır: sub-cap'li (gün 4 / saat 2), kota daralırsa pipeline önce.

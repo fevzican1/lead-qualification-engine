@@ -26,7 +26,10 @@ logger = logging.getLogger(__name__)
 # --- Huni aşaması tespiti (TR + EN) -----------------------------------------
 _STAGE_PATTERNS: tuple[tuple[str, str], ...] = (
     ("close", r"kabul\s*ediyorum|ödeme\s*yap(?:mak|acağım|acagim)|satın\s*al|başlayalım|"
-              r"i\s*(?:accept|want\s*to\s*pay)|let'?s\s*start|pay(?:ment)?\s*now"),
+              r"ödeme\s*link|odeme\s*link|link(?:ini)?\s*(?:atar|paylaş|paylas|gonder|atarmısın|atarmisin|"
+              r"paylaşırmısın|paylasirmisin|gönderirmisin|gonderirmisin)|"
+              r"i\s*(?:accept|want\s*to\s*pay)|let'?s\s*start|pay(?:ment)?\s*now|"
+              r"send\s*(?:me)?\s*(?:the)?\s*payment\s*link"),
     ("objection_price", r"pahalı|pahali|çok\s*yüksek|cok\s*yuksek|bütçe|butce|"
                         r"expensive|too\s*much|budget|pricey"),
     ("objection_delay", r"sonra\s*(dönüş|donus|görüş|gorus|konuşalim)|düşüneyim|dusuneyim|"

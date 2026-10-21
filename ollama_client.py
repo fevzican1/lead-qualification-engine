@@ -19,6 +19,10 @@ import httpx
 import config
 import knowledge
 
+class ModelNotFound(RuntimeError):
+    """Ollama'da istenen model diskte yok (404). Zincir aninda digerine gecer."""
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -83,43 +87,43 @@ def ensure_model(model: Optional[str] = None) -> None:
     names = list_models()
     if any(model == name or name.startswith(model) or model in name for name in names):
         return
-    locked = str(knowledge.oracle_lock().get("model") or "deepseek-r1:14b")
-    fast = ""
-    try:
-        fast = knowledge.model_fast()
-    except Exception:  # noqa: BLE001
-        fast = ""
-    # Hafif webchat modeli (llama3.2:3b) Always Free kilidi içinde indirilebilir.
-    allowed = (model == locked or model.startswith(locked)
-               or (fast and (model == fast or model.startswith(fast))))
-    if not allowed:
-        logger.warning("Refusing to pull %s — Always Free lock is %s (fast=%s)", model, locked, fast or "-")
-        return
-    logger.info("Pulling Ollama model %s (first time only)", model)
-    binary = shutil.which("ollama")
-    if binary:
-        subprocess.run([binary, "pull", model], check=True)
-        return
-    response = httpx.post(
-        f"{_base()}/api/pull",
-        json={"name": model, "stream": False},
-        timeout=600.0,
-    )
-    response.raise_for_status()
+    # Model diskte YOK. Indirmeye calismak yerine zincirin diger
+    # adimina gec (fail-fast): 404 x3 x 180sn bekleme = donma.
+    raise ModelNotFound(f"ollama model diskte yok: {model}")
 
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.I | re.S)
+
+
+def _normalize_keep_alive(value: str) -> str:
+    """Ollama sürüm uyumu: `keep_alive` daima süre birimi ister (0.33+).
+
+    Eski/sert sürümler saf sayısal `-1`/`600`'ü `time: missing unit in duration`
+    hatasıyla reddeder. Saf sayı tespit edilirse `s` (saniye) birimi eklenir;
+    `-1` -> `-1s` (kalıcı yükleme) — Ollama bunu kabul eder.
+    """
+    text = (value or "").strip()
+    if not text:
+        return text
+    # Zaten birimli (son karakter harf) veya süresiz (0) ise olduğu gibi bırak.
+    if text[-1].isalpha():
+        return text
+    try:
+        float(text.replace(",", "."))
+    except (TypeError, ValueError):
+        return text
+    return text + "s"
 
 
 def keep_alive() -> str:
     """Model bellekte kalma süresi: OLLAMA_KEEP_ALIVE > oracle.json > 24h (rapor)."""
     env = (os.getenv("OLLAMA_KEEP_ALIVE") or "").strip()
     if env:
-        return env
+        return _normalize_keep_alive(env)
     try:
         locked = str(knowledge.oracle_lock().get("ollama_keep_alive") or "").strip()
         if locked:
-            return locked
+            return _normalize_keep_alive(locked)
     except Exception:  # noqa: BLE001
         pass
     return "24h"
@@ -134,14 +138,39 @@ def model_present(model: str) -> bool:
                for name in list_models())
 
 
+def _present_small_model() -> str:
+    """Diskte hazir olan KUCUK modeli sec (1b/3b/4b). DONMA YOK kurali:
+
+    Ampere A1 (4 vCPU) ve dar bellekli dev makinelerinde 7b/14b model ya
+    cok yavas ya da 6.4GB buffer ile OOM olur -> webchat DONAR. Bu yuzden
+    once diskteki herhangi bir kucuk modeli tara; varsa onu kullan. Yoksa
+    ana modele dus.
+    """
+    try:
+        names = list_models()
+    except Exception:  # noqa: BLE001
+        return ""
+    for name in names:
+        if re.search(r":(1b|3b|4b)\b", name, re.I):
+            return name
+    return ""
+
+
 def webchat_model() -> str:
-    """WebChat için hafif model; diskte yoksa ana modele düşer (indirme zorlamaz)."""
+    """WebChat icin hafif model; diskte yoksa ana modele duster (indirme zorlamaz).
+
+    Once kilitli hizli modeli (fast) dener; o diskte YOKSA diskteki herhangi bir
+    kucuk modeli (1b/3b/4b) bulur; hicbiri yoksa ana modele duser.
+    """
     try:
         fast = knowledge.enforce_model(knowledge.model_fast())
     except Exception:  # noqa: BLE001
         fast = ""
     if fast and fast != config.OLLAMA_MODEL and model_present(fast):
         return fast
+    small = _present_small_model()
+    if small and small != config.OLLAMA_MODEL:
+        return small
     return config.OLLAMA_MODEL
 
 
@@ -198,10 +227,17 @@ def chat(
     for attempt in range(3):
         try:
             response = httpx.post(f"{_base()}/api/chat", json=payload, timeout=timeout)
+            if response.status_code == 404:
+                # Model diskte YOK (404). Tekrar denemek anlamsiz ve 3x180sn
+                # bekletip donma yaratir -> HEMEN fail-fast (yoksa zincir duger).
+                raise ModelNotFound(
+                    f"ollama model yok (404): {payload.get('model')}")
             response.raise_for_status()
             data = response.json()
             content = ((data.get("message") or {}).get("content")) or data.get("response") or ""
             return _visible_text(str(content))
+        except ModelNotFound:
+            raise
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
             logger.warning("Ollama chat attempt %s failed: %s", attempt + 1, exc)

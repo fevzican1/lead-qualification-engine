@@ -195,8 +195,19 @@ def _sem() -> asyncio.Semaphore:
     return _sem_lock
 
 def _steps() -> list[tuple[str, float]]:
-    """(model, timeout) adimlari — yalnizca YEREL Ollama, dis servis yok."""
+    """(model, timeout) adimlari — yalnizca YEREL Ollama, dis servis yok.
+
+    Diskteki hazir kucuk model zincir BASINA alinir (DONMA YOK kurali):
+    dev'de llama3.2:1b, Oracle'da qwen2.5:3b ilk denenen olur.
+    """
     out: list[tuple[str, float]] = []
+    try:
+        import ollama_client as _oc_steps  # type: ignore
+        _dyn = _oc_steps.webchat_model()
+        if _dyn and not is_cloud(_dyn):
+            out.append((_dyn, FAST_TIMEOUT_S))
+    except Exception:  # noqa: BLE001
+        pass
     for m in model_chain():
         if is_cloud(m):
             continue  # dis servisler pasif: hicbir adimda gorunmez
@@ -312,6 +323,19 @@ async def aroute_agency(messages: list, *, session: dict | None = None, temperat
     last = ""
     models = [AGENCY_MODEL, FAST_MODEL, PRIMARY_MODEL]
     seen: list[str] = []
+    # DONMA YOK: diskteki hazir kucuk model (dev: llama3.2:1b, Oracle: qwen2.5:3b)
+    # zincir BASINA alinir — yoksa listede degilse bile eklenir. Boylece webchat
+    # her ortamda en hizli mevcut modelle yanit verir, yedek zincir korunur.
+    try:
+        import ollama_client as _oc_dyn  # type: ignore
+        _dyn = _oc_dyn.webchat_model()
+        if _dyn and _dyn not in models:
+            models.insert(0, _dyn)
+        elif _dyn and models and _dyn != models[0]:
+            models.remove(_dyn)
+            models.insert(0, _dyn)
+    except Exception:  # noqa: BLE001 — dinamik secim basarisizsa sabit zincir
+        pass
     for m in models:
         if m and m not in seen:
             seen.append(m)

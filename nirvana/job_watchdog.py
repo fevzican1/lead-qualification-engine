@@ -881,6 +881,23 @@ def autonomous_recover(
     # otomatik reboot döngüsü form hattını felç etmişti).
     logger.warning("5 dk penceresi doldu (%s) — onarım sürüyor, motor çalışmaya "
                    "devam ediyor (reboot YOK)", label)
+    # Lane AX: pencere doldu ama kirmizi suruyor -> siniflandir.
+    # GECICI: sessiz gozlem (sonraki timer dener). MANTIKSAL:
+    # manifest FALSE + nokta atisi Telegram + guvenli mod.
+    try:
+        from nirvana import error_classifier as _ax_ec
+        _ax_v = _ax_ec.classify(
+            "job_watchdog 5dk onardi ama %s kirmizi: %s" % (
+                label, "; ".join(applied[-4:])[:300]))
+        if _ax_v.get("kind") == "logic" and _ax_v.get("notify_now"):
+            from nirvana import manifest_state as _ax_ms
+            if _ax_ms.set_false(
+                    "job_watchdog/%s" % label,
+                    "is katmani 5dkda cozulemedi (x%s): %s"
+                    % (_ax_v.get("count"), _ax_v.get("reason"))):
+                notes.append("MANIFEST FALSE: %s guvenli modda" % label)
+    except Exception:  # noqa: BLE001 - bekci dusmez
+        pass
     return {**base, "resolved": False, "rebooted": False, "waited_s": waited}
 def _acquire_singleton() -> Any:
     """Canlı turlar için tek örnek kilidi (timer 1 dk; döngü 5 dk sürebilir).

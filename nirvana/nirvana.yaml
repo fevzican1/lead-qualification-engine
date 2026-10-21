@@ -184,6 +184,13 @@ nirvana:
       entrypoint: "python -m nirvana.runner financial_loss_engine"
       description: "MOD-05 kayip hesaplama: olculmus darbogazdan finansal etki bandi. Uydurma yok."
       heavy: true
+    financial_shock_card:
+      host: github
+      letter: AX2
+      schedule: "22 6 * * *"
+      entrypoint: "python -m nirvana.runner financial_shock_card"
+      description: "AX-2 Anlik VLA 'Kayip Para' kanit karti: olculmus tanidan gunluk/15 gunluk parasal kaybi hesaplar, vurus cumlesi uretir. Kaynak yoksa kart uretilmez (uydurma yasagi)."
+      heavy: true
     hash_tokenizer:
       host: github
       letter: Z

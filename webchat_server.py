@@ -312,6 +312,11 @@ async def _brain_reply(session, user_text):
                                          f"guvenli Payoneer odeme adimini tamamlayin: {_pay}")
                 except Exception:
                     pass
+                # ORTAK ODEME KAPISI: ajans hattinda da odeme niyeti olan
+                # mesajda link deterministik eklenir (2. mesaj kuralindan
+                # bagimsiz — musteri ilk "odeme/link" sorusunda gorur).
+                _final_ag = _ensure_payment_link(_final_ag, user_text,
+                                                session=session, lang=lang)
                 return _final_ag, _scored_ag
     except Exception:
         logger.debug("agency hatti atlandi", exc_info=True)
@@ -333,27 +338,63 @@ async def _brain_reply(session, user_text):
         except Exception as _re:
             logger.debug("llm_router atlandi: %s", _re)
             reply = ""
-        if not reply:
-            import ollama_client  # type: ignore
         def _call() -> str:
             """HIZLI MODEL (llama3.2:3b) — 4 vCPU'da kisa yanit hedefi.
 
             chat_webchat hizli modeli secer; model diskte yoksa/duserse ana
             modele KENDI icinde duser. Imza degisirse chat()'e guvenli gecis.
             """
-            fn = getattr(ollama_client, "chat_webchat", None)
+            import ollama_client as _oc  # type: ignore
+            fn = getattr(_oc, "chat_webchat", None)
             if callable(fn):
                 out = fn(msgs, temperature=0.6, max_tokens=280, timeout=60.0)
                 if isinstance(out, tuple):
                     out = out[0] if out else ""
                 return str(out or "")
-            return str(ollama_client.chat(msgs, temperature=0.6, max_tokens=280) or "")
+            return str(_oc.chat(msgs, temperature=0.6, max_tokens=280) or "")
         async with _sem():
             reply = await asyncio.wait_for(asyncio.to_thread(_call), timeout=95.0)
             reply = str(reply or "").strip()
     except Exception as exc: logger.warning("ollama down (sid=%s): %s - yedek", sid, exc); reply = ""
     if not reply: reply = fallback_reply(lang=lang, tone=str(scored.get("tone") or "educate"), name=name)
-    return audit_reply(reply, lang=lang), scored
+    reply = audit_reply(reply, lang=lang)
+    # --- ODEME KAPISI (tek kaynak): odeme niyeti olan her mesajda Payoneer
+    # linki deterministik olarak eklenir. Daha once bu yalnizca worker
+    # loop'unda oluyordu; demo-ask ve dogrudan _brain_reply cagrilari linki
+    # KAÇIRIYORDU (musteri odeme adimini gormeden kapanis yapamiyordu).
+    reply = _ensure_payment_link(reply, user_text, session=session, lang=lang)
+    return reply, scored
+def _ensure_payment_link(reply: str, user_text: str, *, session=None, lang: str = "tr") -> str:
+    """Odeme niyeti varsa Payoneer linkini bir kez ve dogru sekilde ekler.
+
+    Kurallar:
+      - Sadece GERCEK odeme niyeti (buy / link_req / fiyat sorusu) varsa.
+      - Ayni link birden fazla kez eklenmez (tekrar yok).
+      - Link bos/yer tutucu ise eklenmez (musteriye sahte link gitmez).
+    """
+    out = str(reply or "")
+    try:
+        st = payment_stage(user_text or "")
+    except Exception:
+        st = {}
+    if not (isinstance(st, dict) and (st.get("buy") or st.get("link_req")
+                                      or st.get("stage") in ("buy", "link_req"))):
+        return out
+    link = ""
+    try:
+        from nirvana import payment as _pm  # type: ignore
+        link = str(_pm.payment_link() or "").strip()
+    except Exception:
+        link = ""
+    if not link or "payoneer" not in link.lower():
+        return out
+    if link in out:
+        return out
+    if lang == "en":
+        tail = ("\n\nSecure payment step (Payoneer, 5,000 EUR): " + link)
+    else:
+        tail = ("\n\nGuvenli odeme adimi (Payoneer, 5.000 EUR): " + link)
+    return out.rstrip() + tail
 def _voice_path(sid): return VOICE_DIR / f"{re.sub(r'[^A-Za-z0-9_-]', '', str(sid))[:32]}.mp3"
 def _guarded_reply(text) -> dict:
     """Musteriye giden HER agent metni buradan gecer (zero-notice zirhi).
@@ -918,7 +959,10 @@ async def _worker_loop(idx, queue):
                         link = pm.payment_link()
                     except Exception: link = ""
                     if link:
-                        reply = f"{reply}\n\nOdeme adimi: {link}"
+                        # Link zaten _brain_reply icinde eklendiyse TEKRAR
+                        # EKLENMEZ (musteriye iki ayni link gitmesin).
+                        if link not in (reply or ""):
+                            reply = f"{reply}\n\nOdeme adimi: {link}"
                     _kar = ""
                     try:
                         _d1 = s2.get("demo_context") if isinstance(s2, dict) else None

@@ -54,6 +54,10 @@ SERVICES: dict[str, dict[str, Any]] = {
         "label_tr": "Yenileme izleme turu",
         "label_en": "Renewal monitoring sweep",
     },
+    "vla-audit": {
+        "label_tr": "VLA kayip para denetimi",
+        "label_en": "VLA lost money audit",
+    },
 }
 
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -35,6 +36,10 @@ ORACLE_FREE = {
     "ram_gb": 24,
     "boot_gb": 80,
     "model": "deepseek-r1:14b",
+    # WebChat / ajans hatti hafif model (4 vCPU Ampere dostu). oracle.json
+    # overlay ile ezilebilir; burada da bulunur ki overlay okunamazsa
+    # enforce_model() 14B'ye yonlendirmesin (YAVAS = DONMA riski).
+    "model_fast": "qwen2.5:3b",
     "ollama_parallel": 1,
     "smtp": False,
     "public_ollama": False,
@@ -156,6 +161,15 @@ def reload_overlays(*, force: bool = False) -> bool:
                     "ram_gb",
                     "boot_gb",
                     "model",
+                    "model_fast",
+                    "hot_fuel_target",
+                    "zram_swap_gb",
+                    "memory_high_gb",
+                    "memory_max_gb",
+                    "ollama_num_parallel",
+                    "ollama_keep_alive",
+                    "chromium_batch",
+                    "daily_http_probe_limit",
                     "ollama_parallel",
                     "smtp",
                     "public_ollama",
@@ -414,6 +428,12 @@ def enforce_model(model: str) -> str:
     allowed = raw == locked or raw.startswith(locked)
     # Hafif webchat modeli de Always Free kilidi içindedir (küçük kuantizasyon).
     if not allowed and fast and (raw == fast or raw.startswith(fast)):
+        allowed = True
+    # Güvenli hızlı sınıf: 1B/3B modeller her koşulda izinli (4 vCPU Ampere'de
+    # 14B'ye düşmek yanıt süresini saniyelerden dakikalara çıkarir = DONMA).
+    # Oracle hangi 3b modelini indirirse indirsin (llama3.2:3b / qwen2.5:3b /
+    # gemma3:1b) zincir calisir; model diskte yoksa zincir diger adimina gecer.
+    if not allowed and re.match(r"^(ollama/)?[\w./-]+:(1b|3b|4b)\b", raw, re.I):
         allowed = True
     if allowed:
         return raw

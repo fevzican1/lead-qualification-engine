@@ -548,6 +548,19 @@ def repair(check: str, *, state: dict[str, Any],
         cds = state.get("cooldowns") if isinstance(state.get("cooldowns"), dict) else {}
         cds[check] = float(stamp)
         state["cooldowns"] = {str(k): float(v) for k, v in cds.items()}
+    else:
+        # Lane AX: onarilamayan satir -> siniflandir. GECICI: sessiz gozlem.
+        # MANTIKSAL: manifest FALSE + nokta atisi Telegram + guvenli mod.
+        try:
+            from nirvana import error_classifier as ax_ec  # type: ignore
+            from nirvana import manifest_state as ax_ms  # type: ignore
+            ax_v = ax_ec.classify("quality_audit %s onarimi basarisiz" % check)
+            if ax_v.get("kind") == "logic" and ax_v.get("notify_now"):
+                ax_ms.set_false("quality_audit/%s" % check,
+                                "kritik kalite satiri cozulemedi")
+        except Exception:  # noqa: BLE001 - denetim dusmez
+            pass
+        cds = state.get("cooldowns") if isinstance(state.get("cooldowns"), dict) else {}
     return out
 
 

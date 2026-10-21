@@ -404,6 +404,24 @@ def run_batch(**kwargs: Any) -> dict[str, Any]:
             notes.append(f"{act['component']} {mark}: " + "; ".join(res.get("applied") or []))
             if res.get("error"):
                 notes.append(f"{act['component']} hata: {res['error']}")
+            # Lane AX: onarim BASARISIZSA siniflandir. GECICI -> sessiz izleme
+            # (sonraki tur tekrar dener). MANTIKSAL -> manifest FALSE + nokta
+            # atisi Telegram + guvenli mod (surec durdurulur).
+            if not res.get("ok"):
+                try:
+                    from nirvana import error_classifier as _ec
+                    _v = _ec.classify(
+                        "%s onarim basarisiz: %s" % (
+                            act["component"], "; ".join(res.get("applied") or [])[:200]
+                            + " | " + str(res.get("error") or "")[:200]))
+                    if _v.get("kind") == "logic" and _v.get("notify_now"):
+                        from nirvana import manifest_state as _ms
+                        if _ms.set_false("sentinel/%s" % act["component"],
+                                         "%s onarimi cozemedi (x%s): %s"
+                                         % (act["component"], _v.get("count"), _v.get("reason"))):
+                            notes.append("MANIFEST FALSE: %s guvenli modda" % act["component"])
+                except Exception:  # noqa: BLE001 — bekci siniflandirma yuzunden dusmez
+                    pass
     # İş sonucu görünür kalsın (sentinel iş SEVİYESİNE karışmaz — job_watchdog
     # onun işi — ama panoda kök neden için sayılar raporlanır).
     try:

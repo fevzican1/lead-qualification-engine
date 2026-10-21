@@ -41,6 +41,7 @@ RUNNERS = {
     "forget_guard": "nirvana.forget_guard",
     "proof_card": "nirvana.proof_card",
     "financial_loss_engine": "nirvana.financial_loss_engine",
+    "financial_shock_card": "nirvana.financial_shock_card",
     "hash_tokenizer": "nirvana.hash_tokenizer",
     "queue_fuel_guard": "nirvana.queue_fuel_guard",
     "anti_spam_cadence": "nirvana.anti_spam_cadence",
