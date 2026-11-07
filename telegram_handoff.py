@@ -588,7 +588,7 @@ def form_copy(
             f"{form_cta(link=link, turkish=True, domain=domain, variant=variant)}\n\n"
             f"{standards_line(True)}\n\n"
             f"Rapor No: {report_id(domain)}\n"
-            f"{trust_note(True, link)} Uygunsa 2 saatlik uygulama slotu ayarlanabilir.\n"
+            f"{trust_note(True, link)} Sisteminizde anlık tespit + VLA kanit kartı: €5.000 Whitelabel lisansı dogrulamali.\n"
             f"{identity_line(True)}\n"
             f"{'Kanıt paketi (tekrar)' if variant == 'X' else 'Akış şeması (tekrar)'}: {link}\n"
             f"Çıkmak isterseniz STOP yazın veya {getattr(config, 'SENDER_EMAIL', '')} "

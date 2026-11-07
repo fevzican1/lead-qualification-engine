@@ -6,8 +6,28 @@ sdnotify>=0.3,<1  # systemd Type=notify + WatchdogSec self-healing (saf python, 
 playwright>=1.45.0,<2
 python-dotenv>=1.0.1,<2
 httpx>=0.27.0,<1
+curl_cffi>=0.6,<1  # TLS/JA4 parmak izi taklidi (browser impersonation: Chrome/Firefox)
+pybreaker>=1.3,<2  # Devre kesici (circuit breaker): HTTP 429/5xx'de devreyi açar
+tenacity>=8.2,<9   # Üstel geri çekilme + jitter (smart retry): 2^deneme + jitter
 pillow>=10.0.0,<13
 PyYAML>=6.0,<7
+# --- Pact Consumer-Driven Contract Testing ---
+pact-python>=1.0,<2
+pytest>=7.0,<9
+pytest-asyncio>=0.23,<1
+# --- OpenTelemetry Trace-Based Testing ---
+opentelemetry-api>=1.24,<2
+opentelemetry-sdk>=1.24,<2
+opentelemetry-exporter-otlp>=1.24,<2
+opentelemetry-instrumentation-fastapi>=0.45b,<1
+opentelemetry-instrumentation-requests>=0.45b,<1
+# --- Multi-tenant DB + Celery (PostgreSQL şema izolasyonu, işçi tenant-binding) ---
+celery>=5.3,<6
+asyncpg>=0.29,<1
+databases[postgresql]>=0.7,<1
+pydantic>=2.5,<3
+# --- VLA Evaluation Harness ---
+# vla-evaluation-harness is installed from source when needed; kept optional here.
 # Dedicated CAPTCHA worker (Oracle VM, $0): yerel OCR pipeline icin opsiyonel.
 # Kurulum betigi apt ile tesseract + opencv'yi kurar; yoksa DOM cozucu calisir.
 # pip tarafi hafif tutulur: pillow zaten var; agir cv2/pytesseract Oracle'da apt/pip ile eklenir.

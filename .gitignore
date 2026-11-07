@@ -74,3 +74,10 @@ verify.log
 pt_*.log
 nirvana_tests.log
 manifest_report.json
+# Pact contract test outputs
+pacts/*.json
+!.pacts/webchat-service-payment-service.json
+# Test results
+test-results/
+pytest_out.txt
+pytest_now.txt

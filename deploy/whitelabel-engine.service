@@ -1,0 +1,25 @@
+[Unit]
+Description=Whitelabel Autonomous Delivery & Self-Healing Engine (OCI Always Free Tier)
+After=network.target opentelemetry-collector.service
+Wants=network.target opentelemetry-collector.service
+
+[Service]
+Type=simple
+User=opc
+WorkingDirectory=/opt/whitelabel-system
+ExecStart=/opt/whitelabel-system/venv/bin/python3 main.py
+Restart=always
+RestartSec=3s
+TimeoutStopSec=10s
+
+# Security and Sandbox Isolation Settings (OCI Always Free, hardened)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/whitelabel-system/logs /opt/whitelabel-system/state
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

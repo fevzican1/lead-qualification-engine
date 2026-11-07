@@ -1,0 +1,35 @@
+type: Test
+spec:
+  id: delivery-pipeline-trace-spec
+  name: "Delivery Pipeline OpenTelemetry Verification"
+  description: "Uçtan uca teslimat iş hattının OpenTelemetry izleri üzerinden doğrulanması."
+  trigger:
+    type: http
+    httpRequest:
+      url: http://127.0.0.1:8080/api/v1/delivery/jobs
+      method: POST
+      headers:
+        - key: Content-Type
+          value: application/json
+        - key: Authorization
+          value: "Bearer valid_payoneer_token"
+      body: '{"client_id": "firm_x_techpro", "payoneer_link_id": "payoneer_eur_5000_tx", "contract_type": "b2b_whitelabel_eur"}'
+  specs:
+    - selector: span[name = "delivery_execution_flow"]
+      assertions:
+        - attr:client.id = "firm_x_techpro"
+        - attr:tracetest.span.duration < 500ms
+    - selector: span[name = "payoneer_payment_link_verification"]
+      assertions:
+        - attr:payoneer.verification_status = "CONFIRMED_5000_EUR"
+        - attr:otel.status_code = "OK"
+    - selector: span[name = "worker_execution_step"]
+      assertions:
+        - attr:worker.completion_rate = 1.0
+        - attr:otel.status_code = "OK"
+  tags:
+    - whitelabel
+    - delivery
+    - opentelemetry
+    - tracetest
+    - trace-based

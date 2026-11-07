@@ -1,0 +1,63 @@
+{
+  "kind": "Pod",
+  "apiVersion": "v1",
+  "metadata": {
+    "name": "webchat-server-pod",
+    "namespace": "whitelabel",
+    "labels": {
+      "app": "webchat-server"
+    }
+  },
+  "spec": {
+    "securityContext": {
+      "runAsNonRoot": true
+    },
+    "containers": [
+      {
+        "name": "webchat",
+        "image": "whitelabel/webchat-server:1.2.3",
+        "imagePullPolicy": "IfNotPresent",
+        "securityContext": {
+          "runAsNonRoot": true,
+          "privileged": false,
+          "readOnlyRootFilesystem": true,
+          "allowPrivilegeEscalation": false
+        },
+        "resources": {
+          "limits": {
+            "cpu": "500m",
+            "memory": "256Mi"
+          },
+          "requests": {
+            "cpu": "100m",
+            "memory": "128Mi"
+          }
+        },
+        "livenessProbe": {
+          "httpGet": {
+            "path": "/health",
+            "port": 8765
+          },
+          "initialDelaySeconds": 10,
+          "periodSeconds": 15
+        },
+        "readinessProbe": {
+          "httpGet": {
+            "path": "/ready",
+            "port": 8765
+          },
+          "initialDelaySeconds": 5,
+          "periodSeconds": 10
+        },
+        "ports": [
+          {
+            "containerPort": 8765,
+            "protocol": "TCP",
+            "name": "http"
+          }
+        ]
+      }
+    ],
+    "restartPolicy": "Always"
+  }
+}

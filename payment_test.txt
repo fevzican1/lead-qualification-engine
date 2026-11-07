@@ -1,0 +1,53 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\Lenovo\AppData\Local\Programs\Python\Python312\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Lenovo\lead-qualification-engine-2
+plugins: anyio-4.14.2, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 3 items
+
+tests/contracts/test_payment_contract.py::test_payment_initiation_contract FAILED [ 33%]
+tests/contracts/test_payment_contract.py::test_payment_refund_contract FAILED [ 66%]
+tests/contracts/test_payment_contract.py::test_payment_contract_publish_to_broker SKIPPED [100%]
+
+================================== FAILURES ===================================
+______________________ test_payment_initiation_contract _______________________
+
+pact_builder = <PactServer: transport='http', host='localhost', port=None, handle=None, pact=PactHandle(35099)>
+
+    def test_payment_initiation_contract(pact_builder) -> None:
+        """Webchat requests a charge; PaymentService responds with an approved transaction."""
+        (
+>           pact_builder.upon_receiving("Odeme baslatma istemi")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            .given("Odeme altyapisi aktif ve bakiye yeterli")
+            .with_request(method="POST", path="/v1/charge")
+            .with_body({"account_id": "ACC-101", "amount": 150.50, "currency": "TRY"}, content_type="application/json")
+            .will_respond_with(status=200)
+            .with_body(EXPECTED_CHARGE_RESPONSE, content_type="application/json")
+        )
+E       AttributeError: 'PactServer' object has no attribute 'upon_receiving'
+
+tests\contracts\test_payment_contract.py:47: AttributeError
+________________________ test_payment_refund_contract _________________________
+
+pact_builder = <PactServer: transport='http', host='localhost', port=None, handle=None, pact=PactHandle(35099)>
+
+    def test_payment_refund_contract(pact_builder) -> None:
+        """Webchat requests a refund; PaymentService responds with a refund confirmation."""
+        (
+>           pact_builder.upon_receiving("Odeme iade istemi")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            .given("Odeme gecmesi mevcut ve iade edilebilir")
+            .with_request(method="POST", path="/v1/refund")
+            .with_body({"transaction_id": "TX-998234", "amount": 150.50, "currency": "TRY"}, content_type="application/json")
+            .will_respond_with(status=200)
+            .with_body(EXPECTED_REFUND_RESPONSE, content_type="application/json")
+        )
+E       AttributeError: 'PactServer' object has no attribute 'upon_receiving'
+
+tests\contracts\test_payment_contract.py:66: AttributeError
+=========================== short test summary info ===========================
+FAILED tests/contracts/test_payment_contract.py::test_payment_initiation_contract
+FAILED tests/contracts/test_payment_contract.py::test_payment_refund_contract
+======================== 2 failed, 1 skipped in 1.03s =========================

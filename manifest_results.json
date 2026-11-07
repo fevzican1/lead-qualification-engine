@@ -1,0 +1,338 @@
+{
+  "manifest": "1.0-whitelabel",
+  "strict": true,
+  "at": "2026-10-22T14:24:08Z",
+  "deploy": "FALSE",
+  "false_count": 2,
+  "warn_count": 0,
+  "gates": [
+    {
+      "gate": "env_core",
+      "title": "ENV can damari (token+odeme+link)",
+      "items": "107,9,12,119,138",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "bot @B2B_SalesAssistant_Bot + 5000 EUR link + owner 8465614326"
+    },
+    {
+      "gate": "env_sender",
+      "title": "Form gonderici kimligi SENDER_*",
+      "items": "9,28,34,35,54",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "SENDER_* tam"
+    },
+    {
+      "gate": "env_webchat",
+      "title": "Musteri hatti WEBCHAT_PUBLIC_URL",
+      "items": "85,103,109,134",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "musteri hatti http://127.0.0.1:8765"
+    },
+    {
+      "gate": "queue",
+      "title": "Uretim kuyrugu derinligi",
+      "items": "32,50,60,67,68,101",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "kuyruk 2500 (>=40)",
+      "queue_depth": 2500
+    },
+    {
+      "gate": "fuel",
+      "title": "Yakit tanki hot_fuel+chromium",
+      "items": "32,51,60,67,68,113",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "tank 19840 + chromium 700/500",
+      "ready": 19840,
+      "chromium": 700
+    },
+    {
+      "gate": "pipeline_locks",
+      "title": "Singleton kilit+DB",
+      "items": "73,77,99,100",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "WAL temiz, singleton aktif"
+    },
+    {
+      "gate": "pipeline_live",
+      "title": "Pipeline canliligi heartbeat",
+      "items": "pipeline durma kok nedeni",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "Windows dev ortamı: heartbeat beklenikli YOK (auto_runner aktif değil)",
+      "age_s": null,
+      "windows_dev": true
+    },
+    {
+      "gate": "quality_13",
+      "title": "13 satir kalite",
+      "items": "tumu ozet",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "skor 100/100 yesil",
+      "score": 100,
+      "red": [],
+      "probes": {
+        "form_proof_roi": "form kanit zinciri saglikli (22000 EUR/ay + 7 kanit satiri)",
+        "demo_simulation_pay": "demo canli (22000 EUR/ay) + odeme butonu + dis besleme + chat koprusu",
+        "delivery_execution_audit": "infaz kuyrugu bos (kurulum sonrasi normal)",
+        "whitelabel_demo_pay": "kar recetesi 22000 EUR/ay, odeme linki canli",
+        "webchat_close": "2. mesajda Payoneer kapanisi + ucretsiz yasagi + dil",
+        "uptime_zero_error": "/health 200 + /ws kayitli",
+        "payoneer_webhook": "5000 EUR link + teyit zinciri hazir",
+        "telegram_c2": "bildirim acik + Reply devir hazir",
+        "spam_ip_shield": "jitter 3-9 sn + CAPTCHA max2 + teyit (proxy: 0)",
+        "oracle_github_quota": "anti-idle %20 + keepalive + tavan %85",
+        "fuel_feeds": "400/gun + kuyruk 100/500",
+        "delivery_worker": "odeme kapili + tenant izole + max5 (6 tur)",
+        "memory_followup": "hafiza + 24h/72h/7g takip aktif"
+      }
+    },
+    {
+      "gate": "whitelabel_copy",
+      "title": "Form kar marji+kanit+link",
+      "items": "116,120,26,54,66,81,83",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "22000 EUR/ay + 7 kanit OK",
+      "headline_eur": 22000
+    },
+    {
+      "gate": "webchat_templates",
+      "title": "Demo+chat sablonlari",
+      "items": "118,134,144,103",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "demo 12289B + chat OK"
+    },
+    {
+      "gate": "payment_gate",
+      "title": "Odeme kapisi HMAC+kilit",
+      "items": "46,92,95,96,130,136,139",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "5000 EUR + HMAC + kilit (https://link.payoneer.com/Toke...)"
+    },
+    {
+      "gate": "telegram_c2",
+      "title": "Telegram C2 reply",
+      "items": "8,9,42,48,49,53,91,110",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "bildirim acik + Reply hazir"
+    },
+    {
+      "gate": "spam_shield",
+      "title": "Spam/IP kalkani",
+      "items": "2,64,65,75,106,108,112",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "jitter 3.0-9.0 + CAPTCHA max2 (proxy:0)"
+    },
+    {
+      "gate": "delivery_live",
+      "title": "Teslimat iscisi canli prova",
+      "items": "70,71,72,93,96,97,141",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "kapi+karismama+rapor+hafiza canli OK"
+    },
+    {
+      "gate": "watchdog_chain",
+      "title": "Self-healing zinciri",
+      "items": "73,77,78",
+      "status": "FALSE",
+      "ok": false,
+      "detail": "dinamik FALSE aktif: quality_audit/uptime_zero_error"
+    },
+    {
+      "gate": "form_lifecycle",
+      "title": "Form yasam dongusu",
+      "items": "3,4,5,6,27,60,101",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "TR red + DE gecis + kilitler + cap OK"
+    },
+    {
+      "gate": "demo_pay_sim",
+      "title": "Demo-odeme zinciri",
+      "items": "116,118,134,135,138,139",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "kar+demo+5000EUR+HMAC tek zincir OK"
+    },
+    {
+      "gate": "memory_followup",
+      "title": "Hafiza+takip zinciri",
+      "items": "22,23,47,94,140",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "hafiza+takip+optout zinciri OK"
+    },
+    {
+      "gate": "quota_free",
+      "title": "Oracle kotasi+keepalive",
+      "items": "1,40,41,67,105",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "anti-idle %20 + keepalive + tavan %85"
+    },
+    {
+      "gate": "loss_shock_card",
+      "title": "VLA Kayip Para kanit karti",
+      "items": "20,38,66,116,135",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "Kayip Para karti + COI 15gun + bant hesabi OK"
+    },
+    {
+      "gate": "conversion_quality",
+      "title": "Donusum + satis bitiriciligi olcumu",
+      "items": "28,34,35,66,81,143",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "asama+itiraz+odeme skoru+dil algilama OK"
+    },
+    {
+      "gate": "github_pipeline",
+      "title": "Pipeline GitHub tasiyici (iplik korumali)",
+      "items": "41,61,62,67,106,108,112",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "workflow YAML + SENDER_* sabit + domain limit 1/saat OK"
+    },
+    {
+      "gate": "self_heal_auto",
+      "title": "Otonom onarim + dinamik FALSE akisi",
+      "items": "11,71,73,77,78,88,92,144",
+      "status": "FALSE",
+      "ok": false,
+      "detail": "dinamik FALSE aktif (temizlenmeli)"
+    },
+    {
+      "gate": "live_scenarios",
+      "title": "Canli is akisi simulasyonlari",
+      "items": "118,134,137,138,139,141,143,144",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "odemesiz=engelli, odemeli=teslim, donus hatirli, demo+pay OK"
+    },
+    {
+      "gate": "GATE_25_load_concurrency",
+      "title": "Yuk/eszamanlilik kapi (load+concurrency)",
+      "items": "25,68,72,74,79,80,83,84",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "eszamanlilik+kapsulleme+flood kapisi OK",
+      "mode": "local",
+      "evidence": [
+        "stealth workers=7",
+        "captcha workers=2",
+        "verify_submission_response mevcut",
+        "domain jitter=5.58s",
+        "flood_guard status keys=['chats', 'global_remaining']",
+        "10 eszamanli oturum benzersiz"
+      ]
+    },
+    {
+      "gate": "GATE_26_session_isolation",
+      "title": "Oturum/veri izolasyon kapi (session isolation)",
+      "items": "26,43,44,45,46,47",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "oturum/veri izolasyonu OK",
+      "mode": "local",
+      "evidence": [
+        "sid A=7c8b2606... B=a36ce61f... farkli",
+        "gecmis izolasyonu OK",
+        "gecmis izolasyonu OK (ters yon)",
+        "gelen kutusu izolasyonu OK",
+        "gelen kutusu izolasyonu OK (ters yon)",
+        "A profile_key=profile-a-123",
+        "B profile_key=profile-b-456",
+        "all_sessions() iki oturumu listeler"
+      ]
+    },
+    {
+      "gate": "GATE_27_vla_authenticity",
+      "title": "VLA kanit dogrulama kapi (VLA authenticity)",
+      "items": "27,38,66,116,135",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "VLA kanit karti + shock + loss band dogrulugu OK",
+      "mode": "local",
+      "evidence": [
+        "VLA 7 kanit noktasi mevcut (490B)",
+        "VLA domain=audit-prova.de",
+        "shock ok=True band=10-12",
+        "loss band=10-12 basis={'dom_ms': 4200, 'slow_count': 4, 'bad_count': 2}"
+      ]
+    },
+    {
+      "gate": "GATE_28_payment_contract",
+      "title": "Odeme/sozlesme akis kapi (payment+contract)",
+      "items": "28,34,35,46,92,95,96",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "5000 EUR odeme + HMAC + e-imza zinciri OK",
+      "mode": "mixed",
+      "evidence": [
+        "payment_link payoneer URL (73B)",
+        "retainer_amount=5000 EUR",
+        "retainer_currency=EUR",
+        "payment_safety ready_request+approve_link callable",
+        "amount_matches(5000)=True",
+        "payment_safety row olusturuldu+dogrulandi",
+        "delivery_worker.payment_verified callable",
+        "Documenso e-imza yapilandirilmamis (fail-open, bilgilendirme)"
+      ],
+      "esign": {
+        "configured": false
+      }
+    },
+    {
+      "gate": "GATE_29_waf_security",
+      "title": "Gelismis WAF/guvenlik kapi (WAF+security)",
+      "items": "29,64,65,75,106,108,112",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "WAF kirlilik engelleme + temiz kabul + honeypot korumasi OK",
+      "mode": "local",
+      "evidence": [
+        "WAF RED cloudflare marker (200)",
+        "WAF RED http 403 (403)",
+        "WAF RED http 429 rate limit (429)",
+        "WAF RED captcha required (200)",
+        "WAF RED spam detected (200)",
+        "kirkil icerik onaylanmadi: xss script tag -> unverified",
+        "kirkil icerik onaylanmadi: sql injection -> unverified",
+        "kirkil icerik onaylanmadi: sql union -> unverified",
+        "kirkil icerik onaylanmadi: xss iframe -> unverified",
+        "temiz yanit Kabul clean success tr/en (200) -> verified",
+        "temiz yanit Kabul clean ajax json (200) -> verified",
+        "temiz yanit Kabul clean turkish success (200) -> unverified",
+        "CAPTCHA_MARKERS=4 imza",
+        "WAF_MARKERS=11 imza"
+      ]
+    },
+    {
+      "gate": "GATE_30_contract_trace",
+      "title": "Sozlesme+iz surum dogrulama kapi (Pact+OTel+Tracetest)",
+      "items": "30,31,32,33",
+      "status": "TRUE",
+      "ok": true,
+      "detail": "Pact sozlesmeleri + Tracetest + Otel + EDA dogrulama katmani OK",
+      "mode": "mixed",
+      "evidence": [
+        "Pact sozlesme dosyalari: 1 adet",
+        "Tracetest tanimlari: 2 adet",
+        "otel/collector.yaml mevcut",
+        "eda/rulebook.yml mevcut"
+      ]
+    }
+  ]
+}

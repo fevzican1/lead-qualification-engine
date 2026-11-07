@@ -1,0 +1,27 @@
+---
+- name: Reset Payment Service Circuit Breaker
+  hosts: payment_nodes
+  tasks:
+    - name: Flush payment service connection pool
+      ansible.builtin.uri:
+        url: "http://{{ inventory_hostname }}:8090/internal/circuit-breaker/reset"
+        method: POST
+        return_content: yes
+      register: reset_result
+
+    - name: Restart payment-service if circuit remains open
+      ansible.builtin.systemd:
+        name: payment-service
+        state: restarted
+      when: reset_result.status != 200
+
+    - name: Verify payment DB connectivity
+      ansible.builtin.uri:
+        url: "http://{{ inventory_hostname }}:8090/internal/health/db"
+        method: GET
+        return_content: yes
+        status_code: 200
+      register: db_health
+      until: db_health.status == 200
+      retries: 5
+      delay: 2

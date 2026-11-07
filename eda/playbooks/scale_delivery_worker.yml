@@ -1,0 +1,23 @@
+---
+- name: Scale Delivery Worker on Queue Backlog
+  hosts: delivery_nodes
+  tasks:
+    - name: Scale delivery-worker deployment
+      kubernetes.core.k8s_scale:
+        namespace: whitelabel
+        resource: deployment
+        name: delivery-worker
+        replicas: "{{ (payload.target_replicas | default(5)) }}"
+
+    - name: Wait for rollout to complete
+      kubernetes.core.k8s_rollout_status:
+        namespace: whitelabel
+        resource: deployment
+        name: delivery-worker
+
+    - name: Verify queue depth decreasing
+      ansible.builtin.uri:
+        url: "http://{{ inventory_hostname }}:8080/internal/metrics/queue_depth"
+        method: GET
+        return_content: yes
+      register: queue_metrics

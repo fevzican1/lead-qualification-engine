@@ -1,0 +1,53 @@
+{
+  "ok": true,
+  "band_pct": "10-12",
+  "loss": {
+    "loss_band_pct": "10-12",
+    "severity": 9,
+    "basis": {
+      "dom_ms": 4200,
+      "slow_count": 4,
+      "bad_count": 2
+    }
+  },
+  "revenue_eur": 22000.0,
+  "currency": "EUR",
+  "daily_loss": 2420.0,
+  "window_days": 15,
+  "window_loss": 36300.0,
+  "headline": "Her gun ortalama 2,420 EUR kaybediyorsunuz.",
+  "punch": "Bu altyapi bu kaybi saniyeler icinde kapatir.",
+  "headline_en": "You are losing an average of 2,420 EUR per day.",
+  "punch_en": "This infrastructure closes that leak within seconds.",
+  "issue": "hizmet akisi darbogazi",
+  "report_id": "VLA-MANIFEST-1",
+  "proof": [
+    {
+      "label": "DOM gecikmesi (olculdu)",
+      "value": "4200 ms",
+      "source": "tarayici olcumu"
+    },
+    {
+      "label": "Yavas istek sayisi (olculdu)",
+      "value": "4",
+      "source": "tarayici olcumu"
+    },
+    {
+      "label": "Hatali istek sayisi (olculdu)",
+      "value": "2",
+      "source": "tarayici olcumu"
+    },
+    {
+      "label": "Gunluk kayip (hesaplandi)",
+      "value": "2,420 EUR",
+      "source": "aylik ciro x %10-12 kayip bandi"
+    },
+    {
+      "label": "15 gunluk birikmis kayip (hesaplandi)",
+      "value": "36,300 EUR",
+      "source": "gunluk kayip x 15 gun"
+    }
+  ],
+  "disclaimer": "Rakamlar yalnizca olculmus tarayici verisinden turetilmistir; tahmin bandi acikca belirtilmistir.",
+  "generated_at": "2026-10-21T13:17:46Z"
+}

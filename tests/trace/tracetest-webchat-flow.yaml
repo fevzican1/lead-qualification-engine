@@ -1,0 +1,40 @@
+type: Test
+spec:
+  id: live-webchat-vla-flow
+  name: "Canlı Senaryo: WebChat VLA Akış Doğrulaması"
+  description: "WebChat müşteri mesajının VLA ajanı üzerinden işlenip eylem çıktısına dönüşmesi."
+  trigger:
+    type: http
+    httpRequest:
+      method: POST
+      url: https://api.whitelabel.com/v1/webchat/message
+      headers:
+        - key: Content-Type
+          value: application/json
+      body: '{"sid": "sess-test-001", "message": "Ödeme linkini almak istiyorum", "lang": "tr"}'
+  specs:
+    - selector: span[service.name="webchat-server" name="POST /v1/webchat/message"]
+      assertions:
+        - attr:http.status_code = 200
+        - attr:tracetest.span.duration < 1000ms
+
+    - selector: span[service.name="vla-inference" name="system2_reasoning"]
+      assertions:
+        - attr:vla.task_type = "payment_inquiry"
+        - attr:vla.confidence_score > 0.85
+
+    - selector: span[service.name="vla-inference" name="system1_action"]
+      assertions:
+        - attr:vla.action_type = "send_payment_link"
+        - attr:vla.action_latency_ms < 50
+
+    - selector: span[service.name="payment-service" name="generate_payment_link"]
+      assertions:
+        - attr:payment.link_generated = true
+        - attr:tracetest.span.duration < 300ms
+
+  tags:
+    - whitelabel
+    - webchat
+    - vla
+    - trace-based

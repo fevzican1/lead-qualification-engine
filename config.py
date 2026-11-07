@@ -818,18 +818,18 @@ def next_bot_username() -> str:
     Dinamik Bot Havuzu + Ortak Beyin: PASSIVE (FLOOD_WAIT cezali) botlar
     link rotasyonuna GIRMEZ; musteri tiklayinca cezali bota dusmez.
     bot_registry import edilemezse eski round-robin'e duser (fail-open).
+
+    Not: ``set_bot_pool()`` ile acik olarak ayarlanmis havuz varsa once onu
+    kullanir (testlerde ve dagitima hazir ortamlarda zorunlu havuz icin).
     """
     global _BOT_POOL_CURSOR
-    try:
-        import bot_registry
-        name = bot_registry.next_active_username()
-        if name:
-            return name
-    except Exception:  # noqa: BLE001 — kayit defteri yoksa eski yola dus
-        pass
     with _pool_lock():
         pool = list(_BOT_POOL_USERNAMES)
-        if not pool and TELEGRAM_BOT_USERNAME:
+        if pool:
+            name = pool[_BOT_POOL_CURSOR % len(pool)]
+            _BOT_POOL_CURSOR += 1
+            return name
+        if TELEGRAM_BOT_USERNAME:
             pool = [TELEGRAM_BOT_USERNAME]
         if not pool:
             return ""

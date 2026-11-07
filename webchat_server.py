@@ -28,6 +28,19 @@ N_WORKERS = 3
 MAX_HISTORY = 12
 VOICE_MAX_FILES = 60
 VOICE_TIMEOUT_S = 22.0
+
+# --- OpenTelemetry instrumentation hook ---
+try:
+    from otel.instrumentation import init_telemetry, instrument_fastapi, instrument_requests
+    _OTEL_AVAILABLE = True
+except Exception:  # pragma: no cover - otel optional
+    _OTEL_AVAILABLE = False
+
+def _init_otel() -> None:
+    if _OTEL_AVAILABLE:
+        init_telemetry(service_name="webchat-server")
+        instrument_requests()
+
 DRIP_STEPS = (("drip_15m", 15*60), ("drip_2h", 2*3600), ("drip_24h", 24*3600))
 DRIP_TOLERANCE = {"drip_15m": 150.0, "drip_2h": 900.0, "drip_24h": 2400.0}
 _BUDGET_RE = re.compile(r"(\u20ac|\$|\u00a3|eur[oa]?|usd|dolar|tl|b\u00fct\u00e7e|butce|budget|fiyat|\u00fccret|ucret|\b\d[\d.\s]{2,}\b|\b\d+\s*[kKmM]\b)", re.I)

@@ -1,0 +1,1 @@
+"""VLA (Vision-Language-Action) model continuous validation tests."""

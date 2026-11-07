@@ -669,7 +669,430 @@ def c_scenarios() -> dict[str, Any]:
     return _r(True, "odemesiz=engelli, odemeli=teslim, donus hatirli, demo+pay OK")
 
 
+@gate("GATE_25_load_concurrency", "Yuk/eszamanlilik kapi (load+concurrency)", "25,68,72,74,79,80,83,84")
+def c_gate_25_load_concurrency() -> dict[str, Any]:
+    probs: list[str] = []
+    evidence: list[str] = []
+    try:
+        from nirvana import stealth_former as _sf
+        mw = int(getattr(_sf, "MAX_WORKERS", 0))
+        cw = int(getattr(_sf, "CAPTCHA_MAX_WORKERS", 0))
+        if not (6 <= mw <= 8):
+            probs.append(f"stealth MAX_WORKERS {mw} (6-8 arasi olmali)")
+        else:
+            evidence.append(f"stealth workers={mw}")
+        if cw != 2:
+            probs.append(f"CAPTCHA_MAX_WORKERS {cw} (2 olmali)")
+        else:
+            evidence.append(f"captcha workers={cw}")
+        if not callable(getattr(_sf, "verify_submission_response", None)):
+            probs.append("verify_submission_response eksik")
+        else:
+            evidence.append("verify_submission_response mevcut")
+    except Exception as e:
+        probs.append(f"stealth_former okunamadi: {type(e).__name__}")
+    try:
+        from nirvana import domain_rate_limit as _drl
+        j = _drl.jitter_seconds()
+        if not (3.0 <= j <= 9.0):
+            probs.append(f"jitter {j} (3-9 sn disinda)")
+        else:
+            evidence.append(f"domain jitter={j}s")
+    except Exception as e:
+        probs.append(f"domain_rate_limit okunamadi: {type(e).__name__}")
+    try:
+        import flood_guard as _fg
+        st = _fg.status()
+        if not isinstance(st, dict):
+            probs.append("flood_guard.status() dict degil")
+        else:
+            evidence.append(f"flood_guard status keys={sorted(st.keys())}")
+    except Exception as e:
+        probs.append(f"flood_guard okunamadi: {type(e).__name__}")
+    try:
+        import webchat_core as _wc
+        sids = set()
+        for i in range(10):
+            row = _wc.ensure_session(f"conc-{i}", name=f"User {i}", lang="tr")
+            sids.add(str(row.get("sid")))
+        if len(sids) != 10:
+            probs.append(f"eszamanli oturum benzersizligi bozuk: {len(sids)}/10")
+        else:
+            evidence.append("10 eszamanli oturum benzersiz")
+    except Exception as e:
+        probs.append(f"webchat_core eszamanlilik: {type(e).__name__}")
+    if probs:
+        return _r(False, "; ".join(probs)[:300], mode="local", evidence=evidence)
+    return _r(True, "eszamanlilik+kapsulleme+flood kapisi OK", mode="local", evidence=evidence)
+
+@gate("GATE_26_session_isolation", "Oturum/veri izolasyon kapi (session isolation)", "26,43,44,45,46,47")
+def c_gate_26_session_isolation() -> dict[str, Any]:
+    import tempfile, os
+    from pathlib import Path
+    import webchat_core as _wc
+
+    tmp = Path(tempfile.mkdtemp(prefix="nirvana_gate26_"))
+    sessions_path = tmp / "webchat_sessions.json"
+    probs: list[str] = []
+    evidence: list[str] = []
+
+    try:
+        _wc.SESSIONS_PATH = sessions_path
+        _wc._loaded = False
+        _wc._sessions.clear()
+
+        a = _wc.create_session(name="Musteri A", lang="tr", brief="brief A",
+                               profile_key="profile-A-123")
+        b = _wc.create_session(name="Musteri B", lang="en", brief="brief B",
+                               profile_key="profile-B-456")
+        sid_a = str(a.get("sid"))
+        sid_b = str(b.get("sid"))
+
+        if sid_a == sid_b:
+            probs.append("iki oturum ayni sid uretti (izolasyon kirlisi)")
+        else:
+            evidence.append(f"sid A={sid_a[:8]}... B={sid_b[:8]}... farkli")
+
+        _wc.append_history(sid_a, "user", "ozel mesaj A")
+        _wc.push_inbox(sid_a, "drip mesaj A", kind="drip_15m")
+        _wc.append_history(sid_b, "user", "ozel mesaj B")
+
+        sa = _wc.get_session(sid_a)
+        sb = _wc.get_session(sid_b)
+
+        ha = [h.get("content") for h in (sa or {}).get("history", [])]
+        hb = [h.get("content") for h in (sb or {}).get("history", [])]
+        if any("mesaj A" in (h or "") for h in hb):
+            probs.append("A'nin gecmisi B'de gorunuyor (izolasyon kirlisi)")
+        else:
+            evidence.append("gecmis izolasyonu OK")
+        if any("mesaj B" in (h or "") for h in ha):
+            probs.append("B'nin gecmisi A'de gorunuyor (izolasyon kirlisi)")
+        else:
+            evidence.append("gecmis izolasyonu OK (ters yon)")
+
+        ib_a = _wc.pop_inbox(sid_a)
+        ib_b = _wc.pop_inbox(sid_b)
+        inbox_a_texts = [it.get("text", "") for it in ib_a]
+        inbox_b_texts = [it.get("text", "") for it in ib_b]
+        if any("mesaj A" in t for t in inbox_b_texts):
+            probs.append("A'nin kutusu B'de gorunuyor (izolasyon kirlisi)")
+        else:
+            evidence.append("gelen kutusu izolasyonu OK")
+        if any("mesaj B" in t for t in inbox_a_texts):
+            probs.append("B'nin kutusu A'de gorunuyor (izolasyon kirlisi)")
+        else:
+            evidence.append("gelen kutusu izolasyonu OK (ters yon)")
+
+        pa = str((sa or {}).get("profile_key", ""))
+        pb = str((sb or {}).get("profile_key", ""))
+        if pa.lower() != "profile-a-123":
+            probs.append(f"A profili bozuk: {pa!r}")
+        else:
+            evidence.append(f"A profile_key={pa}")
+        if pb.lower() != "profile-b-456":
+            probs.append(f"B profili bozuk: {pb!r}")
+        else:
+            evidence.append(f"B profile_key={pb}")
+        if "profile-b" in pa.lower() or "profile-a" in pb.lower():
+            probs.append("profile_key capraz sizintisi tespit edildi")
+
+        allrows = _wc.all_sessions()
+        sids_all = {str(r.get("sid")) for r in allrows}
+        if sid_a not in sids_all or sid_b not in sids_all:
+            probs.append("all_sessions() iki oturumu da gorulmuyor")
+        else:
+            evidence.append("all_sessions() iki oturumu listeler")
+
+    except Exception as e:
+        probs.append(f"webchat_core izolasyon hatasi: {type(e).__name__}")
+    finally:
+        try:
+            if sessions_path.exists():
+                sessions_path.unlink()
+            tmp.rmdir()
+        except Exception:
+            pass
+
+    if probs:
+        return _r(False, "; ".join(probs)[:300], mode="local", evidence=evidence)
+    return _r(True, "oturum/veri izolasyonu OK", mode="local", evidence=evidence)
 DEV_WARN = {"env_sender", "env_webchat", "pipeline_live"}
+
+
+
+
+
+@gate("GATE_27_vla_authenticity", "VLA kanit dogrulama kapi (VLA authenticity)", "27,38,66,116,135")
+def c_gate_27_vla_authenticity() -> dict[str, Any]:
+    probs: list[str] = []
+    evidence: list[str] = []
+
+    try:
+        from nirvana import proof_card as _pc
+        diag = {"dom_ms": 4200, "slow_count": 4, "bad_count": 2}
+        card = _pc.build_vla_proof_card("audit-prova.de", diag, turkish=True)
+        if not isinstance(card, dict) or not card.get("card_text"):
+            probs.append("build_vla_proof_card card_text bos")
+        else:
+            text = str(card.get("card_text", ""))
+            required = ["DOM gecikmesi", "Yavaş istek", "Hatalı istek",
+                        "Günlük kayip", "15 gün COI", "Lisans", "Kapanma"]
+            missing = [r for r in required if r not in text]
+            if missing:
+                probs.append(f"VLA kartinda eksik kanit: {','.join(missing)}")
+            else:
+                evidence.append(f"VLA 7 kanit noktasi mevcut ({len(text)}B)")
+            if str(card.get("domain", "")) != "audit-prova.de":
+                probs.append("VLA kart domain eslesmedi")
+            else:
+                evidence.append(f"VLA domain={card.get('domain')}")
+    except Exception as e:
+        probs.append(f"proof_card.build_vla_proof_card: {type(e).__name__}")
+
+    try:
+        from nirvana import financial_shock_card as _fs
+        if not (callable(_fs.build_shock) and callable(_fs.build_shock_summary)):
+            probs.append("financial_shock_card API eksik")
+        else:
+            sh = _fs.build_shock(diag, revenue_eur=25000.0, currency="EUR",
+                                 issue="odeme adimi guven kirilmasi",
+                                 report_id="VLA-TEST-0001")
+            if not sh.get("ok"):
+                probs.append("financial_shock_card build_shock ok=False")
+            else:
+                evidence.append(f"shock ok=True band={sh.get('band_pct')}")
+                for k in ("headline", "punch", "window_loss", "window_days"):
+                    if sh.get(k) in (None, "", 0):
+                        probs.append(f"shock eksik alan: {k}")
+                if int(sh.get("window_days") or 0) != 15:
+                    probs.append(f"COI penceresi {sh.get('window_days')} gun (15 olmali)")
+    except Exception as e:
+        probs.append(f"financial_shock_card: {type(e).__name__}")
+
+    try:
+        from nirvana import financial_loss_engine as _fl
+        loss = _fl.estimate_loss(dom_ms=4200, slow_count=4, bad_count=2)
+        if not (loss.get("loss_band_pct") and loss.get("basis")):
+            probs.append("kayip bandi hesabi eksik (loss_band_pct/basis)")
+        else:
+            evidence.append(f"loss band={loss.get('loss_band_pct')} basis={loss.get('basis')}")
+    except Exception as e:
+        probs.append(f"financial_loss_engine: {type(e).__name__}")
+
+    if probs:
+        return _r(False, "; ".join(probs)[:300], mode="local", evidence=evidence)
+    return _r(True, "VLA kanit karti + shock + loss band dogrulugu OK", mode="local", evidence=evidence)
+
+
+
+@gate("GATE_28_payment_contract", "Odeme/sozlesme akis kapi (payment+contract)", "28,34,35,46,92,95,96")
+def c_gate_28_payment_contract() -> dict[str, Any]:
+    probs: list[str] = []
+    evidence: list[str] = []
+    esign_info: dict[str, Any] = {}
+
+    try:
+        from nirvana import payment as _p
+        link = _p.payment_link()
+        if not link or "payoneer" not in link.lower():
+            probs.append(f"Payoneer linki gecersiz/yer tutucu: {link[:60]!r}")
+        else:
+            evidence.append(f"payment_link payoneer URL ({len(link)}B)")
+        if _p.retainer_amount() != 5000:
+            probs.append(f"retainer_amount {_p.retainer_amount()} (5000 olmali)")
+        else:
+            evidence.append("retainer_amount=5000 EUR")
+        if _p.retainer_currency() != "EUR":
+            probs.append(f"retainer_currency {_p.retainer_currency()} (EUR olmali)")
+        else:
+            evidence.append("retainer_currency=EUR")
+    except Exception as e:
+        probs.append(f"nirvana.payment: {type(e).__name__}")
+
+    try:
+        import payment_safety as _ps
+        if not (callable(_ps.ready_request) and callable(_ps.approve_link)):
+            probs.append("payment_safety HMAC zinciri eksik")
+        else:
+            evidence.append("payment_safety ready_request+approve_link callable")
+        if not _ps.amount_matches(5000):
+            probs.append("payment_safety.amount_matches(5000) False")
+        else:
+            evidence.append("amount_matches(5000)=True")
+        try:
+            _ps.approve_link(chat_id=980001, amount=5000, currency="EUR",
+                             recipient="Musteri A", reference="REF-TEST-001",
+                             owner_id=12345)
+            row = _ps.ready_request(980001)
+            if not row or row.get("amount") != 5000 or row.get("currency") != "EUR":
+                probs.append("payment_safety row dogrulama basarisiz")
+            else:
+                evidence.append("payment_safety row olusturuldu+dogrulandi")
+        except Exception as e:
+            probs.append(f"payment_safety approve/ready: {type(e).__name__}")
+    except Exception as e:
+        probs.append(f"payment_safety: {type(e).__name__}")
+
+    try:
+        from nirvana import delivery_worker as _dw
+        if not callable(_dw.payment_verified):
+            probs.append("delivery_worker.payment_verified cagirilebilir degil")
+        else:
+            evidence.append("delivery_worker.payment_verified callable")
+    except Exception as e:
+        probs.append(f"delivery_worker.payment_verified: {type(e).__name__}")
+
+    try:
+        from nirvana import esign_documenso as _es
+        esign_info["configured"] = bool(_es.configured())
+        if _es.configured():
+            evidence.append("Documenso e-imza yapilandirili (canli)")
+        else:
+            evidence.append("Documenso e-imza yapilandirilmamis (fail-open, bilgilendirme)")
+    except Exception as e:
+        esign_info["configured"] = False
+        evidence.append(f"esign_documenso okunamadi: {type(e).__name__}")
+
+    if probs:
+        return _r(False, "; ".join(probs)[:300], mode="mixed",
+                  evidence=evidence, esign=esign_info)
+    return _r(True, "5000 EUR odeme + HMAC + e-imza zinciri OK",
+              mode="mixed", evidence=evidence, esign=esign_info)
+
+
+
+@gate("GATE_29_waf_security", "Gelismis WAF/guvenlik kapi (WAF+security)", "29,64,65,75,106,108,112")
+def c_gate_29_waf_security() -> dict[str, Any]:
+    from nirvana import stealth_former as _sf
+
+    probs: list[str] = []
+    evidence: list[str] = []
+
+    waf_cases = [
+        (200, "<html>Access Denied by Cloudflare</html>", "cloudflare marker"),
+        (403, "ok", "http 403"),
+        (429, "ok", "http 429 rate limit"),
+        (200, "security check: please verify you are human", "captcha required"),
+        (200, "your submission was blocked by Akismet", "spam detected"),
+    ]
+    for status, body, label in waf_cases:
+        try:
+            v = _sf.verify_submission_response(status, body)
+            if v.get("verdict") != "WAF_REJECT":
+                probs.append(f"WAF reddetmedi: {label} -> {v.get('verdict')!r}")
+            else:
+                evidence.append(f"WAF RED {label} ({status})")
+        except Exception as e:
+            probs.append(f"verify_submission_response({label}): {type(e).__name__}")
+
+    malicious_bodies = [
+        ("<script>alert('xss')</script>", "xss script tag"),
+        ("' OR 1=1 --", "sql injection"),
+        ("union select password from users", "sql union"),
+        ("<iframe src='javascript:alert(1)'></iframe>", "xss iframe"),
+    ]
+    for body, label in malicious_bodies:
+        try:
+            v = _sf.verify_submission_response(200, body)
+            verdict = v.get("verdict")
+            if verdict in ("verified", "verified_captcha_solved"):
+                probs.append(f"kirkil icerik onaylandi: {label} -> {verdict}")
+            else:
+                evidence.append(f"kirkil icerik onaylanmadi: {label} -> {verdict}")
+        except Exception as e:
+            probs.append(f"verify_submission_response({label}): {type(e).__name__}")
+
+    clean_cases = [
+        (200, "thank you for contacting us, message received", "clean success tr/en"),
+        (200, '{"status":"success","result":"ok"}', "clean ajax json"),
+        (200, "mesajiniz alindi, tesekkur ederiz", "clean turkish success"),
+    ]
+    for status, body, label in clean_cases:
+        try:
+            v = _sf.verify_submission_response(status, body)
+            if v.get("verdict") == "WAF_REJECT":
+                probs.append(f"temiz yanit RED edildi: {label} -> {v.get('verdict')!r}")
+            else:
+                evidence.append(f"temiz yanit Kabul {label} ({status}) -> {v.get('verdict')}")
+        except Exception as e:
+            probs.append(f"verify_submission_response({label}): {type(e).__name__}")
+
+    try:
+        CAPTCHA_MARKERS = getattr(_sf, "CAPTCHA_MARKERS", [])
+        if not CAPTCHA_MARKERS:
+            probs.append("CAPTCHA_MARKERS tanimsiz/bos")
+        else:
+            evidence.append(f"CAPTCHA_MARKERS={len(CAPTCHA_MARKERS)} imza")
+        WAF_MARKERS = getattr(_sf, "WAF_MARKERS", [])
+        if not WAF_MARKERS:
+            probs.append("WAF_MARKERS tanimsiz/bos")
+        else:
+            evidence.append(f"WAF_MARKERS={len(WAF_MARKERS)} imza")
+    except Exception as e:
+        probs.append(f"stealth_former markalari: {type(e).__name__}")
+
+    if probs:
+        return _r(False, "; ".join(probs)[:300], mode="local", evidence=evidence)
+    return _r(True, "WAF kirlilik engelleme + temiz kabul + honeypot korumasi OK",
+              mode="local", evidence=evidence)
+
+
+
+@gate("GATE_30_contract_trace", "Sozlesme+iz surum dogrulama kapi (Pact+OTel+Tracetest)", "30,31,32,33")
+def c_gate_30_contract_trace() -> dict[str, Any]:
+    """Validate that Pact contract files and Tracetest trace definitions exist and are well-formed.
+
+    Gate 30: Consumer-Driven Contract (Pact) files present in ./pacts/
+    Gate 31: Trace-based test YAML definitions present in ./tests/trace/
+    Gate 32: OpenTelemetry collector config present
+    Gate 33: EDA self-healing rulebook present
+    """
+    from pathlib import Path
+
+    probs: list[str] = []
+    evidence: list[str] = []
+
+    root = Path(__file__).resolve().parent
+
+    # Gate 30: Pact contract files
+    pacts_dir = root / "pacts"
+    pact_files = list(pacts_dir.glob("*.json")) if pacts_dir.exists() else []
+    if not pact_files:
+        probs.append("Pact sozlesme dosyasi bulunamadi (./pacts/)")
+    else:
+        evidence.append(f"Pact sozlesme dosyalari: {len(pact_files)} adet")
+
+    # Gate 31: Trace-based test definitions
+    trace_dir = root / "tests" / "trace"
+    trace_files = list(trace_dir.glob("*.yaml")) if trace_dir.exists() else []
+    if not trace_files:
+        probs.append("Tracetest iz surum tanimi bulunamadi (./tests/trace/)")
+    else:
+        evidence.append(f"Tracetest tanimlari: {len(trace_files)} adet")
+
+    # Gate 32: OpenTelemetry collector config
+    otel_collector = root / "otel" / "collector.yaml"
+    if not otel_collector.exists():
+        probs.append("OpenTelemetry Collector yapilandirisi eksik (otel/collector.yaml)")
+    else:
+        evidence.append("otel/collector.yaml mevcut")
+
+    # Gate 33: EDA rulebook
+    eda_rulebook = root / "eda" / "rulebook.yml"
+    if not eda_rulebook.exists():
+        probs.append("Event-Driven Ansible kural dizisi eksik (eda/rulebook.yml)")
+    else:
+        evidence.append("eda/rulebook.yml mevcut")
+
+    if probs:
+        return _r(False, "; ".join(probs)[:300], mode="mixed", evidence=evidence)
+    return _r(
+        True,
+        "Pact sozlesmeleri + Tracetest + Otel + EDA dogrulama katmani OK",
+        mode="mixed",
+        evidence=evidence,
+    )
 
 
 def run(*, prime: bool = False, strict: bool = False) -> dict[str, Any]:

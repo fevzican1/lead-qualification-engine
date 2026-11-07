@@ -1,0 +1,47 @@
+type: Test
+spec:
+  id: live-payment-delivery-flow
+  name: "Canlı Senaryo: Ödeme Başlatma ve Teslimat İşçisi Atama Doğrulaması"
+  description: "Uçtan uca ödeme → teslimat akışının dağıtık iz sürümü (spans) üzerinden doğrulanması."
+  trigger:
+    type: http
+    httpRequest:
+      method: POST
+      url: https://api.whitelabel.com/v1/orders/checkout
+      headers:
+        - key: Content-Type
+          value: application/json
+      body: '{"cart_id": "cart-8821", "payment_method": "cc_token_77"}'
+  specs:
+    - selector: span[tracetest.span.type="http" name="POST /v1/orders/checkout"]
+      assertions:
+        - attr:http.status_code = 200
+        - attr:tracetest.span.duration < 800ms
+
+    - selector: span[service.name="payment-service" name="process_payment"]
+      assertions:
+        - attr:payment.status = "approved"
+        - attr:payment.provider = "iyzico"
+        - attr:tracetest.span.duration < 500ms
+
+    - selector: span[tracetest.span.type="messaging" db.system="kafka" name="delivery-worker-topic publish"]
+      assertions:
+        - attr:tracetest.selected_spans.count = 1
+        - attr:messaging.destination = "delivery-jobs"
+        - attr:messaging.message_id != ""
+
+    - selector: span[service.name="order-service" tracetest.span.type="database"]
+      assertions:
+        - attr:db.statement_type = "INSERT"
+        - attr:tracetest.span.duration < 150ms
+
+    - selector: span[service.name="delivery-worker" name="assign_delivery_job"]
+      assertions:
+        - attr:delivery.status = "assigned"
+        - attr:delivery.worker_id != ""
+
+  tags:
+    - whitelabel
+    - payment
+    - delivery
+    - trace-based

@@ -1,0 +1,26 @@
+---
+- name: Rollout VLA Model after Drift Detection
+  hosts: vla_nodes
+  tasks:
+    - name: Pull updated VLA model weights
+      ansible.builtin.uri:
+        url: "http://{{ inventory_hostname }}:9000/internal/model/pull"
+        method: POST
+        return_content: yes
+
+    - name: Restart VLA inference service
+      ansible.builtin.systemd:
+        name: vla-inference
+        state: restarted
+        daemon_reload: yes
+
+    - name: Verify VLA model health
+      ansible.builtin.uri:
+        url: "http://{{ inventory_hostname }}:9000/internal/model/health"
+        method: GET
+        return_content: yes
+        status_code: 200
+      register: model_health
+      until: model_health.status == 200
+      retries: 5
+      delay: 3

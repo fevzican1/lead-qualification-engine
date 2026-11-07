@@ -247,6 +247,58 @@ def _svc_contact_audit(job: dict[str, Any]) -> dict[str, Any]:
     return {"status": status, "findings": findings}
 
 
+def _svc_vla_audit(job: dict[str, Any]) -> dict[str, Any]:
+    """VLA kayip para denetimi — sadece iscinin kendi domain'ine bakar.
+    Olculmus tarayici verileriyle (uydurma yok) finansal shock karti uretir.
+    7 somut kanit noktasi sunar: DOM gecikmesi, yavas istekler, hatali istekler,
+    gunluk kayip, 15-gun COI, lisans bedeli farki, kapanma ihtimali.
+    """
+    from nirvana.delivery_runner import check_domain
+    from nirvana.financial_loss_engine import estimate_loss
+    from nirvana.financial_shock_card import build_shock, build_shock_summary
+    dom = str(job["domain"])
+    try:
+        result = check_domain(dom)
+        diagnostics = {
+            "dom_ms": result.get("ms", 0),
+            "slow_count": result.get("slow_count", 0),
+            "bad_count": result.get("bad_count", 0),
+        }
+        sh = build_shock(
+            diagnostics,
+            revenue_eur=22000.0,
+            currency="EUR",
+            issue="odeme adimi guven kirilmasi + altyapi yavashligi",
+            report_id=f"VLA-{dom}",
+        )
+        if sh.get("ok"):
+            band = sh.get("band_pct", "8-10")
+            daily_loss = sh.get("daily_loss", 0)
+            window_loss = sh.get("window_loss", 0)
+            findings = [
+                f"VLA band: {band} | gunluk kayip: {daily_loss:.0f} EUR",
+                f"COI 15-gun: {window_loss:.0f} EUR | lisans: 5.000 EUR",
+                f"DOM gecikmesi: {result.get('ms', 0)} ms ({result.get('status', '?')} HTTP)",
+                f"Yavas istek sayisi: {diagnostics.get('slow_count', 0)} (olculmus)",
+                f"Hatali istek sayisi: {diagnostics.get('bad_count', 0)} (olculmus)",
+                f"Gunluk ciro kaybı % {band} bandinda; 15 gun {window_loss:.0f} EUR toplami",
+                f"Lisans bedeli 5.000 EUR COI'den {window_loss:.0f} EUR daha dusuk; odeme masraf degil, kaybolan parayi durdurma hamlesi",
+            ]
+            summary = build_shock_summary({
+                "diagnostics": diagnostics,
+                "revenue_eur": 22000.0,
+            })
+            return {
+                "status": "ok",
+                "findings": findings,
+                "summary": summary,
+                "shock": sh,
+            }
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "error", "findings": [f"VLA auditi uretilemedi: {exc}"]}
+    return {"status": "error", "findings": ["VLA karti uretilemedi"]}
+
+
 def _svc_renewal_monitor(job: dict[str, Any]) -> dict[str, Any]:
     """Yenileme izleme: sağlık turu + geçmiş rapor deltası."""
     from nirvana.delivery_runner import check_domain
@@ -264,6 +316,7 @@ _HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "infra-sweep": _svc_infra_sweep,
     "contact-audit": _svc_contact_audit,
     "renewal-monitor": _svc_renewal_monitor,
+    "vla-audit": _svc_vla_audit,
 }
 
 

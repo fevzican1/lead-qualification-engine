@@ -1,0 +1,1 @@
+"""Nirvana test package — contract, trace, and VLA assurance layers."""

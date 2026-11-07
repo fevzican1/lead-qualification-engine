@@ -1,0 +1,51 @@
+---
+# Event-Driven Ansible (EDA) Rulebook — Whitelabel Otonom İyileştirme (Self-Healing)
+# Triggers: Prometheus alerts, OpenTelemetry traces, webhooks.
+# Actions: run Ansible playbooks to remediate without human intervention.
+#
+# Run with: ansible-rulebook --rulebook eda/rulebook.yml --vars-file vars.yml
+
+- name: Whitelabel Otonom İyileştirme Kural Dizisi
+  hosts: all
+  sources:
+    - ansible.eda.webhook:
+        host: 0.0.0.0
+        port: 5000
+    - ansible.eda.prometheus:
+        host: 0.0.0.0
+        port: 5001
+  rules:
+    - name: Teslimat İşçisi Servisini Otomatik Yeniden Başlat ve Ölçekle
+      condition: event.payload.alertname == 'DeliveryWorkerLatencyHigh' and event.payload.service == 'delivery-node'
+      action:
+        run_playbook:
+          name: playbooks/remediate_delivery_worker.yml
+          var_root: payload
+
+    - name: Ödeme Servisi Bağlantı Havuzunu Sıfırla ve Circuit Breaker Aç
+      condition: event.payload.alertname == 'PaymentDbConnectionTimeout'
+      action:
+        run_playbook:
+          name: playbooks/reset_payment_circuit.yml
+          var_root: payload
+
+    - name: Webchat Sunucusu Canlılık Kilidinde Kilitlenme
+      condition: event.payload.alertname == 'WebchatLivenessFailure'
+      action:
+        run_playbook:
+          name: playbooks/restart_webchat.yml
+          var_root: payload
+
+    - name: Kuyruk Tıkanıklığında Delivery Worker’ı Scale Et
+      condition: event.payload.alertname == 'DeliveryQueueDepthHigh' and event.payload.queue_depth > 1000
+      action:
+        run_playbook:
+          name: playbooks/scale_delivery_worker.yml
+          var_root: payload
+
+    - name: VLA Model Sapması Tespit Edildiğinde Modeli Yeniden Dağıt
+      condition: event.payload.alertname == 'VLAModelDriftDetected'
+      action:
+        run_playbook:
+          name: playbooks/rollout_vla_model.yml
+          var_root: payload

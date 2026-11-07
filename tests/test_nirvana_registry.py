@@ -12,7 +12,7 @@ ROOT = Path(config.ROOT)
 
 def test_registry_defines_exactly_thirty_modules():
     modules = MODULES()
-    assert len(modules) == 43
+    assert len(modules) == 44
     letters = sorted((m["letter"] for m in modules.values()),
                      key=lambda L: (len(L), L))
     assert letters == (list("ABCDEFGH")
@@ -31,8 +31,8 @@ def test_host_assignment_matches_architecture():
                       "meta_orchestrator", "micro_audit_proof_agent", "retainer_report_agent",
                       "message_optimizer", "email_infra_audit",
                       "tech_stack_detector", "service_readiness",
-                      "financial_loss_engine", "hash_tokenizer", "tactic_router",
-                      "slot_gate", "update_architecture", "data_sync",
+                      "financial_loss_engine", "financial_shock_card", "hash_tokenizer",
+                      "tactic_router", "slot_gate", "update_architecture", "data_sync",
                       "knowledge_updater", "supply_guard", "keepalive_guard"}
     assert oracle == {"onboarding_agent", "delivery_runner", "watchdog_quota_agent",
                       "linkedin_router", "contract_pack", "github_orchestrator",

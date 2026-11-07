@@ -123,3 +123,76 @@ def run_batch(**_kwargs: Any) -> dict[str, Any]:
         "domains": [str(c.get("domain")) for c in cards[:20]],
     }
 
+
+def build_vla_proof_card(domain: str, diagnostics: dict[str, Any], *, turkish: bool = True) -> dict[str, str]:
+    """Build an anlık kayıp para kanıt kartı (VLA) - 7 kanıt noktası.
+
+    DOM gecikmesi, yavaş istekler, hatalı istekler, günlük kayip,
+    15 gün COI, lisans bedeli farkı, kapanma ihtimali.
+
+    Returns a dict with card-text fields for Telegram proof card rendering.
+    """
+    from nirvana.financial_shock_card import build_shock, build_shock_summary
+
+    dom_ms = diagnostics.get("dom_ms", 0)
+    slow_count = diagnostics.get("slow_count", 0)
+    bad_count = diagnostics.get("bad_count", 0)
+
+    sh = build_shock(
+        diagnostics,
+        revenue_eur=22000.0,
+        currency="EUR",
+        issue="odeme adimi guven kirilmasi + altyapi yavashligi",
+        report_id=f"VLA-{domain}",
+    )
+    if sh.get("ok"):
+        band = sh.get("band_pct", "8-10")
+        daily_loss = sh.get("daily_loss", 0)
+        window_loss = sh.get("window_loss", 0)
+        summary_lines = build_shock_summary({"diagnostics": diagnostics, "revenue_eur": 22000.0}).split("\n")
+    else:
+        band = "8-10"
+        daily_loss = 0
+        window_loss = 0
+        summary_lines = []
+
+    tr_keys = ["DOM", "Yavaş", "Hatalı", "Günlük Kayip", "15-Gün COI", "Lisans", "Kapanma"]
+    en_keys = ["DOM", "Slow", "Bad", "Daily Loss", "15d COI", "License", "Closure"]
+
+    if turkish:
+        card = (
+            f"VLA Anlık Kayıp Kartı — {domain}\n"
+            f"DOM gecikmesi: {dom_ms} ms\n"
+            f"Yavaş istek sayısı: {slow_count} (ölçülmüş)\n"
+            f"Hatalı istek sayısı: {bad_count} (ölçülmüş)\n"
+            f"Günlük kayip: {daily_loss:.0f} EUR\n"
+            f"15 gün COI: {window_loss:.0f} EUR\n"
+            f"Lisans bedeli farkı: 5.000 EUR - {window_loss:.0f} EUR\n"
+            f"Kapanma ihtimali: {band} bandı\n"
+            f"\n"
+            f"Finansal Shock Card:\n"
+            + "\n".join(summary_lines)
+            + "\n"
+            f"7 Kanıt Noktası: DOM, yavaş istekler, hatalı istekler, günlük kayip, 15 gün COI,\n"
+            f"            lisans bedeli farkı, kapanma ihtimali\n"
+        )
+    else:
+        card = (
+            f"VLA Instant Loss Proof Card — {domain}\n"
+            f"DOM delay: {dom_ms} ms\n"
+            f"Slow request count: {slow_count} (measured)\n"
+            f"Bad request count: {bad_count} (measured)\n"
+            f"Daily loss: {daily_loss:.0f} EUR\n"
+            f"15d COI loss: {window_loss:.0f} EUR\n"
+            f"License fee difference: 5.000 EUR - {window_loss:.0f} EUR\n"
+            f"Closure probability: {band} band\n"
+            f"\n"
+            f"Financial Shock Card:\n"
+            + "\n".join(summary_lines)
+            + "\n"
+            f"7 Evidence Points: DOM, slow requests, bad requests, daily loss, 15d COI,\n"
+            f"             license fee difference, closure probability\n"
+        )
+
+    return {"card_text": card, "domain": domain, "diagnostics": diagnostics}
+

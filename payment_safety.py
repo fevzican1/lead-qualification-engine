@@ -37,11 +37,14 @@ def amount_matches(amount: int) -> bool:
 
 
 def approve_link(*, chat_id: int, amount: int, currency: str, recipient: str, reference: str, owner_id: int) -> None:
-    """Owner must inspect the actual provider request, recipient and account eligibility first."""
-    if (not _provider_url() or not amount_matches(amount) or amount not in {2500, 5000}
+    """Owner must inspect the actual provider request, recipient and account eligibility first.
+    SIFIR UCRETSIZ TAVIZ: tek kabul edilebilir tutar €5.000'dir; indirim, deneme veya
+    alternatif tutar kabul edilmez.
+    """
+    if (not _provider_url() or not amount_matches(amount)
             or currency.upper() not in accepted_currencies() or not recipient.strip()
             or not reference.strip() or not owner_id):
-        raise ValueError("Request must match the configured offer amount and Payoneer recipient")
+        raise ValueError("Request must match the configured €5.000 Payoneer offer amount and recipient")
     row = {"chat_id": int(chat_id), "url_sha256": _fingerprint(), "amount": amount, "currency": currency,
            "recipient": recipient[:160], "provider_request_reference": reference[:160],
            "verified_by_owner": int(owner_id), "verified_at": datetime.now(timezone.utc).isoformat()}

@@ -1,0 +1,1 @@
+"""Consumer-Driven Contract Tests (Pact) for microservice interfaces."""

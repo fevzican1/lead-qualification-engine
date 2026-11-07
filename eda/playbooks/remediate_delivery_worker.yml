@@ -1,0 +1,27 @@
+---
+- name: Remediate Delivery Worker — restart and scale
+  hosts: delivery_nodes
+  tasks:
+    - name: Restart delivery-worker service
+      ansible.builtin.systemd:
+        name: delivery-worker
+        state: restarted
+        daemon_reload: yes
+
+    - name: Scale delivery-worker replicas (if Kubernetes)
+      kubernetes.core.k8s_scale:
+        namespace: whitelabel
+        resource: deployment
+        name: delivery-worker
+        replicas: "{{ (payload.replica_count | default(3)) }}"
+
+    - name: Verify delivery-worker health endpoint
+      ansible.builtin.uri:
+        url: "http://{{ inventory_hostname }}:8080/health"
+        method: GET
+        return_content: yes
+        status_code: 200
+      register: health_check
+      until: health_check.status == 200
+      retries: 5
+      delay: 3

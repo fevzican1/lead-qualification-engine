@@ -205,7 +205,9 @@ def _steps() -> list[tuple[str, float]]:
         import ollama_client as _oc_steps  # type: ignore
         _dyn = _oc_steps.webchat_model()
         if _dyn and not is_cloud(_dyn):
-            out.append((_dyn, FAST_TIMEOUT_S))
+            # Normalize: ensure ollama/ prefix for local models
+            _dyn_norm = _dyn if "/" in _dyn else f"ollama/{_dyn}"
+            out.append((_dyn_norm, FAST_TIMEOUT_S))
     except Exception:  # noqa: BLE001
         pass
     for m in model_chain():
