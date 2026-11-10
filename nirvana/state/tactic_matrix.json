@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-11-10T12:57:46Z",
+  "updated_at": "2026-11-10T19:43:04Z",
   "routed": [
     {
       "domain": "bitkisatisi.com.tr",
@@ -10,7 +10,7 @@
       "evidence": {
         "tactic": "C",
         "bottle_neck": "performance",
-        "evidence_metric": 1057,
+        "evidence_metric": 1159,
         "delay_band_pct": "2-5",
         "reason": {
           "missing_headers": [
@@ -31,7 +31,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1057,
+      "measured_ms": 1159,
       "routed_by": "tactic_router"
     },
     {
@@ -43,7 +43,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 341,
+        "evidence_metric": 544,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -56,7 +56,7 @@
           "permissions-policy"
         ]
       },
-      "measured_ms": 341,
+      "measured_ms": 544,
       "routed_by": "tactic_router"
     },
     {
@@ -68,7 +68,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 154,
+        "evidence_metric": 138,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -82,7 +82,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 154,
+      "measured_ms": 138,
       "routed_by": "tactic_router"
     },
     {
@@ -94,7 +94,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 204,
+        "evidence_metric": 177,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "WooCommerce",
@@ -108,23 +108,30 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 204,
+      "measured_ms": 177,
       "routed_by": "tactic_router"
     },
     {
       "domain": "bizce.com.tr",
       "company": "bizce.com.tr",
       "url": "https://bizce.com.tr/en/iletisim",
-      "tactic": "A",
-      "hook": "bizce.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-C0420F). Sitenizin yanıt süresinde ölçtüğümüz 1738 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "tactic": "C",
+      "hook": "bizce.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-C0420F). HTTP/header altyapınızda kritik koruma eksikleri tespit edildi. Rapor numarası yukarıdadır.",
       "evidence": {
-        "tactic": "A",
+        "tactic": "C",
         "bottle_neck": "performance",
-        "evidence_metric": 1738,
-        "delay_band_pct": "5-8",
+        "evidence_metric": 0,
+        "delay_band_pct": "2-5",
         "reason": {
-          "latency_ms": 1738,
-          "threshold_ms": 1200
+          "missing_headers": [
+            "content-security-policy",
+            "strict-transport-security",
+            "x-content-type-options",
+            "x-frame-options",
+            "referrer-policy"
+          ],
+          "header_count": 0,
+          "has_csp": false
         },
         "missing_security_headers": [
           "content-security-policy",
@@ -134,7 +141,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1738,
+      "measured_ms": null,
       "routed_by": "tactic_router"
     },
     {
@@ -146,7 +153,7 @@
       "evidence": {
         "tactic": "C",
         "bottle_neck": "performance",
-        "evidence_metric": 144,
+        "evidence_metric": 795,
         "delay_band_pct": "2-5",
         "reason": {
           "missing_headers": [
@@ -156,7 +163,7 @@
             "x-frame-options",
             "referrer-policy"
           ],
-          "header_count": 15,
+          "header_count": 12,
           "has_csp": false
         },
         "missing_security_headers": [
@@ -167,7 +174,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 144,
+      "measured_ms": 795,
       "routed_by": "tactic_router"
     },
     {
@@ -179,7 +186,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 891,
+        "evidence_metric": 1061,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -192,7 +199,7 @@
           "permissions-policy"
         ]
       },
-      "measured_ms": 891,
+      "measured_ms": 1061,
       "routed_by": "tactic_router"
     },
     {
@@ -200,14 +207,14 @@
       "company": "bizimbahcecorlu.com.tr",
       "url": "https://www.bizimbahcecorlu.com.tr/iletisim",
       "tactic": "A",
-      "hook": "bizimbahcecorlu.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-2CF06E). Sitenizin yanıt süresinde ölçtüğümüz 2738 ms darboğazı kaydedildi; bu değer %8-10 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "hook": "bizimbahcecorlu.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-2CF06E). Sitenizin yanıt süresinde ölçtüğümüz 3310 ms darboğazı kaydedildi; bu değer %10-12 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "Magento",
-        "evidence_metric": 2738,
-        "delay_band_pct": "8-10",
+        "evidence_metric": 3310,
+        "delay_band_pct": "10-12",
         "reason": {
-          "latency_ms": 2738,
+          "latency_ms": 3310,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -218,7 +225,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 2738,
+      "measured_ms": 3310,
       "routed_by": "tactic_router"
     },
     {
@@ -226,14 +233,14 @@
       "company": "bizimkitapci.com.tr",
       "url": "https://www.bizimkitapci.com.tr/iletisim",
       "tactic": "A",
-      "hook": "bizimkitapci.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-4FBDA5). Sitenizin yanıt süresinde ölçtüğümüz 1326 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "hook": "bizimkitapci.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-4FBDA5). Sitenizin yanıt süresinde ölçtüğümüz 1360 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "Magento",
-        "evidence_metric": 1326,
+        "evidence_metric": 1360,
         "delay_band_pct": "5-8",
         "reason": {
-          "latency_ms": 1326,
+          "latency_ms": 1360,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -244,7 +251,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1326,
+      "measured_ms": 1360,
       "routed_by": "tactic_router"
     },
     {
@@ -284,16 +291,16 @@
       "domain": "bizimmarket.com.tr",
       "company": "bizimmarket.com.tr",
       "url": "https://www.bizimmarket.com.tr/iletisim",
-      "tactic": "A",
-      "hook": "bizimmarket.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-46B48C). Sitenizin yanıt süresinde ölçtüğümüz 1243 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "tactic": "B",
+      "hook": "bizimmarket.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-46B48C). WooCommerce altyapınızdaki checkout/event akışında kopukluk sinyali ölçüldü (%2-5 sepet kaybı risk bandı). Rapor numarası yukarıdadır.",
       "evidence": {
-        "tactic": "A",
+        "tactic": "B",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 1243,
-        "delay_band_pct": "5-8",
+        "evidence_metric": 888,
+        "delay_band_pct": "2-5",
         "reason": {
-          "latency_ms": 1243,
-          "threshold_ms": 1200
+          "platform": "WooCommerce",
+          "checkout_signal": true
         },
         "missing_security_headers": [
           "content-security-policy",
@@ -303,7 +310,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1243,
+      "measured_ms": 888,
       "routed_by": "tactic_router"
     },
     {
@@ -315,7 +322,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 161,
+        "evidence_metric": 131,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "WooCommerce",
@@ -323,23 +330,30 @@
         },
         "missing_security_headers": []
       },
-      "measured_ms": 161,
+      "measured_ms": 131,
       "routed_by": "tactic_router"
     },
     {
       "domain": "bizimsu.com.tr",
       "company": "bizimsu.com.tr",
       "url": "https://bizimsu.com.tr/iletisim",
-      "tactic": "A",
-      "hook": "bizimsu.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-DD9D50). Sitenizin yanıt süresinde ölçtüğümüz 1243 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "tactic": "C",
+      "hook": "bizimsu.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-DD9D50). HTTP/header altyapınızda kritik koruma eksikleri tespit edildi. Rapor numarası yukarıdadır.",
       "evidence": {
-        "tactic": "A",
+        "tactic": "C",
         "bottle_neck": "performance",
-        "evidence_metric": 1243,
-        "delay_band_pct": "5-8",
+        "evidence_metric": 1156,
+        "delay_band_pct": "2-5",
         "reason": {
-          "latency_ms": 1243,
-          "threshold_ms": 1200
+          "missing_headers": [
+            "content-security-policy",
+            "strict-transport-security",
+            "x-content-type-options",
+            "x-frame-options",
+            "referrer-policy"
+          ],
+          "header_count": 10,
+          "has_csp": false
         },
         "missing_security_headers": [
           "content-security-policy",
@@ -349,7 +363,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1243,
+      "measured_ms": 1156,
       "routed_by": "tactic_router"
     },
     {
@@ -361,7 +375,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 331,
+        "evidence_metric": 683,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -375,7 +389,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 331,
+      "measured_ms": 683,
       "routed_by": "tactic_router"
     },
     {
@@ -383,14 +397,14 @@
       "company": "black-fish.com.tr",
       "url": "https://black-fish.com.tr/iletisim",
       "tactic": "A",
-      "hook": "black-fish.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-922265). Sitenizin yanıt süresinde ölçtüğümüz 1937 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "hook": "black-fish.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-922265). Sitenizin yanıt süresinde ölçtüğümüz 3558 ms darboğazı kaydedildi; bu değer %10-12 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 1937,
-        "delay_band_pct": "5-8",
+        "evidence_metric": 3558,
+        "delay_band_pct": "10-12",
         "reason": {
-          "latency_ms": 1937,
+          "latency_ms": 3558,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -401,7 +415,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1937,
+      "measured_ms": 3558,
       "routed_by": "tactic_router"
     },
     {
@@ -409,14 +423,14 @@
       "company": "blackspade.com.tr",
       "url": "https://www.blackspade.com.tr/iletisim",
       "tactic": "A",
-      "hook": "blackspade.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-32C46C). Sitenizin yanıt süresinde ölçtüğümüz 1208 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "hook": "blackspade.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-32C46C). Sitenizin yanıt süresinde ölçtüğümüz 1228 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "T-Soft",
-        "evidence_metric": 1208,
+        "evidence_metric": 1228,
         "delay_band_pct": "5-8",
         "reason": {
-          "latency_ms": 1208,
+          "latency_ms": 1228,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -426,7 +440,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1208,
+      "measured_ms": 1228,
       "routed_by": "tactic_router"
     },
     {
@@ -434,21 +448,21 @@
       "company": "blickle.com.tr",
       "url": "https://www.blickle.com.tr/iletisim",
       "tactic": "A",
-      "hook": "blickle.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-F2BA22). Sitenizin yanıt süresinde ölçtüğümüz 1849 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "hook": "blickle.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-F2BA22). Sitenizin yanıt süresinde ölçtüğümüz 1739 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "performance",
-        "evidence_metric": 1849,
+        "evidence_metric": 1739,
         "delay_band_pct": "5-8",
         "reason": {
-          "latency_ms": 1849,
+          "latency_ms": 1739,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
           "permissions-policy"
         ]
       },
-      "measured_ms": 1849,
+      "measured_ms": 1739,
       "routed_by": "tactic_router"
     },
     {
@@ -456,14 +470,14 @@
       "company": "blink.com.tr",
       "url": "https://www.blink.com.tr/tr/iletisim",
       "tactic": "A",
-      "hook": "blink.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-109396). Sitenizin yanıt süresinde ölçtüğümüz 1931 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "hook": "blink.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-109396). Sitenizin yanıt süresinde ölçtüğümüz 2196 ms darboğazı kaydedildi; bu değer %8-10 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "Magento",
-        "evidence_metric": 1931,
-        "delay_band_pct": "5-8",
+        "evidence_metric": 2196,
+        "delay_band_pct": "8-10",
         "reason": {
-          "latency_ms": 1931,
+          "latency_ms": 2196,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -474,7 +488,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1931,
+      "measured_ms": 2196,
       "routed_by": "tactic_router"
     },
     {
@@ -486,7 +500,7 @@
       "evidence": {
         "tactic": "C",
         "bottle_neck": "performance",
-        "evidence_metric": 899,
+        "evidence_metric": 885,
         "delay_band_pct": "2-5",
         "reason": {
           "missing_headers": [
@@ -507,23 +521,23 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 899,
+      "measured_ms": 885,
       "routed_by": "tactic_router"
     },
     {
       "domain": "bloomvalley.com.tr",
       "company": "bloomvalley.com.tr",
       "url": "https://bloomvalley.com.tr/iletisim",
-      "tactic": "B",
-      "hook": "bloomvalley.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-2A0AFE). Magento altyapınızdaki checkout/event akışında kopukluk sinyali ölçüldü (%2-5 sepet kaybı risk bandı). Rapor numarası yukarıdadır.",
+      "tactic": "A",
+      "hook": "bloomvalley.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-2A0AFE). Sitenizin yanıt süresinde ölçtüğümüz 1377 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
-        "tactic": "B",
+        "tactic": "A",
         "bottle_neck": "Magento",
-        "evidence_metric": 285,
-        "delay_band_pct": "2-5",
+        "evidence_metric": 1377,
+        "delay_band_pct": "5-8",
         "reason": {
-          "platform": "Magento",
-          "checkout_signal": true
+          "latency_ms": 1377,
+          "threshold_ms": 1200
         },
         "missing_security_headers": [
           "content-security-policy",
@@ -533,7 +547,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 285,
+      "measured_ms": 1377,
       "routed_by": "tactic_router"
     },
     {
@@ -574,14 +588,14 @@
       "company": "bluepet.com.tr",
       "url": "https://www.bluepet.com.tr/iletisim",
       "tactic": "A",
-      "hook": "bluepet.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-63E80F). Sitenizin yanıt süresinde ölçtüğümüz 1913 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "hook": "bluepet.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-63E80F). Sitenizin yanıt süresinde ölçtüğümüz 1557 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "Magento",
-        "evidence_metric": 1913,
+        "evidence_metric": 1557,
         "delay_band_pct": "5-8",
         "reason": {
-          "latency_ms": 1913,
+          "latency_ms": 1557,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -592,7 +606,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1913,
+      "measured_ms": 1557,
       "routed_by": "tactic_router"
     },
     {
@@ -604,7 +618,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 945,
+        "evidence_metric": 1114,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -618,7 +632,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 945,
+      "measured_ms": 1114,
       "routed_by": "tactic_router"
     },
     {
@@ -626,14 +640,14 @@
       "company": "bolgem.com.tr",
       "url": "https://www.bolgem.com.tr/en/iletisim",
       "tactic": "A",
-      "hook": "bolgem.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-0C73C1). Sitenizin yanıt süresinde ölçtüğümüz 2463 ms darboğazı kaydedildi; bu değer %8-10 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "hook": "bolgem.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-0C73C1). Sitenizin yanıt süresinde ölçtüğümüz 4320 ms darboğazı kaydedildi; bu değer %10-12 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "Magento",
-        "evidence_metric": 2463,
-        "delay_band_pct": "8-10",
+        "evidence_metric": 4320,
+        "delay_band_pct": "10-12",
         "reason": {
-          "latency_ms": 2463,
+          "latency_ms": 4320,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -644,7 +658,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 2463,
+      "measured_ms": 4320,
       "routed_by": "tactic_router"
     },
     {
@@ -656,7 +670,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 964,
+        "evidence_metric": 970,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -670,7 +684,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 964,
+      "measured_ms": 970,
       "routed_by": "tactic_router"
     },
     {
@@ -682,7 +696,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 783,
+        "evidence_metric": 857,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "WooCommerce",
@@ -696,7 +710,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 783,
+      "measured_ms": 857,
       "routed_by": "tactic_router"
     },
     {
@@ -708,7 +722,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 301,
+        "evidence_metric": 270,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -722,23 +736,23 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 301,
+      "measured_ms": 270,
       "routed_by": "tactic_router"
     },
     {
       "domain": "texasedgeroofing.com",
       "company": "texasedgeroofing.com",
       "url": "https://texasedgeroofing.com/contact-us/",
-      "tactic": "B",
-      "hook": "texasedgeroofing.com — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-A114BB). WooCommerce altyapınızdaki checkout/event akışında kopukluk sinyali ölçüldü (%2-5 sepet kaybı risk bandı). Rapor numarası yukarıdadır.",
+      "tactic": "A",
+      "hook": "texasedgeroofing.com — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-A114BB). Sitenizin yanıt süresinde ölçtüğümüz 1973 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
-        "tactic": "B",
+        "tactic": "A",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 639,
-        "delay_band_pct": "2-5",
+        "evidence_metric": 1973,
+        "delay_band_pct": "5-8",
         "reason": {
-          "platform": "WooCommerce",
-          "checkout_signal": true
+          "latency_ms": 1973,
+          "threshold_ms": 1200
         },
         "missing_security_headers": [
           "strict-transport-security",
@@ -748,7 +762,7 @@
           "permissions-policy"
         ]
       },
-      "measured_ms": 639,
+      "measured_ms": 1973,
       "routed_by": "tactic_router"
     },
     {
@@ -756,14 +770,14 @@
       "company": "duzayak.com.tr",
       "url": "https://duzayak.com.tr/fr/contact",
       "tactic": "A",
-      "hook": "duzayak.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-6DEE11). Sitenizin yanıt süresinde ölçtüğümüz 1967 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "hook": "duzayak.com.tr — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-6DEE11). Sitenizin yanıt süresinde ölçtüğümüz 1812 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "Magento",
-        "evidence_metric": 1967,
+        "evidence_metric": 1812,
         "delay_band_pct": "5-8",
         "reason": {
-          "latency_ms": 1967,
+          "latency_ms": 1812,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -774,7 +788,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1967,
+      "measured_ms": 1812,
       "routed_by": "tactic_router"
     },
     {
@@ -786,7 +800,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 1132,
+        "evidence_metric": 1149,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -800,30 +814,23 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1132,
+      "measured_ms": 1149,
       "routed_by": "tactic_router"
     },
     {
       "domain": "hairandscalpsolutions.com",
       "company": "hairandscalpsolutions.com",
       "url": "https://www.hairandscalpsolutions.com/contact-us/",
-      "tactic": "C",
-      "hook": "hairandscalpsolutions.com — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-7EAD90). HTTP/header altyapınızda kritik koruma eksikleri tespit edildi. Rapor numarası yukarıdadır.",
+      "tactic": "A",
+      "hook": "hairandscalpsolutions.com — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-7EAD90). Sitenizin yanıt süresinde ölçtüğümüz 3681 ms darboğazı kaydedildi; bu değer %10-12 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
-        "tactic": "C",
+        "tactic": "A",
         "bottle_neck": "performance",
-        "evidence_metric": 273,
-        "delay_band_pct": "2-5",
+        "evidence_metric": 3681,
+        "delay_band_pct": "10-12",
         "reason": {
-          "missing_headers": [
-            "content-security-policy",
-            "strict-transport-security",
-            "x-content-type-options",
-            "x-frame-options",
-            "referrer-policy"
-          ],
-          "header_count": 13,
-          "has_csp": false
+          "latency_ms": 3681,
+          "threshold_ms": 1200
         },
         "missing_security_headers": [
           "content-security-policy",
@@ -833,7 +840,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 273,
+      "measured_ms": 3681,
       "routed_by": "tactic_router"
     },
     {
@@ -845,7 +852,7 @@
       "evidence": {
         "tactic": "C",
         "bottle_neck": "performance",
-        "evidence_metric": 408,
+        "evidence_metric": 306,
         "delay_band_pct": "2-5",
         "reason": {
           "missing_headers": [
@@ -864,7 +871,7 @@
           "permissions-policy"
         ]
       },
-      "measured_ms": 408,
+      "measured_ms": 306,
       "routed_by": "tactic_router"
     },
     {
@@ -876,7 +883,7 @@
       "evidence": {
         "tactic": "C",
         "bottle_neck": "performance",
-        "evidence_metric": 908,
+        "evidence_metric": 1195,
         "delay_band_pct": "2-5",
         "reason": {
           "missing_headers": [
@@ -897,7 +904,7 @@
           "permissions-policy"
         ]
       },
-      "measured_ms": 908,
+      "measured_ms": 1195,
       "routed_by": "tactic_router"
     },
     {
@@ -909,7 +916,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 181,
+        "evidence_metric": 133,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "WooCommerce",
@@ -923,7 +930,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 181,
+      "measured_ms": 133,
       "routed_by": "tactic_router"
     },
     {
@@ -931,14 +938,14 @@
       "company": "pawshdoghouse.biz",
       "url": "https://pawshdoghouse.biz/contact-us/",
       "tactic": "A",
-      "hook": "pawshdoghouse.biz — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-540D0D). Sitenizin yanıt süresinde ölçtüğümüz 1864 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "hook": "pawshdoghouse.biz — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-540D0D). Sitenizin yanıt süresinde ölçtüğümüz 1850 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "performance",
-        "evidence_metric": 1864,
+        "evidence_metric": 1850,
         "delay_band_pct": "5-8",
         "reason": {
-          "latency_ms": 1864,
+          "latency_ms": 1850,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -949,7 +956,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1864,
+      "measured_ms": 1850,
       "routed_by": "tactic_router"
     },
     {
@@ -961,7 +968,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 450,
+        "evidence_metric": 493,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "WooCommerce",
@@ -975,7 +982,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 450,
+      "measured_ms": 493,
       "routed_by": "tactic_router"
     },
     {
@@ -983,14 +990,14 @@
       "company": "accutrak.biz",
       "url": "https://accutrak.biz/contact-us/",
       "tactic": "A",
-      "hook": "accutrak.biz — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-67349C). Sitenizin yanıt süresinde ölçtüğümüz 1627 ms darboğazı kaydedildi; bu değer %5-8 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
+      "hook": "accutrak.biz — Altyapı Güvenlik ve Performans Bildirimi (Ref: RPT-67349C). Sitenizin yanıt süresinde ölçtüğümüz 2428 ms darboğazı kaydedildi; bu değer %8-10 hız kaybı bandına karşılık geliyor. Rapor numarası yukarıdadır.",
       "evidence": {
         "tactic": "A",
         "bottle_neck": "WooCommerce",
-        "evidence_metric": 1627,
-        "delay_band_pct": "5-8",
+        "evidence_metric": 2428,
+        "delay_band_pct": "8-10",
         "reason": {
-          "latency_ms": 1627,
+          "latency_ms": 2428,
           "threshold_ms": 1200
         },
         "missing_security_headers": [
@@ -1001,7 +1008,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 1627,
+      "measured_ms": 2428,
       "routed_by": "tactic_router"
     },
     {
@@ -1013,7 +1020,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Shopify",
-        "evidence_metric": 994,
+        "evidence_metric": 452,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Shopify",
@@ -1027,7 +1034,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 994,
+      "measured_ms": 452,
       "routed_by": "tactic_router"
     },
     {
@@ -1039,7 +1046,7 @@
       "evidence": {
         "tactic": "C",
         "bottle_neck": "performance",
-        "evidence_metric": 280,
+        "evidence_metric": 185,
         "delay_band_pct": "2-5",
         "reason": {
           "missing_headers": [
@@ -1060,7 +1067,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 280,
+      "measured_ms": 185,
       "routed_by": "tactic_router"
     },
     {
@@ -1072,7 +1079,7 @@
       "evidence": {
         "tactic": "B",
         "bottle_neck": "Magento",
-        "evidence_metric": 128,
+        "evidence_metric": 539,
         "delay_band_pct": "2-5",
         "reason": {
           "platform": "Magento",
@@ -1086,7 +1093,7 @@
           "referrer-policy"
         ]
       },
-      "measured_ms": 128,
+      "measured_ms": 539,
       "routed_by": "tactic_router"
     }
   ]
